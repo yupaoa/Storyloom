@@ -126,9 +126,8 @@ GameState:
 | `--- options ---` | 叙事 | 可选 | ✅ | 选项列表。第一行为 `key: 键名` |
 | `--- state ---` | 叙事 | 可选 | ✅ | 数据变更 + 段内路由。无条件的直接执行；有条件的用 `if 条件 -> 动作` |
 | `--- checkpoint ---` | 叙事 | 可选 | ❌ 固定 main | 大纲路由。`node <id>` 或 `end` + `if 条件 -> route <next_node>` |
-| `--- bridge ---` | 叙事 | ✅ 必选 | ❌ 固定 main | 下一轮的上文衔接标记。程序解析到此标记后开始组装下一轮 Prompt |
-| `--- ending ---` | 叙事 | 可选 | ❌ 固定 main | 结局触发标记 |
-| `--- adventure_log ---` | 结局 | 可选 | ❌ 固定 main | 面向玩家的冒险回顾文本 |
+| `--- bridge ---` | 叙事 | 通常必选 | ❌ 固定 main | 下一轮的上文衔接标记。程序解析到此标记后开始组装下一轮 Prompt。**结局轮除外**（见 §1.4.3 bridge 说明） |
+| `--- adventure_log ---` | 结局 | 可选 | ❌ 固定 main | 面向玩家的冒险回顾文本。仅结局轮出现 |
 | `=== story_config ===` | 共创 | 必选 | — | 故事设定（仅共创阶段使用） |
 | `=== outline ===` | 共创 | 必选 | — | 大纲树（仅共创阶段使用） |
 
@@ -168,7 +167,7 @@ GameState:
 |------|------|
 | options | 第一行 `key: 键名` 声明 key；玩家选择后 `key_dict["键名"] = 选择编号` |
 
-> **注意**：checkpoint、bridge、ending 固定为 `main`，不参与段内路由。即 checkpoint 永远在主分支上执行。
+> **注意**：checkpoint、bridge 固定为 `main`，不参与段内路由。即 checkpoint 永远在主分支上执行。
 
 #### 1.4.3 各区块语法
 
@@ -247,22 +246,28 @@ summary: 所有线索汇集，命运在此交汇……
 标记下一轮 Prompt 组装的触发点。bridge 之后至段末的内容即为 bridge_text。约束：
 - bridge 之后**不得**出现 `--- state ---` 或 `--- checkpoint ---`（底层数据变更必须在 bridge 之前完成）
 - bridge 之后**可以**出现 `--- options ---` + `--- narrative(...)`（纯叙事分支，无数据变更）
-- bridge 之后**可以**出现 `--- ending ---`
+- bridge 之后**可以**出现 `--- adventure_log ---`
 
-**`--- ending ---` / `--- adventure_log ---`**
+**结局轮的 bridge**：当 `--- checkpoint ---` 标记为 `end` 时，当前轮即为结局轮。结局轮中 bridge 的行为：
+- LLM 应**尽量省略** `--- bridge ---`（本段即终点，无需衔接下一轮）
+- 若 LLM 仍输出了 bridge，程序**仅展示其内容作为结局叙事的一部分**，不组装下一轮 Prompt
+- 程序检测到 checkpoint `end` → 本轮展示完毕后直接进入结局流程（产生 adventure_log、返回主菜单）
 
-功能不变，见 phased §1.7-C.5。
+**`--- adventure_log ---`**
+
+结局轮中 LLM 可选输出的冒险回顾。程序在结局流程中展示。若 LLM 未在结局轮输出此区块，程序单独发起一次结局 Prompt 请求（见 phased §1.10-E）生成。
 
 #### 1.4.4 约束汇总
 
 | 约束 | 说明 |
 |------|------|
-| `--- narrative ---` 和 `--- bridge ---` 必须存在 | 缺一不可 |
-| bridge 之后不得有 state / checkpoint | 底层数据变更（state_vars 修改、大纲路由）必须在 bridge 之前完成。纯叙事 options + narrative 分支允许在 bridge 之后 |
+| `--- narrative ---` 必须存在，`--- bridge ---` 通常必选 | 结局轮（checkpoint `end`）中 bridge 可选；其余轮次缺一不可 |
+| bridge 之后不得有 state / checkpoint | 底层数据变更必须在 bridge 之前完成。纯叙事 options + narrative 分支允许在 bridge 之后 |
 | 每轮至多一个 `--- checkpoint ---` | 一个剧情段不应跨越两个 checkpoint |
-| checkpoint 固定 main | 不参与段内路由，永远在主分支上执行。段内路由由 state 的 `@name` 处理 |
+| checkpoint 固定 main | 不参与段内路由，永远在主分支上执行 |
 | state 必须在 checkpoint 之前 | 若同段同时存在，state 先执行（更新数据），checkpoint 后评估（路由基于最新数据） |
-| `--- branch ---` 已删除 | 段内分支通过 named narrative + named state + options `-> name` 实现 |
+| checkpoint `end` = 结局轮 | 程序不再组装下一轮 Prompt。bridge 变为可选，如有则仅展示不触发请求 |
+| `--- ending ---` 已删除 | 结局触发由 checkpoint `end` 取代 |
 
 ### 1.5 核心原则
 
