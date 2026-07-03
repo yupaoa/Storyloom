@@ -117,8 +117,8 @@ GameState:
 
 #### 1.4.1 分隔符速查
 
-> 全部使用英文命名。LLM 输出时必须严格使用以下区块名，程序按正则 `^--- (.+?) ---$` 提取区块标记行。
-> 部分区块支持**命名**：`--- block(name) ---`，用于段内分支路由（见 §1.4.2）。缺省 name 即为 `main`。
+> 全部使用英文命名。LLM 输出时必须严格使用以下区块名，程序按正则 `^--- (\w+)(?::(\w+))? ---$` 提取区块类型和名称。
+> 部分区块支持**命名**：`--- block:name ---`，用于段内分支路由（见 §1.4.2）。缺省 name 即为 `main`。
 
 | 区块标记 | 阶段 | 必需 | 支持命名 | 说明 |
 |----------|------|------|----------|------|
@@ -175,13 +175,13 @@ GameState:
 
 纯叙事文本。支持命名以实现段内分支：
 ```
---- narrative(main) ---
+--- narrative:main ---
 （主分支叙事……）
 
---- narrative(took_chip) ---
+--- narrative:took_chip ---
 （仅当 current_name=="took_chip" 时展示……）
 
---- narrative(left) ---
+--- narrative:left ---
 （仅当 current_name=="left" 时展示……）
 ```
 
@@ -189,7 +189,7 @@ GameState:
 
 第一行必须声明 `key`。每个选项行可附带 `@if:条件`（置灰条件）和 `-> name`（设置 current_name）：
 ```
---- options(main) ---
+--- options:main ---
 key: chip_choice
 1. 接过芯片 -> took_chip
 2. 暂时离开 @if: 理智值 >= 30 -> left
@@ -201,7 +201,7 @@ key: chip_choice
 
 无条件变更直接执行。条件变更每行独立评估，命中即执行：
 ```
---- state(main) ---
+--- state:main ---
 @var 理智值 -10                         ← 无条件，直接执行
 if chip_choice == 1 -> @var 线索 +神秘芯片, @var 信任度 +10, @name took_chip
 if chip_choice == 2 -> @name left
