@@ -72,7 +72,7 @@
 | **用户体验无缝衔接** | 前一个剧情段展示结束前，后一个剧情段应已生成完毕。bridge 标记触发提前请求——程序展示 bridge_text 的同时后台等待 LLM 响应。剧情段是 LLM 的划分，但用户体感上不应感知到段边界 |
 | **静默错误反馈** | state 校验中可静默处理的微小错误（如 list 移除不存在的元素、number 取上限值）不展示给用户，但必须记入 rejected_changes 在下一轮 Prompt 中告知 LLM |
 | **程序拥有最终控制权** | LLM 负责叙事，程序负责数据完整性和流程控制。API 失败、解析错误、内容异常——告知用户并等待决策。LLM 输出错误（如死路分支）不属于程序错误，不设兜底 |
-| **条件变量解析优先级** | `if` 条件中的变量名优先匹配 key_dict（本轮选项结果），其次匹配 state_vars。同名时 key_dict 优先 |
+| **条件变量解析优先级** | `if` 条件中的变量名优先匹配 choice_dict（本轮选项结果），其次匹配 state_vars。同名时 choice_dict 优先 |
 
 > **注**：原则列表随文档编写持续补充。
 
@@ -481,7 +481,7 @@ Round N 开始
 | 区块标记 | 必需 | 支持分支名 | 说明 |
 |----------|------|----------|------|
 | `--- narrative ---` | ✅ 必选 | ✅ | 故事叙述正文 |
-| `--- options ---` | 可选 | ✅ | 选项列表。第一行 `key: 键名` |
+| `--- options ---` | 可选 | ✅ | 选项列表。第一行 `choice: 选择名` |
 | `--- state ---` | 可选 | ✅ | 数据变更 + 段内路由 |
 | `--- checkpoint ---` | 可选 | ❌ 固定 main | 大纲路由。`node <id>` 或 `end` |
 | `--- bridge ---` | 通常必选 | ❌ 固定 main | 下一轮衔接标记。结局轮除外 |
@@ -498,7 +498,7 @@ Round N 开始
 | 变量 | 初始值 | 说明 |
 |------|--------|------|
 | `current_branch` | `"main"` | 当前执行的分支名 |
-| `key_dict` | `{}` | 选项键值对 |
+| `choice_dict` | `{}` | 选项选择值 |
 
 **路由规则**：
 
@@ -517,7 +517,7 @@ Round N 开始
 | state 无条件 | `@branch 值` | `@branch desperate` |
 | state 条件结果 | `if ... -> @branch 值` | `if 体力 < 20 -> @branch desperate` |
 
-**`key_dict` 修改来源**：options 第一行声明 key，玩家选择后 `key_dict["键名"] = 选择编号`。
+**`choice_dict` 修改来源**：options 第一行声明 choice，玩家选择后 `choice_dict["选择名"] = 选择编号`。
 
 > checkpoint、bridge 固定为 `main`，不参与段内路由。
 
@@ -539,13 +539,13 @@ Round N 开始
 第一行必须声明 `key`。选项行可附带 `@if:条件` 和 `-> branch`：
 ```
 --- options:main ---
-key: chip_choice
+choice: chip_choice
 1. 接过芯片 -> took_chip
 2. 暂时离开 @if: 理智值 >= 30 -> left
 ```
-处理：展示选项 → 玩家选择 → `key_dict["chip_choice"] = N` → 若选项有 `-> branch`，设置 `current_branch = branch`。
+处理：展示选项 → 玩家选择 → `choice_dict["chip_choice"] = N` → 若选项有 `-> branch`，设置 `current_branch = branch`。
 
-> **约束**：同一剧情段内所有 `--- options ---` 的 key 必须唯一。
+> **约束**：同一剧情段内所有 `--- options ---` 的 choice 必须唯一。
 
 **`--- state ---`**
 
@@ -561,7 +561,7 @@ if 信任度 >= 50 and 好感度 >= 30 -> @var 关系阶段 =朋友
 
 | 元素 | 说明 |
 |------|------|
-| 变量名 | 中文。优先匹配 key_dict，其次 state_vars |
+| 变量名 | 中文。优先匹配 choice_dict，其次 state_vars |
 | 运算符 | `==` `>=` `<=` `>` `<` `has` |
 | 组合 | `and` / `or`。优先级 `and` > `or`。Phase 1 不支持括号 |
 | 动作 | `@var 变量 操作 值` / `@branch 值` / `route node_id`（仅 checkpoint） |
@@ -646,8 +646,8 @@ summary: 所有线索汇集……
 | checkpoint 固定 main | 段内路由由 state 的 `@branch` 处理 |
 | state 建议在 checkpoint 之前 | checkpoint 需要最新状态来评估路由；但非强制——程序按物理顺序执行，若 checkpoint 在前则以变更前的状态评估 |
 | checkpoint `end` = 结局轮 | 不组装下一轮 Prompt |
-| 同段内 options key 必须唯一 | 避免 key_dict 意外覆盖 |
-| 条件变量 key_dict 优先 | 同名时 key_dict > state_vars |
+| 同段内 options choice 必须唯一 | 避免 choice_dict 意外覆盖 |
+| 条件变量 choice_dict 优先 | 同名时 choice_dict > state_vars |
 
 ### 4.3 每轮 Prompt 的组成
 
@@ -767,7 +767,7 @@ summary: 所有线索汇集……
 ```
 展示选项面板 → 等待键盘输入（1-5 或 Q 或 M）
   ├── 数字键 → 对应选项
-  │   ├── enabled → key_dict[key] = N，若选项有 -> branch 则更新 current_branch
+  │   ├── enabled → choice_dict[choice] = N，若选项有 -> branch 则更新 current_branch
   │   └── disabled → 短暂提示"条件不满足"，重新等待输入
   ├── Q → 主动结束流程（见 §4.10.2）
   └── M → 切换自动/手动展示模式
