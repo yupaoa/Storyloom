@@ -197,6 +197,8 @@ key: chip_choice
 ```
 程序处理：展示选项 → 玩家选择 → `key_dict["chip_choice"] = N` → 若选项有 `-> name`，设置 `current_name = name`。
 
+> **约束**：同一剧情段内所有 `--- options ---` 的 key 必须唯一（key_dict 单层覆盖，同名 key 后出现的覆盖先出现的）。
+
 **`--- state ---`**
 
 无条件变更直接执行。条件变更每行独立评估，命中即执行：
@@ -268,6 +270,7 @@ summary: 所有线索汇集，命运在此交汇……
 | state 必须在 checkpoint 之前 | 若同段同时存在，state 先执行（更新数据），checkpoint 后评估（路由基于最新数据） |
 | checkpoint `end` = 结局轮 | 程序不再组装下一轮 Prompt。bridge 变为可选，如有则仅展示不触发请求 |
 | `--- ending ---` 已删除 | 结局触发由 checkpoint `end` 取代 |
+| 同段内 options key 必须唯一 | key_dict 单层覆盖，同名 key 后出现的会覆盖，导致条件判断异常 |
 
 ### 1.5 核心原则
 
