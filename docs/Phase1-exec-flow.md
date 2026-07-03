@@ -280,7 +280,7 @@ saves/*.json 存在？
 
 > 追问不做轮数上限——由 LLM 判断信息是否足够。追问过程中用户可自然修正之前的回答，无需回退机制。
 
-> ⚠️ **追问范围约束（关键）**：LLM 必须聚焦于**世界观、主角设定、故事基调、冲突方向**四大维度。严格禁止涉及具体情节走向或透露后续内容——以保持玩家对故事的新鲜度。此约束以醒目方式写入追问 Prompt（见 phased §1.10-B 规则 1-4）。
+> ⚠️ **追问范围约束（关键）**：LLM 必须聚焦于**世界观、主角设定、故事基调、冲突方向、故事长度**五大维度。故事长度从 §A.3 三档中选择（短篇/中篇/长篇），由用户明确选择或 LLM 根据题材判断。严格禁止涉及具体情节走向或透露后续内容——以保持玩家对故事的新鲜度。此约束以醒目方式写入追问 Prompt（见 phased §1.10-B 规则 1-4）。
 
 ### 3.4 Step 3: 生成故事设定
 
@@ -319,7 +319,8 @@ saves/*.json 存在？
 | 字段 | 必需 | 说明 |
 |------|------|------|
 | `题材` | ✅ | `romance` / `adventure` / `mystery` |
-| `标签` | ✅ | 5-15 字简短命名，用于存档文件名和列表展示 |
+| `档位` | ✅ | `short` / `medium` / `long`，控制故事总段数、段长和选项数（对应 §A.3 常量组） |
+| `标签` | ✅ | `STORY_LABEL_MIN_CHARS`-`STORY_LABEL_MAX_CHARS` 字简短命名，用于存档文件名和列表展示 |
 | `世界观` | ✅ | 一句话世界观描述 |
 | `主角姓名` | ✅ | |
 | `主角身份` | ✅ | |
@@ -1126,27 +1127,60 @@ load_save(filepath):
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
 | `MAX_RETRIES` | 2 | 格式解析/校验失败后的最大重试次数（所有 LLM 调用共用） |
-| `CO_CREATION_MAX_TOKENS` | 8000 | 共创对话上下文 token 估算阈值，超过则切换新上下文 |
+| `CO_CREATION_MAX_TOKENS` | 100000 | 共创对话上下文 token 估算阈值，超过则切换新上下文 |
+| `STORY_LABEL_MIN_CHARS` | 5 | 故事标签最短字符数 |
+| `STORY_LABEL_MAX_CHARS` | 15 | 故事标签最长字符数 |
 
-### A.3 叙事循环
+### A.3 故事规模档位
+
+> 共创阶段由用户选择或 LLM 判断，写入 `story_config.tier`（`short` / `medium` / `long`）。影响 Prompt 中的字数指引和大纲节点数推荐。
+
+| 常量组前缀 | 适用 | 目标总段数 | 每段目标字数 | 每段选项数 |
+|-----------|------|-----------|-------------|-----------|
+| `STORY_TIER_SHORT` | 短篇 | 15-20 | 800 | 2-3 |
+| `STORY_TIER_MEDIUM` | 中篇 | 30-40 | 1000 | 3-4 |
+| `STORY_TIER_LONG` | 长篇 | 50-70 | 1200 | 4-5 |
+
+具体常量名示例（以 `STORY_TIER_SHORT` 为例）：
+
+| 常量 | 参考值 |
+|------|--------|
+| `STORY_TIER_SHORT_TOTAL_SEGMENTS_MIN` | 15 |
+| `STORY_TIER_SHORT_TOTAL_SEGMENTS_MAX` | 20 |
+| `STORY_TIER_SHORT_SEGMENT_CHARS` | 800 |
+| `STORY_TIER_SHORT_OPTIONS_MIN` | 2 |
+| `STORY_TIER_SHORT_OPTIONS_MAX` | 3 |
+
+> `STORY_TIER_MEDIUM` 和 `STORY_TIER_LONG` 同理。档位选定后在 Prompt 中注入对应指引。
+
+### A.4 叙事循环
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `STREAM_STALL_TIMEOUT_SEC` | 5 | 流式输出停顿超时秒数 |
-| `MIN_NARRATION_CHARS` | 100 | 截取内容最低字符数，低于此值判定异常 |
+| `STREAM_STALL_TIMEOUT_SEC` | 3 | 流式输出停顿超时秒数 |
+| `MIN_NARRATION_CHARS` | 200 | 截取内容最低字符数，低于此值判定异常 |
+| `MAX_NARRATION_CHARS` | 2000 | 正文长度上限，超出则程序在完整段落处截断 |
 | `BRIDGE_MIN_CHARS_BEFORE_END` | 200 | bridge 距段末最少字符数，确保 LLM 有充裕响应时间 |
+| `MIN_OPTIONS` | 2 | 每轮最少选项数 |
+| `MAX_OPTIONS` | 5 | 每轮最多选项数 |
 
-### A.4 展示
+### A.5 展示
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
 | `AUTO_ADVANCE_DELAY_MS` | 500 | 自动展示模式下段落间延迟（毫秒） |
 
-### A.5 题材映射
+### A.6 题材映射
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `GENRE_TEMPLATE_MAP` | `{"romance": "恋爱", "adventure": "冒险", "mystery": "悬疑"}` | 题材到模板的映射表。在 `config.py` 中维护，扩展题材只需追加条目 |
+| `GENRE_TEMPLATE_MAP` | `{"romance": "恋爱", "adventure": "冒险", "mystery": "悬疑"}` | 题材到模板的映射表。在 `config.py` 中维护 |
+
+### A.7 存档
+
+| 常量 | 参考值 | 说明 |
+|------|--------|------|
+| `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏 |
 
 ---
 
