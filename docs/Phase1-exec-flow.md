@@ -608,7 +608,7 @@ summary: 所有线索汇集……
 | `--- state ---` | ❌ | 底层数据变更必须在 bridge 之前 |
 | `--- checkpoint ---` | ❌ | 大纲路由必须在 bridge 之前 |
 | `--- options ---` | ❌ | 选项交互必须在 bridge 之前 |
-| `--- narrative ---`（命名） | ✅ | 作为不同路径的过渡/悬念文本变体。程序仅提取匹配 `current_branch` 的那一条 |
+| `--- narrative:any_branch ---` | ✅ | 作为不同路径的过渡/悬念文本变体。程序仅提取匹配 `current_branch` 的那一条 |
 
 **bridge_text 提取流程**：
 
@@ -1033,9 +1033,80 @@ response = api_client.call(prompt)   // 非流式，快速生成
 
 > **概念区分**：「游戏存档」是 `saves/` 下的文件；「checkpoint 快照」是存档内部的 `checkpoint_snapshots`。
 
-### 6.2 后续章节
+### 6.2 自动存档时机
 
-> 待编写：存档损坏判定、自动存档时机与原子写入、存档加载与状态恢复。
+**仅在 checkpoint 到达时触发**（§4.9 步骤 8）。不设手动存档、不在每轮结束时存档。
+
+| 触发条件 | 行为 |
+|----------|------|
+| `--- checkpoint ---` 中 `node <id>` 或 `end` 被成功处理 | 覆盖 `saves/{label}.json` |
+| 其他时机 | 不存档 |
+
+### 6.3 原子写入
+
+```
+1. 序列化 GameState → JSON 字符串（indent=2，确保可读）
+2. 确保 SAVE_DIR 存在（不存在则 os.makedirs）
+3. 写入临时文件：saves/{label}.tmp
+4. os.replace(tmp, saves/{label}.json)   // 原子 rename，跨平台安全
+```
+
+> 整个过程不涉及 LLM，仅本地文件操作。
+
+### 6.4 存档加载流程
+
+```
+load_save(filepath):
+  1. 读取 + JSON 解析
+     ├── 解析失败 → 存档损坏（JSON 不合法）
+
+  2. 校验 version 字段存在且 == 1
+     ├── 不匹配 → 存档损坏（版本不支持）
+
+  3. 校验关键字段存在：
+     story_config, state_vars, outline, progress, state_template
+     ├── 任一缺失 → 存档损坏（结构不完整）
+
+  4. 校验 state_template 值在 TEMPLATES_PATH 中存在
+     ├── 不存在 → 存档损坏（模板被删除）
+
+  5. 校验 progress.current_node 指向的 node_id 在 outline 中存在
+     ├── 不存在 → 存档损坏（数据不一致）
+
+  6. 校验通过 → 构建 GameState：
+     ├── 状态变量值以存档为准（模板仅提供类型定义校验）
+     ├── outline 节点状态以存档为准
+     └── config（temperature 等）以存档为准，模型以 .env 为准
+
+  7. 返回 GameState → 进入叙事循环（§4）
+```
+
+> **模板独立性**：存档自包含——一次游戏创建后，其状态变量集、大纲结构均以存档为准。`templates/states.json` 的后续变更不影响已有存档。模板文件仅在加载时用于验证 `state_template` 标识存在、运行时用于校验 state 变更的类型合法性。
+
+### 6.5 存档损坏判定
+
+| 条件 | 严重度 | 处理 |
+|------|--------|------|
+| JSON 解析失败 | 致命 | 永久失效，提示用户 |
+| `version` 缺失或不为 1 | 致命 | 同上 |
+| 关键字段缺失（story_config / state_vars / outline / progress / state_template） | 致命 | 同上 |
+| `state_template` 在当前模板文件中不存在 | 致命 | 同上 |
+| `current_node` 指向的 node_id 不在 outline 中 | 致命 | 同上 |
+
+存档损坏 → 永久失效，不做修复尝试。提示用户"存档已损坏"，用户确认后程序删除损坏文件并返回主菜单。
+
+### 6.6 存档内容说明
+
+存档中存储的完整字段列表见 §6.1。补充说明：
+
+| 字段 | 存储时机 | 说明 |
+|------|---------|------|
+| `metadata.label` | 共创结束后首次存档时写入 | 来源于 `story_config.label` |
+| `metadata.created_at` | 首次存档时写入 | 之后不变 |
+| `metadata.updated_at` | 每次覆盖存档时更新 | |
+| `metadata.round_count` | 每次覆盖存档时更新 | = 当前 `progress.round_count` |
+| `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |
+| `bridge_text` | 每次覆盖存档时更新 | 加载后作为首轮 User Message |
 
 ---
 
