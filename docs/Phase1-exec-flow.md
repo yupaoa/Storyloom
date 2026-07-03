@@ -15,7 +15,7 @@
 | **剧情段** | 每轮 LLM 生成的一段叙事文本，为一轮循环的基本单位。处理流程见 §4 | phased §1.4.1 |
 | **大纲** | 由若干关键节点组成的有向图，描述故事骨架。节点间可有分支，分支可在后期节点汇合 | phased §1.4.3, §1.7-B |
 | **关键节点 (checkpoint)** | 大纲上的里程碑节点。可有 0 个（结束节点）、1 个（直线推进）或 n 个（分支）后续节点。到达时触发进度推进和自动存档 | phased §1.4.4 |
-| **段内分支** | 同一剧情段内的叙事分支，通过 named block + `@name` 路由实现，不影响大纲走向。详见 §4.2.2 | phased §1.4.3 |
+| **段内分支** | 同一剧情段内的叙事分支，通过 named block + `@branch` 路由实现，不影响大纲走向。详见 §4.2.2 | phased §1.4.3 |
 | **大纲分支** | 大纲层面的路线分叉，各分支经历独立 checkpoint，可在后期汇合。通过 `--- checkpoint ---` 中的 `if -> route` 实现 | phased §1.4.3 |
 | **bridge_text** | 上一轮 `--- bridge ---` 之后至段末的正文内容，作为本轮 User Message 实现无缝衔接。详见 §4 | phased §1.4.2 |
 | **状态变量 (state_vars)** | 游戏内可变的数据，由状态模板定义。LLM 通过 `--- state ---` 声明变更，程序校验后应用 | phased §1.6 |
@@ -24,7 +24,7 @@
 | **checkpoint_snapshots** | 每个 checkpoint 节点的状态快照。Phase 1 仅存储，Phase 2 回档用 | phased §1.9 |
 | **游戏存档 (Game Save)** | `saves/` 下的独立 `.json` 文件，每个对应一次完整游玩。详见 §6 | 本文档 §2 |
 | **rejected_changes** | `--- state ---` 中被程序校验拒绝的变更条目，下轮 Prompt 反馈给 LLM | phased §1.6 |
-| **区块分隔符** | LLM 输出的结构化标记，格式 `--- block:name ---`。详见 §4.2 | phased §1.7 |
+| **区块分隔符** | LLM 输出的结构化标记，格式 `--- block:branch ---`。详见 §4.2 | phased §1.7 |
 
 > **注**：术语表随文档编写持续补充。
 
@@ -66,7 +66,7 @@
 |------|------|
 | **最多一个关键节点** | 同一个剧情段最多只能包含一个关键节点，若包含多个关键节点，尤其是多分支节点时，程序负担大大增加 |
 | **本地数据为唯一真相源** | 一切游戏数据以本地 GameState 为准。LLM 只能*建议*变更，程序校验通过后方可应用。选项条件基于本地 state_vars 判定；Prompt 数据取自本地；LLM 输出与本地冲突时以本地为准（如引用不存在的变量 → 拒绝；node_id 不在 outline 中 → 忽略） |
-| **bridge 之后无底层数据变更** | 程序执行到 `--- bridge ---` 时触发下一轮 Prompt 组装。bridge 之后不得出现 `--- state ---`、`--- checkpoint ---` 或 `--- options ---`。允许命名 `--- narrative ---` 作为路径过渡变体——程序仅提取匹配 `current_name` 的那一条正文，剥离分隔符后包装为 `--- narrative:main ---` 注入下一轮 User Message（结局轮还允许 `--- adventure_log ---`） |
+| **bridge 之后无底层数据变更** | 程序执行到 `--- bridge ---` 时触发下一轮 Prompt 组装。bridge 之后不得出现 `--- state ---`、`--- checkpoint ---` 或 `--- options ---`。允许命名 `--- narrative ---` 作为路径过渡变体——程序仅提取匹配 `current_branch` 的那一条正文，剥离分隔符后包装为 `--- narrative:main ---` 注入下一轮 User Message（结局轮还允许 `--- adventure_log ---`） |
 | **LLM 先完整生成再插入 bridge** | LLM 应先完整生成所有内容块（narrative、options、state、checkpoint），再选择合适位置插入 bridge 标记。bridge 之后写过渡/悬念叙事文本，以及关键节点后各分支的承接文本 |
 | **超时截断由 LLM 收束** | 程序超时截断时，通知 LLM 快速收束已有内容、插入 bridge 后返回——截断后的内容仍由 LLM 决定 |
 | **用户体验无缝衔接** | 前一个剧情段展示结束前，后一个剧情段应已生成完毕。bridge 标记触发提前请求——程序展示 bridge_text 的同时后台等待 LLM 响应。剧情段是 LLM 的划分，但用户体感上不应感知到段边界 |
@@ -475,10 +475,10 @@ Round N 开始
 
 #### 4.2.1 分隔符速查
 
-> 全部使用英文命名。LLM 输出时必须严格使用以下区块名。程序按正则 `^--- (\w+)(?::(\w+))? ---$` 提取区块类型和名称。
-> 部分区块支持**命名**：`--- block:name ---`（缺省 name 即为 `main`），用于段内分支路由（见 §4.2.2）。
+> 全部使用英文命名。LLM 输出时必须严格使用以下区块名。程序按正则 `^--- (\w+)(?::(\w+))? ---$` 提取区块类型和分支名。
+> 部分区块支持**分支名**：`--- block:branch ---`（缺省 branch 即为 `main`），用于段内路由（见 §4.2.2）。
 
-| 区块标记 | 必需 | 支持命名 | 说明 |
+| 区块标记 | 必需 | 支持分支名 | 说明 |
 |----------|------|----------|------|
 | `--- narrative ---` | ✅ 必选 | ✅ | 故事叙述正文 |
 | `--- options ---` | 可选 | ✅ | 选项列表。第一行 `key: 键名` |
@@ -491,31 +491,31 @@ Round N 开始
 
 > **共创 vs 叙事**：共创用 `=== xxx ===`，叙事用 `--- xxx ---`。两者不会同时出现。
 
-#### 4.2.2 命名路由机制
+#### 4.2.2 分支路由机制
 
 程序每轮维护两个临时变量（轮次结束时清空）：
 
 | 变量 | 初始值 | 说明 |
 |------|--------|------|
-| `current_name` | `"main"` | 当前执行的分支名 |
+| `current_branch` | `"main"` | 当前执行的分支名 |
 | `key_dict` | `{}` | 选项键值对 |
 
 **路由规则**：
 
 ```
 程序从头到尾顺序扫描区块标记行：
-  区块 name == current_name 或 name == "main"？
+  区块 branch == current_branch 或 branch == "main"？
   ├── 是 → 执行该区块内容
   └── 否 → 跳过，继续
 ```
 
-**`current_name` 修改来源**：
+**`current_branch` 修改来源**：
 
 | 来源 | 语法 | 示例 |
 |------|------|------|
-| options 选项行 | `-> name` | `1. 接过芯片 -> took_chip` |
-| state 无条件 | `@name 值` | `@name desperate` |
-| state 条件结果 | `if ... -> @name 值` | `if 体力 < 20 -> @name desperate` |
+| options 选项行 | `-> branch` | `1. 接过芯片 -> took_chip` |
+| state 无条件 | `@branch 值` | `@branch desperate` |
+| state 条件结果 | `if ... -> @branch 值` | `if 体力 < 20 -> @branch desperate` |
 
 **`key_dict` 修改来源**：options 第一行声明 key，玩家选择后 `key_dict["键名"] = 选择编号`。
 
@@ -525,25 +525,25 @@ Round N 开始
 
 **`--- narrative ---`**
 
-纯叙事文本，支持命名实现段内分支：
+纯叙事文本，支持分支名实现段内分支：
 ```
 --- narrative:main ---
 （主分支叙事……）
 
 --- narrative:took_chip ---
-（仅 current_name=="took_chip" 时展示……）
+（仅 current_branch=="took_chip" 时展示……）
 ```
 
 **`--- options ---`**
 
-第一行必须声明 `key`。选项行可附带 `@if:条件` 和 `-> name`：
+第一行必须声明 `key`。选项行可附带 `@if:条件` 和 `-> branch`：
 ```
 --- options:main ---
 key: chip_choice
 1. 接过芯片 -> took_chip
 2. 暂时离开 @if: 理智值 >= 30 -> left
 ```
-处理：展示选项 → 玩家选择 → `key_dict["chip_choice"] = N` → 若选项有 `-> name`，设置 `current_name = name`。
+处理：展示选项 → 玩家选择 → `key_dict["chip_choice"] = N` → 若选项有 `-> branch`，设置 `current_branch = branch`。
 
 > **约束**：同一剧情段内所有 `--- options ---` 的 key 必须唯一。
 
@@ -553,7 +553,7 @@ key: chip_choice
 ```
 --- state:main ---
 @var 理智值 -10
-if chip_choice == 1 -> @var 线索 +神秘芯片, @name took_chip
+if chip_choice == 1 -> @var 线索 +神秘芯片, @branch took_chip
 if 信任度 >= 50 and 好感度 >= 30 -> @var 关系阶段 =朋友
 ```
 
@@ -564,8 +564,8 @@ if 信任度 >= 50 and 好感度 >= 30 -> @var 关系阶段 =朋友
 | 变量名 | 中文。优先匹配 key_dict，其次 state_vars |
 | 运算符 | `==` `>=` `<=` `>` `<` `has` |
 | 组合 | `and` / `or`。优先级 `and` > `or`。Phase 1 不支持括号 |
-| 动作 | `@var 变量 操作 值` / `@name 值` / `route node_id`（仅 checkpoint） |
-| 关键字 | `if` `->` `@var` `@name` 固定英文 |
+| 动作 | `@var 变量 操作 值` / `@branch 值` / `route node_id`（仅 checkpoint） |
+| 关键字 | `if` `->` `@var` `@branch` 固定英文 |
 
 **`@var` 操作符**：
 
@@ -608,7 +608,7 @@ summary: 所有线索汇集……
 | `--- state ---` | ❌ | 底层数据变更必须在 bridge 之前 |
 | `--- checkpoint ---` | ❌ | 大纲路由必须在 bridge 之前 |
 | `--- options ---` | ❌ | 选项交互必须在 bridge 之前 |
-| `--- narrative ---`（命名） | ✅ | 作为不同路径的过渡/悬念文本变体。程序仅提取匹配 `current_name` 的那一条 |
+| `--- narrative ---`（命名） | ✅ | 作为不同路径的过渡/悬念文本变体。程序仅提取匹配 `current_branch` 的那一条 |
 | `--- adventure_log ---` | ✅ | 仅结局轮 |
 
 **bridge_text 提取流程**：
@@ -617,7 +617,7 @@ summary: 所有线索汇集……
 程序解析到 --- bridge --- 后：
   1. 记录 bridge 之后至段末的全部内容
   2. 扫描其中的 --- narrative:xxx --- 区块
-  3. 取 name == current_name 或 name == "main" 的那一条（取第一个匹配）
+  3. 取 branch == current_branch 或 branch == "main" 的那一条（取第一个匹配）
   4. 剥离该区块的分隔符标记行，保留纯正文
   5. 组装下轮 User Message：
        "--- narrative:main ---\n（提取的正文）"
@@ -643,7 +643,7 @@ summary: 所有线索汇集……
 | `--- narrative ---` 必选，`--- bridge ---` 通常必选 | 结局轮 bridge 可选 |
 | bridge 之后不得有 state / checkpoint / options；仅允许命名 narrative | 底层数据变更和选项必须在 bridge 之前；bridge_text 仅提取匹配当前路径的 narrative 正文，分隔符由程序剥离 |
 | 每轮至多一个 `--- checkpoint ---` | 不跨越两个 checkpoint |
-| checkpoint 固定 main | 段内路由由 state 的 `@name` 处理 |
+| checkpoint 固定 main | 段内路由由 state 的 `@branch` 处理 |
 | state 建议在 checkpoint 之前 | checkpoint 需要最新状态来评估路由；但非强制——程序按物理顺序执行，若 checkpoint 在前则以变更前的状态评估 |
 | checkpoint `end` = 结局轮 | 不组装下一轮 Prompt |
 | 同段内 options key 必须唯一 | 避免 key_dict 意外覆盖 |
@@ -707,11 +707,11 @@ summary: 所有线索汇集……
        --- xxx --- → 叙事阶段，继续
 
 2. 按正则 ^--- (\w+)(?::(\w+))? ---$ 分割
-   → 得到 [(block_type, block_name, block_content), ...] 列表
+   → 得到 [(block_type, block_branch, block_content), ...] 列表
 
 3. 遍历列表（按物理顺序）：
    对每个区块：
-     block_name == current_name 或 block_name == "main"？
+     block_branch == current_branch 或 block_branch == "main"？
      ├── 否 → 跳过
      └── 是 → 按类型分发：
          "narrative" → 缓存到展示队列
@@ -748,7 +748,7 @@ summary: 所有线索汇集……
    └── 无 → 展示 bridge_text → 自动进入下一轮
 ```
 
-**命名 narrative 展示**：遍历时仅 `current_name` 匹配的 narrative 进入展示队列。玩家看到的是其选择路径的叙事，其余分支的 narrative 不展示。
+**命名 narrative 展示**：遍历时仅 `current_branch` 匹配的 narrative 进入展示队列。玩家看到的是其选择路径的叙事，其余分支的 narrative 不展示。
 
 **bridge_text 展示**：bridge 之后的内容继续从展示队列输出，用户无感知——体感上是连续叙事。
 
@@ -767,7 +767,7 @@ summary: 所有线索汇集……
 ```
 展示选项面板 → 等待键盘输入（1-5 或 Q 或 M）
   ├── 数字键 → 对应选项
-  │   ├── enabled → key_dict[key] = N，若选项有 -> name 则更新 current_name
+  │   ├── enabled → key_dict[key] = N，若选项有 -> branch 则更新 current_branch
   │   └── disabled → 短暂提示"条件不满足"，重新等待输入
   ├── Q → 主动结束流程（见 §4.10.2）
   └── M → 切换自动/手动展示模式
@@ -870,7 +870,7 @@ for each line in state_block:
 
 ```
 1. bridge_text 提取（§4.2.3 bridge 节）：
-   取 bridge 之后匹配 current_name 的 narrative 正文
+   取 bridge 之后匹配 current_branch 的 narrative 正文
    → 剥离分隔符 → 包装为 "--- narrative:main ---\n（正文）"
 
 2. round_count += 1
