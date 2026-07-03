@@ -536,7 +536,7 @@ Round N 开始
 
 **`--- options ---`**
 
-第一行必须声明 `key`。选项行可附带 `@if:条件` 和 `-> branch`：
+第一行必须声明 `choice`。选项行可附带 `@if:条件` 和 `-> branch`：
 ```
 --- options:main ---
 choice: chip_choice
@@ -835,7 +835,7 @@ for each line in state_block:
 ```
 1. 提取第一行：
    ├── "node <node_id>" → 标记关键节点
-   └── "end" → 结局节点，进入 §4.10.1
+   └── "end" → 结局节点：设置 ending_flag = true，其余推进逻辑相同（标记 completed、存入摘要和快照、触发存档）。后续 bridge 处检测到此标志时走结局路径（§4.10.1）
 
 2. 验证 node_id 存在于 outline：
    ├── 否 → 记日志，忽略该 checkpoint，继续
@@ -866,44 +866,138 @@ for each line in state_block:
 
 ### 4.10 下一轮准备与结局检测
 
-#### 4.10.1 正常轮次准备
+#### 4.10.1 bridge 处理与结局检测
 
 ```
-1. bridge_text 提取（§4.2.3 bridge 节）：
-   取 bridge 之后匹配 current_branch 的 narrative 正文
-   → 剥离分隔符 → 包装为 "--- narrative:main ---\n（正文）"
-
-2. round_count += 1
-
-3. 结局检测：
-   ├── checkpoint 为 "end"？→ 进入结局阶段（§5）
-   ├── Q 键被按下？→ 进入主动结束流程（§4.10.2）
-   └── 否 → 组装下一轮 Prompt → Round N+1
+程序执行到 --- bridge ---：
+    │
+    ├── ending_flag == true？
+    │   └── 是 → 组装冒险日志 Prompt（§5.4）→ 发 LLM → 继续展示 bridge_text
+    │           → bridge_text 展示完毕 + 响应就绪 → 展示 adventure_log → 返回主菜单
+    │
+    └── 否 → 正常准备：
+        1. bridge_text 提取（§4.2.3 bridge 节）
+        2. round_count += 1
+        3. 组装下一轮 Prompt → Round N+1
 ```
+
+> `ending_flag` 由 §4.9 中 checkpoint 处理为 `end` 时设置。
 
 #### 4.10.2 主动结束（Q 键）
 
-```
-玩家按 Q
-    │
-    ▼
-打印 "确定结束游戏？(y/n)"
-├── n → 返回选项面板，继续等待
-└── y
-     ▼
-打印 "是否查看冒险日志？(y/n)"
-├── n → 直接返回主菜单
-└── y → 发送结局 Prompt（phased §1.10-E）
-        → 等待 LLM 生成结局段落 + 冒险日志
-        → 展示结局内容
-        → 按任意键返回主菜单
-```
+见 §5.3。Q 键在选项交互阶段（§4.7）被捕获后转入结局流程。
 
 ---
 
 ## §5 结局阶段
 
-> 待编写。
+### 5.1 结局触发路径
+
+| 路径 | 触发条件 | 说明 |
+|------|---------|------|
+| **自然结局** | `--- checkpoint ---` 中为 `end` | 大纲终点，最后一轮由 LLM 自然收束 |
+| **主动结束** | 玩家在选项面板按 Q | 随时中断，跳过后续大纲 |
+
+两条路径最终汇聚：展示冒险日志 → 返回主菜单。
+
+### 5.2 自然结局（checkpoint `end`）流程
+
+```
+倒数第二轮（Round N-1）：
+  --- narrative:main ---
+  （结局叙事段落……）
+  --- checkpoint ---
+  end
+  summary: 所有线索在此交汇……
+  --- bridge ---
+  （最后的衔接文本——缓冲用，保持与正常剧情段一致的结构）
+
+程序处理：
+
+  1. 正常解析 → 展示 narrative → 处理 state（如有）
+  2. 处理 checkpoint：
+     a. 检测到 "end" → 标记 outline 最后一个节点为 completed
+     b. 设置 ending_flag = true
+     c. 存入 checkpoint_summaries
+     d. 存储 checkpoint_snapshots
+     e. 触发自动存档（与其他 checkpoint 行为一致）
+  3. 执行到 bridge：
+     a. 检测到 ending_flag == true
+     b. 不组装正常下一轮 Prompt
+     c. 组装"冒险日志 Prompt"（§5.4）
+     d. 发送给 LLM → 等待响应
+  4. 继续展示 bridge_text（缓冲叙事）——与正常轮次无差异
+  5. bridge_text 展示完毕 + LLM 响应已就绪：
+     → 展示 adventure_log 内容
+     → 打印 "按任意键返回主菜单……"
+     → 等待按键 → 返回主菜单
+```
+
+> **关键**：bridge 放在 checkpoint `end` 之后、尾部 narrative 之前。程序在 bridge 处检测到 ending_flag，提交冒险日志请求。尾部 narrative 作为缓冲，确保 LLM 有足够响应时间。
+
+### 5.3 Q 键主动结束流程
+
+```
+玩家在选项面板按 Q
+    │
+    ▼
+打印 "确定结束游戏？(y/n)"
+├── n → 返回选项面板
+└── y
+     ▼
+打印 "是否查看冒险日志？(y/n)"
+├── n → 直接返回主菜单
+└── y
+     ▼
+组装"冒险日志 Prompt"（§5.4）
+→ 发送给 LLM → 等待响应
+→ 展示 adventure_log 内容
+→ 打印 "按任意键返回主菜单……"
+→ 等待按键 → 返回主菜单
+```
+
+> Q 键主动结束时，当前段可能尚未到达 checkpoint `end`。程序以当前状态生成冒险日志（包含已完成的 checkpoint_summaries）。
+
+### 5.4 冒险日志 Prompt
+
+**触发时机**：checkpoint `end` 轮 bridge 处 / Q 键确认后。
+
+**Prompt 注入数据**：
+
+| 数据 | 来源 |
+|------|------|
+| 故事设定全文 | `story_config` |
+| 最终状态快照 | `state_vars`（当前值） |
+| 已完成的 checkpoint 摘要 | `checkpoint_summaries` |
+| checkpoint 节点列表 | `checkpoint_history`（node_id + 标题） |
+
+**Prompt 要点**：要求 LLM 生成面向玩家的冒险回顾，包含章节摘要、关键抉择及其影响、结局评语。纯文本格式，不加区块分隔符。
+
+**程序行为**：
+```
+prompt = build_adventure_log_prompt(story_config, state_vars, checkpoint_summaries, checkpoint_history)
+response = api_client.call(prompt)   // 非流式，快速生成
+展示 response 正文
+```
+
+> 冒险日志为独立 LLM 调用——不走正常叙事循环的解析管线。
+
+### 5.5 返回主菜单
+
+```
+结局展示完毕
+    │
+    ▼
+打印 "按任意键返回主菜单……"
+等待按键 → 回到主菜单（§2.2）
+```
+
+> 结局后不删除存档——玩家可通过"继续"重新查看冒险日志，或通过"存档管理"删除。
+
+---
+
+*下一节：[§6 存档系统](#)*
+
 
 ---
 
