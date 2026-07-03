@@ -15,8 +15,10 @@
 | **剧情段** | 每轮 LLM 生成的一段叙事文本，为一轮循环的基本单位。结构约束见 §1.4，处理流程见 §4 | phased §1.4.1 |
 | **大纲** | 由若干关键节点组成的有向图，描述故事骨架。节点间可有分支，分支可在后期节点汇合 | phased §1.4.3, §1.7-B |
 | **关键节点 (checkpoint)** | 大纲上的里程碑节点。可有 0 个（结束节点，即结局）、1 个（单后续，直线推进）或 n 个（分支）后续节点。到达时必定触发进度推进和自动存档 | phased §1.4.4 |
-| **局部小分支** | 不影响大纲走向的即时选择分支。LLM 在 `--- branch ---` 中为每个选项预写短片段 `[N]`，以 `[merge]` 标记汇合文本。玩家选择后只展示对应片段 + 汇合文本 | phased §1.4.3 |
-| **关键节点分支** | 大纲层面的路线分叉。各分支走向不同的后续节点，各自经历独立的 checkpoint 和存档。**可以在后期节点汇合**（如不同角色线最终汇入结局章），也可永不汇合（走向不同结局） | phased §1.4.3 |
+| **段内分支** | 同一剧情段内的叙事分支。通过 named block + `@name` 路由实现，不影响大纲走向。详见 §1.4.2 | phased §1.4.3 |
+| **大纲分支** | 大纲层面的路线分叉。各分支走向不同的后续节点，各自经历独立的 checkpoint 和存档。**可以在后期节点汇合**。通过 `--- checkpoint ---` 中的 `if ... -> route ...` 实现 | phased §1.4.3 |
+| **current_name** | 每轮临时变量，初始值 `"main"`。控制段内区块路由：仅 name 匹配的区块被执行。由 state（`@name`）或 options（`-> name`）修改 | 本文档 §1.4.2 |
+| **key_dict** | 每轮临时变量，初始值 `{}`。存储本轮 options 的选择结果，供 state 条件判断引用。轮次结束时清空 | 本文档 §1.4.2 |
 | **bridge_text** | 上一轮中 `--- bridge ---` 之后至段末的正文内容，作为本轮 User Message 实现无缝衔接。详见 §4 | phased §1.4.2 |
 | **状态变量 (state_vars)** | 游戏内可变的数据，由状态模板定义类型和范围。LLM 通过 `--- state ---` 声明变更，程序校验后应用 | phased §1.6 |
 | **状态模板** | 预定义的变量集合。Phase 1 硬编码三套：恋爱 (romance)、冒险 (adventure)、悬疑 (mystery)。共创阶段选题材后加载 | phased §1.6 |
@@ -111,33 +113,156 @@ GameState:
         └── bridge_text（上一轮 `--- bridge ---` 或程序截断内容，告诉 LLM "上一轮刚好讲到这里"；首轮为空字符串）
 ```
 
-### 1.4 区块分隔符速查
+### 1.4 区块分隔符与执行模型
 
-> 全部使用英文命名。LLM 输出时必须严格使用以下区块名，程序按正则 `^--- (.+?) ---$` 分割。
+#### 1.4.1 分隔符速查
 
-| 区块名 | 阶段 | 必需 | 说明 |
-|--------|------|------|------|
-| `--- narrative ---` | 叙事 | ✅ 必选 | 故事叙述正文 |
-| `--- options ---` | 叙事 | 可选 | 2-5 个选项，每行 `N. 描述 @if:条件` |
-| `--- branch ---` | 叙事 | 可选 | 局部小分支片段 `[N]` + 汇合文本 `[merge]` |
-| `--- state ---` | 叙事 | 可选 | 状态变更，每行 `变量名 操作 值` |
-| `--- checkpoint ---` | 叙事 | 可选 | 关键节点标记 + 分支判定 + 摘要 |
-| `--- bridge ---` | 叙事 | ✅ 必选 | 下一轮的上文衔接片段。程序解析到此标记后，开始组装下一轮 Prompt |
-| `--- ending ---` | 叙事 | 可选 | 结局触发标记 |
-| `--- adventure_log ---` | 结局 | 可选 | 面向玩家的冒险回顾文本 |
-| `=== story_config ===` | 共创 | 必选 | 故事设定（仅共创阶段使用） |
-| `=== outline ===` | 共创 | 必选 | 大纲树（仅共创阶段使用） |
+> 全部使用英文命名。LLM 输出时必须严格使用以下区块名，程序按正则 `^--- (.+?) ---$` 提取区块标记行。
+> 部分区块支持**命名**：`--- block(name) ---`，用于段内分支路由（见 §1.4.2）。缺省 name 即为 `main`。
+
+| 区块标记 | 阶段 | 必需 | 支持命名 | 说明 |
+|----------|------|------|----------|------|
+| `--- narrative ---` | 叙事 | ✅ 必选 | ✅ | 故事叙述正文 |
+| `--- options ---` | 叙事 | 可选 | ✅ | 选项列表。第一行为 `key: 键名` |
+| `--- state ---` | 叙事 | 可选 | ✅ | 数据变更 + 段内路由。无条件的直接执行；有条件的用 `if 条件 -> 动作` |
+| `--- checkpoint ---` | 叙事 | 可选 | ❌ 固定 main | 大纲路由。`node <id>` 或 `end` + `if 条件 -> route <next_node>` |
+| `--- bridge ---` | 叙事 | ✅ 必选 | ❌ 固定 main | 下一轮的上文衔接标记。程序解析到此标记后开始组装下一轮 Prompt |
+| `--- ending ---` | 叙事 | 可选 | ❌ 固定 main | 结局触发标记 |
+| `--- adventure_log ---` | 结局 | 可选 | ❌ 固定 main | 面向玩家的冒险回顾文本 |
+| `=== story_config ===` | 共创 | 必选 | — | 故事设定（仅共创阶段使用） |
+| `=== outline ===` | 共创 | 必选 | — | 大纲树（仅共创阶段使用） |
 
 > **共创 vs 叙事格式区分**：共创阶段用 `=== xxx ===`（双等号），叙事阶段用 `--- xxx ---`（三短横线）。两者不会同时出现。
+>
+> **`--- branch ---` 已删除**：段内分支通过 named narrative + named state 实现，不再需要独立的分支区块。
 
-**叙事阶段区块约束**（每轮 LLM 输出必须满足）：
+#### 1.4.2 命名路由机制
+
+程序每轮维护两个临时变量（轮次结束时清空）：
+
+| 变量 | 初始值 | 说明 |
+|------|--------|------|
+| `current_name` | `"main"` | 当前执行的分支名 |
+| `key_dict` | `{}` | 选项键值对，如 `{"chip_choice": 1}` |
+
+**路由规则**：
+
+```
+程序从头到尾顺序扫描区块标记行：
+  区块的 name == current_name 或 name == "main"（默认）？
+  ├── 是 → 执行该区块内容
+  └── 否 → 跳过，继续下一个区块
+```
+
+**`current_name` 的修改来源**：
+
+| 来源 | 语法 | 示例 |
+|------|------|------|
+| options 选项行 | `-> name` | `1. 接过芯片 -> took_chip` |
+| state 无条件 | `@name 值` | `@name desperate` |
+| state 条件结果 | `if ... -> @name 值` | `if 体力 < 20 -> @name desperate` |
+
+**`key_dict` 的修改来源**：
+
+| 来源 | 说明 |
+|------|------|
+| options | 第一行 `key: 键名` 声明 key；玩家选择后 `key_dict["键名"] = 选择编号` |
+
+> **注意**：checkpoint、bridge、ending 固定为 `main`，不参与段内路由。即 checkpoint 永远在主分支上执行。
+
+#### 1.4.3 各区块语法
+
+**`--- narrative ---`**
+
+纯叙事文本。支持命名以实现段内分支：
+```
+--- narrative(main) ---
+（主分支叙事……）
+
+--- narrative(took_chip) ---
+（仅当 current_name=="took_chip" 时展示……）
+
+--- narrative(left) ---
+（仅当 current_name=="left" 时展示……）
+```
+
+**`--- options ---`**
+
+第一行必须声明 `key`。每个选项行可附带 `@if:条件`（置灰条件）和 `-> name`（设置 current_name）：
+```
+--- options(main) ---
+key: chip_choice
+1. 接过芯片 -> took_chip
+2. 暂时离开 @if: 理智值 >= 30 -> left
+3. 先发制人 @if: 体力 >= 50 -> attacked
+```
+程序处理：展示选项 → 玩家选择 → `key_dict["chip_choice"] = N` → 若选项有 `-> name`，设置 `current_name = name`。
+
+**`--- state ---`**
+
+无条件变更直接执行。条件变更每行独立评估，命中即执行：
+```
+--- state(main) ---
+@var 理智值 -10                         ← 无条件，直接执行
+if chip_choice == 1 -> @var 线索 +神秘芯片, @var 信任度 +10, @name took_chip
+if chip_choice == 2 -> @name left
+if 信任度 >= 50 and 好感度 >= 30 -> @var 关系阶段 =朋友
+if 体力 < 20 or 金币 < 100 -> @name desperate
+```
+
+**条件语法规则**：
+
+| 元素 | 说明 |
+|------|------|
+| 变量名 | 中文，引用 state_vars 或 key_dict 中的 key |
+| 运算符 | `==` `>=` `<=` `>` `<` `has` |
+| 组合 | 支持 `and` / `or`。优先级：`and` > `or`。Phase 1 不支持括号 |
+| 动作 | `@var 变量 操作 值`（数据变更）、`@name 值`（路由切换）、`route node_id`（仅 checkpoint） |
+| 关键字 | `if` `->` `@var` `@name` 固定英文 |
+
+> **条件语法为建议语法**，如需调整须兼顾两个约束：(1) 程序可用正则准确解析；(2) LLM 能稳定生成。
+
+**`--- checkpoint ---`**
+
+仅做大纲路由，**不修改 state_vars**。如需数据变更，先执行 `--- state ---`：
+```
+--- checkpoint ---
+node ch2_discovery
+if 信任度 >= 50 -> route ch3_ally
+if 信任度 < 50 -> route ch3_betrayal
+summary: 在酒吧获得加密芯片，得知AIKO真实身份……
+```
+结局节点：
+```
+--- checkpoint ---
+end
+summary: 所有线索汇集，命运在此交汇……
+```
+- `node <id>` 或 `end`：标记到达的节点
+- `if 条件 -> route <next_node_id>`：分支路由。条件引用当前 state_vars。多个条件取首个命中。无条件命中 → 取第一个分支的 next_node（兜底）
+- `summary:`：checkpoint 摘要（必填）
+
+**`--- bridge ---`**
+
+标记下一轮 Prompt 组装的触发点。bridge 之后至段末的内容即为 bridge_text。约束：
+- bridge 之后**不得**出现 `--- state ---` 或 `--- checkpoint ---`（底层数据变更必须在 bridge 之前完成）
+- bridge 之后**可以**出现 `--- options ---` + `--- narrative(...)`（纯叙事分支，无数据变更）
+- bridge 之后**可以**出现 `--- ending ---`
+
+**`--- ending ---` / `--- adventure_log ---`**
+
+功能不变，见 phased §1.7-C.5。
+
+#### 1.4.4 约束汇总
 
 | 约束 | 说明 |
 |------|------|
-| `--- narrative ---` 和 `--- bridge ---` 必须存在 | 缺一不可。其余区块按需出现 |
-| `--- checkpoint ---` 和 `--- state ---` 必须在 `--- bridge ---` 之前 | bridge 之后至段末的内容即为 bridge_text，其中不得包含 checkpoint 或 state 区块（否则下一轮 Prompt 缺少这些数据更新） |
+| `--- narrative ---` 和 `--- bridge ---` 必须存在 | 缺一不可 |
+| bridge 之后不得有 state / checkpoint | 底层数据变更（state_vars 修改、大纲路由）必须在 bridge 之前完成。纯叙事 options + narrative 分支允许在 bridge 之后 |
 | 每轮至多一个 `--- checkpoint ---` | 一个剧情段不应跨越两个 checkpoint |
-| 区块内容顺序 | `--- bridge ---` 之后只能有叙事正文（即 bridge_text）。其余所有结构化区块（options / branch / state / checkpoint）必须置于 bridge 之前 |
+| checkpoint 固定 main | 不参与段内路由，永远在主分支上执行。段内路由由 state 的 `@name` 处理 |
+| state 必须在 checkpoint 之前 | 若同段同时存在，state 先执行（更新数据），checkpoint 后评估（路由基于最新数据） |
+| `--- branch ---` 已删除 | 段内分支通过 named narrative + named state + options `-> name` 实现 |
 
 ### 1.5 核心原则
 
@@ -146,7 +271,7 @@ GameState:
 | 原则 | 说明 |
 |------|------|
 | **本地数据为唯一真相源** | 一切游戏数据以本地 GameState 为准。LLM 只能*建议*变更，程序校验通过后方可应用。具体含义：选项条件基于本地 state_vars 判定；Prompt 中所有数据（outline、state、进度）取自本地；LLM 输出与本地数据冲突时，以本地为准（如引用不存在的变量 → 拒绝；node_id 不在 outline 中 → 忽略） |
-| **bridge 之后无数据变更** | 程序执行到 `--- bridge ---` 时触发下一轮 Prompt 组装。bridge 之后至段末仅有叙事正文（bridge_text），不得包含 `--- state ---` 或 `--- checkpoint ---`，否则下一轮 Prompt 缺少这些数据更新 |
+| **bridge 之后无底层数据变更** | 程序执行到 `--- bridge ---` 时触发下一轮 Prompt 组装。bridge 之后不得出现 `--- state ---` 或 `--- checkpoint ---`（否则下一轮 Prompt 缺少这些数据更新）。但允许 `--- options ---` + named `--- narrative ---` 做纯叙事分支（无数据变更的局部选项） |
 | **用户体验无缝衔接** | 前一个剧情段展示结束前，后一个剧情段应已由 LLM 生成完毕。bridge 标记即是提前触发下一轮请求的机制——程序展示 bridge_text 的同时，后台已在等待 LLM 响应 |
 | **程序拥有最终控制权** | LLM 负责叙事创意，程序负责数据完整性和流程控制。API 失败、解析错误、内容异常——均由程序告知用户并等待决策，不做自动降级或静默跳过（个别条目校验失败除外，见 phased §1.8.2） |
 
