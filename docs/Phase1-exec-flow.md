@@ -65,8 +65,9 @@
 | 原则 | 说明 |
 |------|------|
 | **本地数据为唯一真相源** | 一切游戏数据以本地 GameState 为准。LLM 只能*建议*变更，程序校验通过后方可应用。选项条件基于本地 state_vars 判定；Prompt 数据取自本地；LLM 输出与本地冲突时以本地为准（如引用不存在的变量 → 拒绝；node_id 不在 outline 中 → 忽略） |
-| **bridge 之后无底层数据变更** | 程序执行到 `--- bridge ---` 时触发下一轮 Prompt 组装。bridge 之后不得出现 `--- state ---` 或 `--- checkpoint ---`。但允许 `--- options ---` + named `--- narrative ---` 做纯叙事分支 |
-| **剧情段由 LLM 掌控** | bridge 的位置由 LLM 在生成完所有内容后自行选择合适位置插入。程序超时截断时，通知 LLM 快速整合已有内容、插入 bridge 后返回——截断后的内容仍由 LLM 决定 |
+| **bridge 之后无底层数据变更** | 程序执行到 `--- bridge ---` 时触发下一轮 Prompt 组装。bridge 之后不得出现 `--- state ---`、`--- checkpoint ---` 或 `--- options ---`。允许命名 `--- narrative ---` 作为路径过渡变体——程序仅提取匹配 `current_name` 的那一条正文，剥离分隔符后包装为 `--- narrative:main ---` 注入下一轮 User Message（结局轮还允许 `--- adventure_log ---`） |
+| **LLM 先完整生成再插入 bridge** | LLM 应先完整生成所有内容块（narrative、options、state、checkpoint），再选择合适位置插入 bridge 标记。bridge 之后仅写过渡/悬念叙事文本 |
+| **超时截断由 LLM 收束** | 程序超时截断时，通知 LLM 快速收束已有内容、插入 bridge 后返回——截断后的内容仍由 LLM 决定 |
 | **用户体验无缝衔接** | 前一个剧情段展示结束前，后一个剧情段应已生成完毕。bridge 标记触发提前请求——程序展示 bridge_text 的同时后台等待 LLM 响应 |
 | **程序拥有最终控制权** | LLM 负责叙事，程序负责数据完整性和流程控制。API 失败、解析错误、内容异常——告知用户并等待决策。LLM 输出错误（如死路分支）不属于程序错误，不设兜底 |
 | **条件变量解析优先级** | `if` 条件中的变量名优先匹配 key_dict（本轮选项结果），其次匹配 state_vars。同名时 key_dict 优先 |
@@ -313,6 +314,14 @@ if 信任度 >= 50 and 好感度 >= 30 -> @var 关系阶段 =朋友
 | 动作 | `@var 变量 操作 值` / `@name 值` / `route node_id`（仅 checkpoint） |
 | 关键字 | `if` `->` `@var` `@name` 固定英文 |
 
+**`@var` 操作符**：
+
+| 操作 | 语法 | 示例 | 适用类型 |
+|------|------|------|----------|
+| 加减 | `@var 变量 +N` / `@var 变量 -N` | `@var 体力 -10` | number |
+| 赋值 | `@var 变量 =值` | `@var 关系阶段 =朋友` | number / enum / string |
+| 追加 | `@var 变量 +元素` | `@var 线索 +神秘芯片` | list |
+
 > 条件语法为建议语法，调整须兼顾：(1) 程序可准确解析；(2) LLM 能稳定生成。
 
 **`--- checkpoint ---`**
@@ -338,10 +347,14 @@ summary: 所有线索汇集……
 **`--- bridge ---`**
 
 标记下一轮 Prompt 组装的触发点。bridge 之后至段末为 bridge_text。
-- bridge 由 LLM 在生成完所有内容后自行选择合适位置插入
-- bridge 之后**不得**有 `--- state ---` 或 `--- checkpoint ---`
-- bridge 之后**可以**有 `--- options ---` + named `--- narrative ---`（纯叙事分支，无数据变更）
-- bridge 之后**可以**有 `--- adventure_log ---`
+- LLM 应先完整生成所有内容块，再选择合适位置插入 bridge 标记
+- bridge 之后**不得**有 `--- state ---`、`--- checkpoint ---` 或 `--- options ---`
+- bridge 之后**可以**有命名 `--- narrative ---`（作为不同路径的过渡/悬念文本变体），但不得修改 state 或路由
+- bridge 之后**可以**有 `--- adventure_log ---`（仅结局轮）
+
+**bridge_text 提取**：程序扫描 bridge 之后的所有 narrative 区块，仅提取 name 匹配 `current_name` 或 `"main"` 的那一条正文（不含分隔符标记行），其余命名 narrative 跳过。组装下一轮 User Message 时，在提取的正文开头插入 `--- narrative:main ---`。这样：
+- 展示给用户的是其选择路径对应的过渡文本
+- 下一轮 LLM 收到的 User Message 是一个干净的 narrative 区块，不含分支残留
 
 **结局轮**：当 checkpoint 为 `end`，bridge 变为可选。LLM 应尽量省略；若仍输出，程序仅展示不组装下一轮 Prompt。
 
@@ -354,7 +367,7 @@ summary: 所有线索汇集……
 | 约束 | 说明 |
 |------|------|
 | `--- narrative ---` 必选，`--- bridge ---` 通常必选 | 结局轮 bridge 可选 |
-| bridge 之后不得有 state / checkpoint | 底层数据变更必须在 bridge 之前 |
+| bridge 之后不得有 state / checkpoint / options；仅允许命名 narrative | 底层数据变更和选项必须在 bridge 之前；bridge_text 仅提取匹配当前路径的 narrative 正文，分隔符由程序剥离 |
 | 每轮至多一个 `--- checkpoint ---` | 不跨越两个 checkpoint |
 | checkpoint 固定 main | 段内路由由 state 的 `@name` 处理 |
 | state 必须在 checkpoint 之前 | 先更新数据，后评估路由 |
