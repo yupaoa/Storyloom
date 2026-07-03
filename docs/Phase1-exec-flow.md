@@ -641,7 +641,7 @@ summary: ...
 
 程序处理到 bridge 时检测到 `ending_flag`，提交冒险日志 Prompt（§5.4）。尾部 narrative 作为缓冲确保 LLM 有充裕响应时间，展示时用户体感连续。
 
-> **设计考量**：bridge 位置不宜太靠后，确保 bridge_text 有足够长度供 LLM 响应；可通过 `BRIDGE_MIN_CHARS_BEFORE_END` 常量约束。
+> **设计考量**：bridge 位置不宜太靠后，确保 bridge_text 有足够长度供 LLM 响应；可通过 `BRIDGE_MIN_RATIO_BEFORE_END` 常量约束（段目标字数 × 比例 = 最少 bridge_text 长度）。
 
 #### 4.2.4 约束汇总
 
@@ -1135,20 +1135,22 @@ load_save(filepath):
 
 > 共创阶段由用户选择或 LLM 判断，写入 `story_config.tier`（`short` / `medium` / `long`）。影响 Prompt 中的字数指引和大纲节点数推荐。
 
+> 选项数通常取决于具体题材和剧情内容，灵活选定。
+
 | 常量组前缀 | 适用 | 目标总段数 | 每段目标字数 | 每段选项数 |
 |-----------|------|-----------|-------------|-----------|
-| `STORY_TIER_SHORT` | 短篇 | 15-20 | 800 | 2-3 |
-| `STORY_TIER_MEDIUM` | 中篇 | 30-40 | 1000 | 3-4 |
-| `STORY_TIER_LONG` | 长篇 | 50-70 | 1200 | 4-5 |
+| `STORY_TIER_SHORT` | 短篇 | 10-20 | 1000 | 0-3 |
+| `STORY_TIER_MEDIUM` | 中篇 | 30-40 | 1200 | 0-3 |
+| `STORY_TIER_LONG` | 长篇 | 50-100 | 1500 | 0-4 |
 
 具体常量名示例（以 `STORY_TIER_SHORT` 为例）：
 
 | 常量 | 参考值 |
 |------|--------|
-| `STORY_TIER_SHORT_TOTAL_SEGMENTS_MIN` | 15 |
+| `STORY_TIER_SHORT_TOTAL_SEGMENTS_MIN` | 10 |
 | `STORY_TIER_SHORT_TOTAL_SEGMENTS_MAX` | 20 |
-| `STORY_TIER_SHORT_SEGMENT_CHARS` | 800 |
-| `STORY_TIER_SHORT_OPTIONS_MIN` | 2 |
+| `STORY_TIER_SHORT_SEGMENT_CHARS` | 1000 |
+| `STORY_TIER_SHORT_OPTIONS_MIN` | 0 |
 | `STORY_TIER_SHORT_OPTIONS_MAX` | 3 |
 
 > `STORY_TIER_MEDIUM` 和 `STORY_TIER_LONG` 同理。档位选定后在 Prompt 中注入对应指引。
@@ -1160,8 +1162,8 @@ load_save(filepath):
 | `STREAM_STALL_TIMEOUT_SEC` | 3 | 流式输出停顿超时秒数 |
 | `MIN_NARRATION_CHARS` | 200 | 截取内容最低字符数，低于此值判定异常 |
 | `MAX_NARRATION_CHARS` | 2000 | 正文长度上限，超出则程序在完整段落处截断 |
-| `BRIDGE_MIN_CHARS_BEFORE_END` | 200 | bridge 距段末最少字符数，确保 LLM 有充裕响应时间 |
-| `MIN_OPTIONS` | 2 | 每轮最少选项数 |
+| `BRIDGE_MIN_RATIO_BEFORE_END` | 0.15 | bridge 距段末最少字符数比例（段目标字数 × 此比例 = 最少 bridge_text 长度），确保 LLM 有充裕响应时间 |
+| `MIN_OPTIONS` | 0 | 每轮最少选项数（0 表示允许无选项片段） |
 | `MAX_OPTIONS` | 5 | 每轮最多选项数 |
 
 ### A.5 展示
