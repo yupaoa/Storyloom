@@ -69,7 +69,8 @@
 | **bridge 之后无底层数据变更** | 程序执行到 `--- bridge ---` 时触发下一轮 Prompt 组装。bridge 之后不得出现 `--- state ---`、`--- checkpoint ---` 或 `--- options ---`。允许命名 `--- narrative ---` 作为路径过渡变体——程序仅提取匹配 `current_name` 的那一条正文，剥离分隔符后包装为 `--- narrative:main ---` 注入下一轮 User Message（结局轮还允许 `--- adventure_log ---`） |
 | **LLM 先完整生成再插入 bridge** | LLM 应先完整生成所有内容块（narrative、options、state、checkpoint），再选择合适位置插入 bridge 标记。bridge 之后写过渡/悬念叙事文本，以及关键节点后各分支的承接文本 |
 | **超时截断由 LLM 收束** | 程序超时截断时，通知 LLM 快速收束已有内容、插入 bridge 后返回——截断后的内容仍由 LLM 决定 |
-| **用户体验无缝衔接** | 前一个剧情段展示结束前，后一个剧情段应已生成完毕。bridge 标记触发提前请求——程序展示 bridge_text 的同时后台等待 LLM 响应 |
+| **用户体验无缝衔接** | 前一个剧情段展示结束前，后一个剧情段应已生成完毕。bridge 标记触发提前请求——程序展示 bridge_text 的同时后台等待 LLM 响应。剧情段是 LLM 的划分，但用户体感上不应感知到段边界 |
+| **静默错误反馈** | state 校验中可静默处理的微小错误（如 list 移除不存在的元素、number 取上限值）不展示给用户，但必须记入 rejected_changes 在下一轮 Prompt 中告知 LLM |
 | **程序拥有最终控制权** | LLM 负责叙事，程序负责数据完整性和流程控制。API 失败、解析错误、内容异常——告知用户并等待决策。LLM 输出错误（如死路分支）不属于程序错误，不设兜底 |
 | **条件变量解析优先级** | `if` 条件中的变量名优先匹配 key_dict（本轮选项结果），其次匹配 state_vars。同名时 key_dict 优先 |
 
@@ -421,7 +422,54 @@ game_state.rejected_changes = []
 
 ### 4.1 单轮总览
 
-> 待编写。完整流程：Prompt 组装 → API 调用 → 响应解析 → 内容展示 → 玩家交互 → 状态变更 → 节点推进 → 下一轮准备。
+```
+Round N 开始
+    │
+    ▼
+┌─────────────────────────────┐
+│ 1. Prompt 组装（§4.3）       │
+│   system + user(bridge_text) │
+└─────────────┬───────────────┘
+              ▼
+┌─────────────────────────────┐
+│ 2. API 调用（§4.4）          │
+│   流式接收 / 超时截断         │
+└─────────────┬───────────────┘
+              ▼
+┌─────────────────────────────┐
+│ 3. 响应解析（§4.5）          │
+│   分割→路由过滤→逐区块解析    │
+└─────────────┬───────────────┘
+              ▼
+┌─────────────────────────────┐
+│ 4. 内容展示（§4.6）          │
+│   逐段展示正文 + 分支路由     │
+└─────────────┬───────────────┘
+              ▼
+┌─────────────────────────────┐
+│ 5. 玩家交互（§4.7）          │
+│   选项选择 / 自动推进 / Q键   │
+└─────────────┬───────────────┘
+              ▼
+┌─────────────────────────────┐
+│ 6. 状态变更校验（§4.8）       │
+│   逐条校验→应用/拒绝          │
+└─────────────┬───────────────┘
+              ▼
+┌─────────────────────────────┐
+│ 7. 节点推进与存档（§4.9）     │
+│   分支评估→更新current_node  │
+│   →checkpoint快照→自动存档   │
+└─────────────┬───────────────┘
+              ▼
+┌─────────────────────────────┐
+│ 8. 下一轮准备（§4.10）       │
+│   bridge_text 提取→          │
+│   round_count++→结局检测     │
+└─────────────────────────────┘
+```
+
+> 以上 8 步每轮执行一次。LLM 响应先完整接收再解析（非流式解析），正文展示用缓冲控制节奏（见 §4.6）。
 
 ### 4.2 区块分隔符与执行模型
 
@@ -596,7 +644,7 @@ summary: 所有线索汇集……
 | bridge 之后不得有 state / checkpoint / options；仅允许命名 narrative | 底层数据变更和选项必须在 bridge 之前；bridge_text 仅提取匹配当前路径的 narrative 正文，分隔符由程序剥离 |
 | 每轮至多一个 `--- checkpoint ---` | 不跨越两个 checkpoint |
 | checkpoint 固定 main | 段内路由由 state 的 `@name` 处理 |
-| state 必须在 checkpoint 之前 | 先更新数据，后评估路由 |
+| state 建议在 checkpoint 之前 | checkpoint 需要最新状态来评估路由；但非强制——程序按物理顺序执行，若 checkpoint 在前则以变更前的状态评估 |
 | checkpoint `end` = 结局轮 | 不组装下一轮 Prompt |
 | 同段内 options key 必须唯一 | 避免 key_dict 意外覆盖 |
 | 条件变量 key_dict 优先 | 同名时 key_dict > state_vars |
@@ -620,9 +668,236 @@ summary: 所有线索汇集……
         └── bridge_text（上一轮 bridge 之后至段末的正文；首轮为空）
 ```
 
-### 4.4 后续章节
+### 4.4 API 调用与响应接收
 
-> 待编写：API 调用与流式接收、响应解析流程、正文展示、选项交互、状态变更校验与应用、节点推进与存档触发、下一轮准备。
+**流程**：
+
+```
+1. prompt_builder.assemble() → system_prompt, user_message
+2. api_client.stream_chat(system_prompt, user_message)
+   │
+   ├── 正常完成 → 完整 LLM 响应文本
+   │
+   ├── 流式停顿超时（STREAM_STALL_TIMEOUT_SEC）
+   │   └── 程序截断流 → 取已接收内容
+   │       → 在最后一个完整段落处截断
+   │       → 截取内容 ≥ MIN_NARRATION_CHARS？
+   │           ├── 是 → 继续解析
+   │           └── 否 → 提示用户：重试 / 用当前内容继续 / 返回主菜单
+   │
+   └── API 错误（网络 / rate limit / server error）
+       └── 告知用户具体错误信息
+           → 用户选择：重试 / 返回主菜单
+```
+
+> API 调用失败**不自动重试**，始终由用户决策。
+
+### 4.5 响应解析
+
+采用**边遍历边执行 + 显示缓冲**模式：程序遍历区块时，state/checkpoint 等数据区块立即执行，narrative/options 等显示区块缓存后按节奏展示。
+
+**解析流程**：
+
+```
+1. 预处理
+   → 去除首尾空白
+   → 去除 markdown 代码块围栏（```...``` 或 ```text...```）
+   → 检测阶段标记：
+       === xxx === → 共创阶段（本循环不应出现，视为错误）
+       --- xxx --- → 叙事阶段，继续
+
+2. 按正则 ^--- (\w+)(?::(\w+))? ---$ 分割
+   → 得到 [(block_type, block_name, block_content), ...] 列表
+
+3. 遍历列表（按物理顺序）：
+   对每个区块：
+     block_name == current_name 或 block_name == "main"？
+     ├── 否 → 跳过
+     └── 是 → 按类型分发：
+         "narrative" → 缓存到展示队列
+         "options"   → 缓存到展示队列（等 narrative 展示完再展示）
+         "state"     → 立即执行（§4.8）
+         "checkpoint"→ 立即执行（§4.9）
+         "bridge"    → 触发下一轮组装 + 提取 bridge_text（§4.10）
+```
+
+> **关键**：程序执行快于展示。遍历时 state/checkpoint 立即生效（数据层），而 narrative 缓存后逐段展示（表现层）。两者异步，互不阻塞。
+
+**各区块内容解析**：见 §4.2.3 各区块语法。解析失败处理见下文各节。
+
+### 4.6 内容展示
+
+**展示模式**：支持自动和手动两种，用户可随时切换。
+
+| 模式 | 行为 | 切换键 |
+|------|------|--------|
+| **自动**（默认） | 每段之间延迟 AUTO_ADVANCE_DELAY_MS 后自动继续 | 按 `M` 切换至手动 |
+| **手动** | 每段展示后等待用户按任意键继续 | 按 `M` 切换回自动 |
+
+**展示流程**：
+
+```
+1. 从展示队列取 --- narrative --- 正文
+2. 按空行分割为段落
+3. 逐段展示：
+   ├── 自动模式：打印段落 → 延迟 → 继续下一段
+   └── 手动模式：打印段落 → 等待按键 → 继续下一段
+
+4. narrative 展示完毕后：
+   ├── 有 --- options ---？→ 展示选项面板（§4.7）
+   └── 无 → 展示 bridge_text → 自动进入下一轮
+```
+
+**命名 narrative 展示**：遍历时仅 `current_name` 匹配的 narrative 进入展示队列。玩家看到的是其选择路径的叙事，其余分支的 narrative 不展示。
+
+**bridge_text 展示**：bridge 之后的内容继续从展示队列输出，用户无感知——体感上是连续叙事。
+
+### 4.7 玩家交互
+
+**选项展示**：
+
+```
+  [1] 接过芯片                        ← 正常可选
+  [2] 暂时离开（需理智值≥30，当前：20）  ← dim 样式，不可选
+  [3] 先发制人                        ← 正常可选
+```
+
+**选项处理**：
+
+```
+展示选项面板 → 等待键盘输入（1-5 或 Q 或 M）
+  ├── 数字键 → 对应选项
+  │   ├── enabled → key_dict[key] = N，若选项有 -> name 则更新 current_name
+  │   └── disabled → 短暂提示"条件不满足"，重新等待输入
+  ├── Q → 主动结束流程（见 §4.10.2）
+  └── M → 切换自动/手动展示模式
+```
+
+**置灰逻辑**：
+
+```
+对每个选项：
+  有 @if:条件？
+  ├── 否 → enabled
+  └── 是 → 用本地 state_vars 评估条件
+      ├── 满足 → enabled
+      └── 不满足 → disabled（dim 颜色 + 显示当前值）
+
+全部 disabled？
+  → 全部以 enabled 样式展示，移除条件标注（兜底防卡死）
+```
+
+**无选项时的自动推进**：`--- options ---` 缺失 → 正文展示完毕后自动进入下一轮，不等待输入。
+
+### 4.8 状态变更校验与应用
+
+处理 `--- state ---` 中每条变更，逐条独立执行（一条失败不影响其他）。
+
+**校验规则**：
+
+| 校验 | 失败处理 |
+|------|---------|
+| 变量名不存在于当前模板 | 静默忽略，记入 rejected_changes |
+| number 类型操作越界 | clamp 到 `[min, max]`，静默处理 |
+| enum 类型值不在 options 中 | 拒绝，记入 rejected_changes |
+| list `+` 元素已存在 | 静默忽略 |
+| list `-` 元素不存在 | 静默忽略 |
+| 操作符与类型不匹配 | 拒绝，记入 rejected_changes |
+
+**伪代码**：
+
+```
+for each line in state_block:
+    parse: @var var_name operator value
+
+    if var_name not in state_template.vars:
+        rejected_changes.append({line, reason: "变量不存在"})
+        continue
+
+    var_def = state_template.vars[var_name]
+    valid = validate(var_def.type, var_def, operator, value)
+
+    if not valid:
+        rejected_changes.append({line, reason: valid.error})
+        continue
+
+    apply(state_vars[var_name], operator, value)
+```
+
+> **静默处理**：list 增删重复/不存在的元素、number 越界取上下限——不中断流程，不展示给用户，但记入 rejected_changes，在下一轮 Prompt 中告知 LLM。
+
+### 4.9 节点推进与存档
+
+`--- checkpoint ---` 区块触发。
+
+**流程**：
+
+```
+1. 提取第一行：
+   ├── "node <node_id>" → 标记关键节点
+   └── "end" → 结局节点，进入 §4.10.1
+
+2. 验证 node_id 存在于 outline：
+   ├── 否 → 记日志，忽略该 checkpoint，继续
+   └── 是
+
+3. 标记旧 current_node 为 "completed"
+
+4. 若有 if 条件行：
+   逐条评估（按物理顺序，取首个命中）：
+     if 条件 -> route <target_node_id>
+     ├── 条件命中 → 目标节点 = target_node_id
+     ├── 条件中引用的变量不存在 → 该条视为无效，跳过
+     ├── 多个命中 → 取第一个
+     └── 全部不命中 → 取第一条分支的 target_node_id（兜底）
+
+   若无分支 → 目标节点 = outline 中下一个节点
+
+5. 标记目标节点为 "active"，更新 progress.current_node
+
+6. 存入 checkpoint_summaries（summary 字段）
+
+7. 存储 checkpoint_snapshots[current_node] = deep_copy(state_vars)
+
+8. 触发自动存档 → 覆盖 saves/{label}.json（原子写入）
+```
+
+**兜底策略说明**：分支条件全部不命中 → 取 LLM 列出的第一个分支。这要求 LLM 按优先级排列分支条件。
+
+### 4.10 下一轮准备与结局检测
+
+#### 4.10.1 正常轮次准备
+
+```
+1. bridge_text 提取（§4.2.3 bridge 节）：
+   取 bridge 之后匹配 current_name 的 narrative 正文
+   → 剥离分隔符 → 包装为 "--- narrative:main ---\n（正文）"
+
+2. round_count += 1
+
+3. 结局检测：
+   ├── checkpoint 为 "end"？→ 进入结局阶段（§5）
+   ├── Q 键被按下？→ 进入主动结束流程（§4.10.2）
+   └── 否 → 组装下一轮 Prompt → Round N+1
+```
+
+#### 4.10.2 主动结束（Q 键）
+
+```
+玩家按 Q
+    │
+    ▼
+打印 "确定结束游戏？(y/n)"
+├── n → 返回选项面板，继续等待
+└── y
+     ▼
+打印 "是否查看冒险日志？(y/n)"
+├── n → 直接返回主菜单
+└── y → 发送结局 Prompt（phased §1.10-E）
+        → 等待 LLM 生成结局段落 + 冒险日志
+        → 展示结局内容
+        → 按任意键返回主菜单
+```
 
 ---
 
