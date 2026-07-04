@@ -218,3 +218,10 @@ ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 耗子的嘴角抽搐了一下。
 他的手缓缓伸进风衣内袋。
 你不知道他掏出来的会是芯片，还是武器。
+
+推荐方案：范例锚定 + 滑动窗口
+
+[完整] Round 1 的完整交互
+[压缩] Round 2 ~ N-4 checkpoint 摘要
+[完整] Round N-3 ~ N-1 的完整交互
+[当前] 进度，状态 snapshot，bridge_text
