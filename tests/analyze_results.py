@@ -89,17 +89,24 @@ def parse_prompt_params(path: Path) -> dict:
     else:
         hard_cap = hi + 20  # default
 
-    # Bridge ratio
-    m = re.search(r"[约×]\s*(\d+)%", text)
-    if not m:
-        m = re.search(r"×\s*(0\.\d+)", text)
-    if m:
-        ratio_pct = float(m.group(1))
-        ratio = ratio_pct / 100.0 if ratio_pct > 1 else ratio_pct
+    # Bridge ratio / position
+    m_window = re.search(r"放在第\s*(\d+)\s*[-–]\s*(\d+)\s*段之后", text)
+    if m_window:
+        # v5 format: absolute window → infer ratio + bridge_at
+        bridge_lo = int(m_window.group(1))
+        bridge_hi = int(m_window.group(2))
+        bridge_at = (bridge_lo + bridge_hi) // 2
+        ratio = bridge_at / ((lo + hi) / 2)
     else:
-        ratio = 0.75
-
-    bridge_at = floor((lo + hi) / 2 * ratio)
+        m = re.search(r"[约×]\s*(\d+)%", text)
+        if not m:
+            m = re.search(r"×\s*(0\.\d+)", text)
+        if m:
+            ratio_pct = float(m.group(1))
+            ratio = ratio_pct / 100.0 if ratio_pct > 1 else ratio_pct
+        else:
+            ratio = 0.75
+        bridge_at = floor((lo + hi) / 2 * ratio)
 
     # Min tail
     min_tail = None
