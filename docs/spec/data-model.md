@@ -15,9 +15,8 @@
 
 ```
 game_state = GameState()
-game_state.story_config   = story_config           // Step 3 解析结果
-game_state.state_template = genre                  // "romance"|"adventure"|"mystery"
-game_state.state_vars     = templates[genre].vars  // 模板默认初始值（深拷贝）
+game_state.story_config   = story_config           // Step 3 + Step 3.5 解析结果（含 variables）
+game_state.state_vars     = init_from_variables(story_config.variables)  // 初始值深拷贝
 game_state.outline        = outline                // Step 4 解析+校验结果
   → 第一个节点 status = "active"，其余 = "pending"
 game_state.progress = {
@@ -55,7 +54,8 @@ game_state.rejected_changes = []
 3. 标记旧 current_node 为 "completed"
 
 4. 若有 if 条件行：
-   逐条评估（按物理顺序，取首个命中）：
+   逐条评估（按物理顺序，取首个命中）。
+   条件中的变量名按优先级解析（choice_dict > state_vars，见 block-spec.md §2）：
      if 条件 -> route <target_node_id>
      ├── 条件命中 → 目标节点 = target_node_id
      ├── 条件中引用的变量不存在 → 该条视为无效，跳过
@@ -89,8 +89,7 @@ game_state.rejected_changes = []
   version: 1,
   metadata: { label, created_at, updated_at, round_count },
   config: { temperature, ... },          // 不存储模型标识，模型以 .env 为准
-  story_config: { ... },
-  state_template: "romance",
+  story_config: { ..., variables: [...] },
   state_vars: { ... },
   outline: [{ node_id, title, goal, status, branches[] }],
   progress: {
@@ -136,26 +135,23 @@ load_save(filepath):
      ├── 不匹配 → 存档损坏（版本不支持）
 
   3. 校验关键字段存在：
-     story_config, state_vars, outline, progress, state_template
+     story_config (含 variables), state_vars, outline, progress
      ├── 任一缺失 → 存档损坏（结构不完整）
 
-  4. 校验 state_template 值在 TEMPLATES_PATH 中存在
-     ├── 不存在 → 存档损坏（模板被删除）
-
-  5. 校验 progress.current_node 指向的 node_id 在 outline 中存在
+  4. 校验 progress.current_node 指向的 node_id 在 outline 中存在
      ├── 不存在 → 存档损坏（数据不一致）
 
-  6. 校验通过 → 构建 GameState：
-     ├── 状态变量值以存档为准（模板仅提供类型定义校验）
+  5. 校验通过 → 构建 GameState：
+     ├── 状态变量值以存档为准（story_config.variables 提供类型定义用于运行时校验）
      ├── outline 节点状态以存档为准
      └── config（temperature 等）以存档为准，模型以 .env 为准
 
-  7. 返回 GameState → 进入叙事循环（见 exec-flow.md §4）
+  6. 返回 GameState → 进入叙事循环（见 exec-flow.md §4）
 
   以上任一校验失败 → 存档损坏（致命），永久失效，提示用户后删除文件并返回主菜单。
 ```
 
-> **模板独立性**：存档自包含——一次游戏创建后，其状态变量集、大纲结构均以存档为准。`templates/states.json` 的后续变更不影响已有存档。模板文件仅在加载时用于验证 `state_template` 标识存在、运行时用于校验 state 变更的类型合法性。
+> **变量自包含**：存档自包含——一次游戏创建后，其变量定义（`story_config.variables`）、大纲结构均以存档为准。运行时校验 state 变更的类型合法性时，以存档内的 `story_config.variables` 为类型定义来源。
 
 ### 3.5 存档字段说明
 
@@ -178,7 +174,6 @@ load_save(filepath):
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `TEMPLATES_PATH` | `templates/states.json` | 状态模板文件路径 |
 | `SAVE_DIR` | `saves/` | 存档目录 |
 
 ### A.2 共创阶段
@@ -210,7 +205,6 @@ load_save(filepath):
 | `MAX_NARRATION_CHARS` | 4000 | 正文长度上限，超出则程序在完整段落处截断 |
 | `BRIDGE_MIN_RATIO_BEFORE_END` | 0.25 | bridge 距段末最少字符数比例 |
 | `AUTO_ADVANCE_DELAY_MS` | 500 | 自动展示模式下段落间延迟（毫秒） |
-| `GENRE_TEMPLATE_MAP` | `{"romance": "恋爱", "adventure": "冒险", "mystery": "悬疑"}` | 题材到模板的映射表 |
 | `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏 |
 
 ---
