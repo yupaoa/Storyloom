@@ -1,12 +1,53 @@
 #!/usr/bin/env python3
-"""Analyze prompt time limits and compare against actual test results.
+r"""Analyze prompt time limits and compare against actual test results.
 
 Usage:
-  # Prompt only (no test data)
+  # Prompt only (no test data yet — just print the time budget)
   python3 tests/analyze_results.py --prompt tests/data/prompts/default.txt
 
-  # Prompt + test output directory
-  python3 tests/analyze_results.py --prompt tests/data/prompts/default.txt --output-dir tests/data/output/default/
+  # Prompt + test output directory (compare actual vs expected)
+  python3 tests/analyze_results.py --prompt tests/data/prompts/default.txt \
+      --output-dir tests/data/output/default/
+
+─── Time limit formulas (from prompt-design.md §4.3) ─────────────────
+
+Two limits are calculated from the prompt's segment parameters:
+
+  guaranteed (保证时限)
+    = MIN × (1 − RATIO) × AUTO_ADVANCE_DELAY_MS / 1000
+    The absolute minimum time the next round's LLM has to generate,
+    assuming the player skips through the shortest possible pre-bridge
+    content at maximum auto-advance speed.
+
+  expected (当前时限)
+    = BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000
+    where BRIDGE_AT = floor((MIN + MAX) / 2 × RATIO)
+    The typical time before the player reaches the bridge marker,
+    assuming auto-advance at the configured delay per segment.
+    This is the LLM's generation deadline for seamless playback.
+
+Parameters are extracted from the prompt text:
+  - MIN, MAX  → "本轮生成 30-50 个叙事段"
+  - RATIO      → "约 75% 处" or "× 0.75"
+  - AUTO_ADVANCE_DELAY_MS → from data-model.md §A.5 (default 500)
+
+The bridge_text (User Message content) is NOT a time parameter — it is
+the previous round's tail text fed as input to the LLM.  Only MIN, MAX,
+and RATIO affect the time budget.
+
+─── Output columns ──────────────────────────────────────────────────
+
+  File      → test output filename
+  Time      → actual LLM generation time (from file header)
+  Segments  → count of numbered narrative segments in the output
+  vs Limit  → actual_time − expected_limit (negative = within budget)
+  Status    → ✓ within limit  /  ✗ OVER limit
+
+─── Reference ───────────────────────────────────────────────────────
+
+  docs/spec/prompt-design.md  §4.3  (formulas, worked example)
+  docs/spec/data-model.md     §A.4  (SEGMENTS_PER_ROUND_*)
+  docs/spec/data-model.md     §A.5  (AUTO_ADVANCE_DELAY_MS)
 """
 
 import argparse
