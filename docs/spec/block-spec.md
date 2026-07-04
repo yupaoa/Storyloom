@@ -1,164 +1,149 @@
-# 区块分隔符与 Prompt 格式规范
+# XML 元素规范
 
-> **定位**：LLM 输出的结构化区块定义——语法、路由机制、状态校验规则。  
+> **定位**：LLM 输出的 XML 元素定义——语法、路由机制、状态校验规则。  
 > **配套文档**：
 > - [`exec-flow.md`](./exec-flow.md) — 程序执行管线（如何组装 Prompt、解析响应、展示内容）
 > - [`data-model.md`](./data-model.md) — 数据模型、存档、常量
->
->
+> - [`prompt-design.md`](./prompt-design.md) — Round 1 Prompt 模板中的 XML 格式定义
 
 ---
 
-## §1 区块分隔符速查
+## §1 XML 元素速查
 
-LLM 输出采用结构化标记，程序按正则 `^--- (\w+)(?::(\w+))? ---$` 提取区块类型和分支名。全部使用英文命名。
+LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `xml.etree.ElementTree` 解析。
 
-部分区块支持**分支名**：`--- block:branch ---`（缺省 branch 即为 `main`），用于段内路由。
+### 1.1 根元素
 
-| 区块标记 | 必需 | 支持分支名 | 说明 |
-|----------|------|----------|------|
-| `--- narrative ---` | ✅ 必选 | ✅ | 故事叙述正文 |
-| `--- options ---` | 可选 | ✅ | 选项列表。第一行 `choice: 选择名` |
-| `--- state ---` | 可选 | ✅ | 数据变更 + 段内路由 |
-| `--- checkpoint ---` | 可选 | ❌ 固定 main | 大纲路由。`node <id>` 或 `end` |
-| `--- bridge ---` | 通常必选 | ❌ 固定 main | 下一轮衔接标记。结局轮同样必选（程序在 bridge 处检测 ending_flag 并提交独立冒险日志调用） |
-| `=== story_config ===` | 共创必选 | — | 故事设定（共创阶段） |
-| `=== outline ===` | 共创必选 | — | 大纲树（共创阶段） |
-| `=== variables ===` | 共创必选 | — | 变量定义（共创阶段 Step 3.5） |
+| 元素 | 说明 |
+|------|------|
+| `<story>` | 根元素，包裹全部输出。所有其他元素均为其子元素 |
 
-> **共创 vs 叙事**：共创用 `=== xxx ===`，叙事用 `--- xxx ---`。两者不会同时出现。
+### 1.2 子元素一览
+
+| 元素 | 标签 | 位置限制 | 出现次数 | 说明 |
+|------|------|---------|---------|------|
+| 叙事段 | `<seg>` | 任意 | 0-N | 每个叙事段。n 属性为全局编号，text node 为内容 |
+| 分支容器 | `<branch>` | 任意 | 0-N | 分支叙事容器。name 属性标识分支名。内含 `<seg>` 子元素 |
+| 选项 | `<choice>` | 仅 bridge 前 | 0-1 | 玩家选项列表。id 属性为变量名。内含 `<opt>` 子元素 |
+| 选项项 | `<opt>` | 含在 `<choice>` 内 | 2-5 | 单个选项。key 为字母键，branch 为分支名 |
+| 状态变更 | `<set>` | 仅 bridge 前 | 0-N | 状态变量变更。var/op/val 属性为必填，if 属性可选 |
+| 检查点 | `<checkpoint>` | 仅 bridge 前 | 0-1 | 大纲路由。node/summary 属性。内含 `<route>` 子元素 |
+| 路由 | `<route>` | 含在 `<checkpoint>` 内 | 0-N | 分支路由。if 属性可选，target 指定目标节点 |
+| **桥接** | **`<bridge/>`** | — | **恰好 1 次** | 自闭合。标记交互区与叙事区的分界 |
+
+> **关键顺序约束**：`<choice>`、`<set>`、`<checkpoint>` 必须出现在 `<bridge/>` 之前。
+> `<bridge/>` 之后仅允许 `<seg>` 和 `<branch>`，严格禁止其他元素。
+
+### 1.3 完整结构示例
+
+```xml
+<story>
+  <seg n="1">雨水敲击着头顶的金属雨棚，霓虹灯在积水里折射出破碎的光。</seg>
+  <seg n="2">耗子抬起眼，义眼红光在昏暗中微微闪烁。</seg>
+  <seg n="3">耗子: 林焰，坐。</seg>
+  <choice id="approach">
+    <opt key="A" branch="direct">直视对方，直截了当</opt>
+    <opt key="B" branch="cautious">先环顾四周，压低声音</opt>
+  </choice>
+  <set var="信任度" op="+" val="5" if="approach==1"/>
+  <checkpoint node="ch2_confrontation" summary="在霓虹深渊与耗子接头，选择了接触方式。"/>
+  <bridge/>
+  <branch name="direct">
+    <seg n="4">你直视耗子的义眼，那一点红光在昏暗中微微闪烁。</seg>
+    <seg n="5">林焰: 芯片在哪儿？我没时间绕弯子。</seg>
+  </branch>
+  <branch name="cautious">
+    <seg n="6">你的目光扫过昏暗的酒吧，角落里几个穿皮夹克的人正盯着你们。</seg>
+  </branch>
+</story>
+```
 
 ---
 
-## §2 内容编号规范
+## §2 编号规范
 
-> **目的**：让 LLM 在生成过程中自我计量，替代字数估算。编号类似文本编辑器中的行号——LLM 生成每个叙事段时标注编号，程序解析后剥离编号展示。
+> **目的**：让 LLM 在生成过程中自我计量，替代字数估算。编号类似文本编辑器中的行号——LLM 生成每个叙事段时在 `n` 属性中标注，程序解析后剥离展示。
 
 ### 2.1 编号规则
 
-| 内容类型 | 编号方式 | 示例 | 说明 |
-|----------|---------|------|------|
-| `narrative:*` 内每个展示段 | 数字，全局递增 | `1.` `2.` `3.` ... | 所有 narrative 块共享同一序列，按生成物理顺序 |
-| `options` 内选项行 | 字母 | `A.` `B.` `C.` | 不占用数字序列 |
-| `choice:` 声明行 | ❌ 无编号 | `choice: approach` | 元数据，不展示 |
-| `state` 内各行 | ❌ 无编号 | `@var 体力 -10` | 数据指令 |
-| `checkpoint` | ❌ 无编号 | `node ch2_xxx` | 路由标记 |
-| `bridge` | ❌ 无编号 | `--- bridge ---` | 分隔符 |
+| 元素 | 编号方式 | 示例 |
+|------|---------|------|
+| `<seg>` 叙事段 | n 属性，全局连续递增 | `<seg n="1">` ... `<seg n="12">` |
+| `<opt>` 选项项 | key 属性，字母 | `key="A"` `key="B"` |
+| 其他元素 | ❌ 无编号 | 元数据/分隔符 |
 
-### 2.2 完整示例
+### 2.2 Prompt 编号指令
 
-```
---- narrative:main ---
-1. 雨水敲击着头顶的金属雨棚，霓虹灯在积水里折射出破碎的光。
-2. 耗子抬起眼，义眼红光在昏暗中微微闪烁。
-3. 耗子: 林焰，坐。
-4. 他把一杯泛着蓝色荧光的液体推到你面前。
-
---- options:main ---
-choice: approach
-A. 直视对方，直截了当 -> direct
-B. 先环顾四周，压低声音 -> cautious
-
---- state:main ---
-if approach == 1 -> @var 信任度 +5
-
---- checkpoint ---
-node ch2_confrontation
-summary: 在霓虹深渊与耗子接头，选择了接触方式。
-
---- bridge ---
-
---- narrative:direct ---
-5. 你直视耗子的义眼，那一点红光在昏暗中微微闪烁。
-6. 林焰: 芯片在哪儿？我没时间绕弯子。
-7. 耗子的嘴角抽搐了一下，手缓缓伸进风衣内袋。
-
---- narrative:cautious ---
-8. 你的目光扫过昏暗的酒吧，角落里几个穿皮夹克的人正盯着你们。
-9. 林焰: 先说清楚，这地方有多少人在盯着你。
-```
-
-### 2.3 Prompt 编号指令
-
-> 以下为注入 System Prompt 格式约束部分的编号指令。程序按 `SEGMENTS_PER_ROUND_MIN`/`MAX` 替换目标范围。
+> 以下为注入 Round 1 Prompt 格式规范部分的编号约束。
 
 ```
-编号规则（重要）：
-
-1. 每个叙事段（narrative 内的展示单位）前加数字编号，从 1 开始顺序递增。
-   所有 narrative 块（包括不同 branch 的）共享同一条编号序列。
-
-2. 本次生成 {MIN}-{MAX} 个叙事段。bridge 插入在第 ~{RATIO} 位置
-   （约第 {BRIDGE_AT} 段之后）。编写到接近该段数时放置 bridge。
-
-3. 选项行用字母编号（A/B/C），不占用数字序列。
-
-4. 段格式（重要）：每个叙事段只能为旁白或对话，严格禁止混合。
-   - 旁白段：纯叙述描写，不含角色对话。一段只说一件事，15-40 字。
-   - 对话段：纯角色对话。格式固定为 `角色名: 对话内容`（英文半角冒号，冒号后空一格，对话不加引号）。
-     角色动作、表情、语气单独成旁白段。每段不超过 50 字。
-   段与段之间空行分隔。
+- 所有 <seg> 的 n 从 1 开始，全局连续递增，不重复不跳号
+- {MIN}-{MAX} 个叙事段。bridge 放在交互与叙事分界处，约总段数一半
+- 对话段：`角色名: 内容`（英文半角冒号，冒号后空一格，对话不加引号）
+- 旁白段：15-40 字，一段只说一件事
 ```
 
-### 2.4 程序解析规则
+### 2.3 程序解析规则
 
-**叙事段解析**：
+**XmlParser（xml_parser.py）解析流程**：
 
 ```python
-segments = []
-last_num = 0
+# 使用 xml.etree.ElementTree 解析
+# 关键步骤：
 
-for narrative_block in matching_blocks(current_branch):
-    for line in narrative_block.content.strip().split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-        match = re.match(r'^(\d+)\.\s+(.*)', line)
-        if match:
-            num = int(match.group(1))
-            text = match.group(2)
-            segments.append((num, text))
-            last_num = num
-        else:
-            # 无编号行 → 视为上一段的延续（LLM 可能忘了编号）
-            if segments:
-                segments[-1] = (segments[-1][0], segments[-1][1] + '\n' + line)
+# 1. 提取 XML（去除 markdown 围栏、分割 "---" 前导行）
+xml_str = extract_xml(text)
+
+# 2. 解析为 ElementTree
+root = ET.fromstring(xml_str)
+
+# 3. 找到 bridge 位置
+children = list(root)
+bridge_idx = [i for i, el in enumerate(children) if el.tag == "bridge"][0]
+
+# 4. 分离 pre/post
+pre_children = children[:bridge_idx]
+post_children = children[bridge_idx + 1:]
+
+# 5. 收集 <seg> 元素（包括 <branch> 内的嵌套 seg）
+for el in pre_children:
+    if el.tag == "seg":
+        n = int(el.get("n"))
+        text = el.text.strip()
+        segments.append(Segment(n, text, "pre"))
+    elif el.tag == "branch":
+        for seg_el in el.findall("seg"):
+            segments.append(Segment(n, seg_el.text.strip(), "pre", branch=el.get("name")))
+
+# 6. 同理处理 post_children
 ```
 
-**对话段识别**（可选，用于未来角色颜色、对话日志等功能）：
+**对话段识别**（可复用旧逻辑，XML 文本节点保持相同格式）：
 
 ```python
-import re
-
 def classify_segment(text: str) -> tuple[str, str | None, str]:
     """Return (type, speaker_name | None, content).
     
     Dialogue format: 角色名: 对话内容
     - English colon ':' (U+003A), one space after colon, no quotes.
     - Program accepts both '：' (U+FF1A) and ':' (U+003A) as delimiter.
-    - Speaker name: 1-12 chars, Chinese/English/digits/underscore/dot/brackets.
-      Supports names like: 耗子, Dr.Chen, [系统], AIKO_01.
     """
-    # Match: speaker name (1-12 code points, loose) + colon + content
     m = re.match(r'^([一-鿿\w\[\]·.]{1,12})[：:]\s?(.*)', text)
     if m:
         return ("dialogue", m.group(1), m.group(2))
     return ("narration", None, text)
 ```
 
-> **设计说明**：对话格式使用英文冒号 `:` 作为分隔符（示例中始终使用 `:`）。程序解析时同时接受中英文冒号以增强鲁棒性。角色名支持中文、英文、数字、下划线、方括号和点号，覆盖 `Dr.Chen`、`[系统]`、`AIKO_01` 等命名场景。对话不加引号以消除 LLM 在 `""`/`""`/`""` 之间的标点混用问题。
-
-### 2.5 编号校验
+### 2.4 编号校验
 
 | 检查 | 处理 |
 |------|------|
-| 起始编号 ≠ 1 | 记警告，接受 |
-| 编号重复 | 静默接受，记警告 |
-| 编号跳号（如 3→5） | 静默接受，记警告 |
+| 起始编号 ≠ 1 | 记入 numbering_issues，接受 |
+| 编号重复/不连续 | 记入 numbering_issues，接受 |
 | 总段数 < MIN 或 > MAX | 接受，记入 rejected_changes，下轮反馈 |
-| bridge 位置偏离 >20% | 接受，记入 rejected_changes，下轮反馈 |
+| bridge 位置偏离过大 | 接受，记入 rejected_changes，下轮反馈 |
 
-> **宽容原则**：内容质量优先于编号准确性。编号是 LLM 的辅助工具，不是硬性约束。所有编号相关偏差均为"接受但反馈"，不触发重试。
+> **宽容原则**：内容质量优先于编号准确性。编号是 LLM 的辅助工具，不是硬性约束。
 
 ---
 
@@ -174,157 +159,189 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 **路由规则**：
 
 ```
-程序从头到尾顺序扫描区块标记行：
-  区块 branch == current_branch 或 branch == "main"？
-  ├── 是 → 执行该区块内容
-  └── 否 → 跳过，继续
+程序从头到尾顺序扫描 <story> 的子元素：
+  元素在 bridge 之前？
+  ├── 是 → 检查标签类型
+  │   ├── <seg> → 如果不在 <branch> 内或 current_branch == main → 展示
+  │   ├── <branch> → 如果 name == current_branch → 展示其内部 <seg>
+  │   ├── <choice> → 缓存到展示队列
+  │   ├── <set> → 立即执行
+  │   └── <checkpoint> → 立即执行
+  └── 否（bridge 之后）
+      ├── <seg> → 如果不在 <branch> 内 → 展示（作为 bridge_text）
+      ├── <branch name="X"> → 如果 X == current_branch → 展示其内部 <seg>
+      └── 其他元素 → 错误 / 拒绝
 ```
 
 **`current_branch` 修改来源**：
 
-| 来源 | 语法 | 示例 |
+| 来源 | 机制 | 示例 |
 |------|------|------|
-| options 选项行 | `-> branch` | `1. 接过芯片 -> took_chip` |
-| state 无条件 | `@branch 值` | `@branch desperate` |
-| state 条件结果 | `if ... -> @branch 值` | `if 体力 < 20 -> @branch desperate` |
+| 玩家选择 | 选中的 `<opt>` 的 `branch` 属性 | 选 `key="A"` 且 `branch="direct"` → `current_branch = "direct"` |
 
-**`choice_dict` 修改来源**：options 第一行声明 choice，玩家选择后 `choice_dict["选择名"] = 选择编号`。
+**`choice_dict` 修改来源**：`<choice>` 的 `id` 属性声明 choice 名，玩家选择后 `choice_dict[id] = 选项字母序号`。
 
-> checkpoint、bridge 固定为 `main`，不参与段内路由。
->
-> **条件变量解析优先级**（适用于所有条件求值场景：options `@if`、state `if`、checkpoint `if → route`）：`choice_dict > state_vars`。程序先在 choice_dict 中查找变量名，未命中则查找 state_vars。
+> **条件变量解析优先级**（适用于所有条件求值场景）：`choice_dict > state_vars`。
 
 ---
 
-## §4 各区块语法
+## §4 各元素语法
 
-### `--- narrative ---`
+### `<seg>`
 
-纯叙事文本，支持分支名实现段内分支：
-```
---- narrative:main ---
-（主分支叙事……）
+纯叙事文本。`n` 属性全局连续编号，text node 为叙事内容：
 
---- narrative:took_chip ---
-（仅 current_branch=="took_chip" 时展示……）
+```xml
+<seg n="1">你推开厚重的橡木门，冷风裹挟着雪花卷入室内。</seg>
+<seg n="2">耗子: 芯片在哪儿？我没时间绕弯子。</seg>
 ```
 
-### `--- options ---`
+约束：
+- `n` 从 1 开始，全局递增
+- 旁白（15-40 字）或对话（`角色名: 内容`，≤50字）
+- 一段只做一件事，禁止混合旁白和对话
 
-第一行必须声明 `choice`。选项行可附带 `@if:条件` 和 `-> branch`：
-```
---- options:main ---
-choice: chip_choice
-1. 接过芯片 -> took_chip
-2. 暂时离开 @if: 理智值 >= 30 -> left
-```
-处理：展示选项 → 玩家选择 → `choice_dict["chip_choice"] = N`（N 为选项编号 1/2/3...）→ 若选项有 `-> branch`，设置 `current_branch = branch`。
+### `<branch>`
 
-> **约束**：同一剧情段内所有 `--- options ---` 的 choice 必须唯一。
+分支叙事容器。`name` 属性标识分支名，内含 `<seg>` 子元素：
 
-### `--- state ---`
-
-无条件变更直接执行；条件变更每行独立评估，命中即执行：
-```
---- state:main ---
-@var 理智值 -10
-if chip_choice == 1 -> @var 线索 +神秘芯片, @branch took_chip
-if 信任度 >= 50 and 好感度 >= 30 -> @var 关系阶段 =朋友
+```xml
+<branch name="direct">
+  <seg n="4">你直视耗子的义眼。</seg>
+  <seg n="5">林焰: 芯片在哪儿？</seg>
+</branch>
 ```
 
-**条件语法规则**：
+约束：
+- bridge 之前的 `<branch>` 用于预路由（多选项的局部小叙事）
+- bridge 之后的 `<branch>` 用于选项后果分支
+- `name` 必须与 `<opt>` 的 `branch` 属性精确对应
+- `<branch>` 内只能有 `<seg>`，不能嵌套其他元素
 
-| 元素 | 说明 |
-|------|------|
-| 变量名 | 中文，必须引用 state_vars 中存在的变量或同段 options 的 `choice:` 声明值。程序按优先级解析（choice_dict > state_vars） |
-| 运算符 | `==` `>=` `<=` `>` `<` `has` |
-| 组合 | `and` / `or`。每条条件最多使用一次 and 或一次 or，不允许混合 |
-| 动作 | `@var 变量 操作 值` / `@branch 值` / `route node_id`（仅 checkpoint） |
-| 关键字 | `if` `->` `@var` `@branch` 固定英文 |
+### `<choice>`
 
-**`@var` 操作符**：
+选项列表。`id` 属性为变量名（中文，2-5 字）。内含 2-5 个 `<opt>` 子元素：
 
-| 操作 | 语法 | 示例 | 适用类型 |
-|------|------|------|----------|
-| 加减 | `@var 变量 +N` / `@var 变量 -N` | `@var 体力 -10` | number |
-| 赋值 | `@var 变量 =值` | `@var 所属势力 =叛军` | number / string |
-| 追加 | `@var 变量 +元素` | `@var 线索 +神秘芯片` | list |
-| 移除 | `@var 变量 -元素` | `@var 背包 -旧钥匙` | list |
-
-> **类型说明**：变量仅三种类型——`number`（范围 [0, 100]）、`string`（自由文本，替代枚举）、`list`（元素为 string）。不设枚举类型。
-
-> **choice 条件规范**：`if 芯片选择 == 1` 中的 `芯片选择` 必须与同段 `--- options ---` 的 `choice:` 声明值完全一致。禁止使用 `选择1`、`选项1` 等占位词——程序校验时引用不存在的变量名将被拒绝。
-
-### `--- checkpoint ---`
-
-仅做大纲路由，**不修改 state_vars**。如需数据变更，先执行 `--- state ---`：
+```xml
+<choice id="chip_choice">
+  <opt key="A" branch="took_chip">接过芯片</opt>
+  <opt key="B" branch="left" if="理智值 >= 30">暂时离开</opt>
+</choice>
 ```
---- checkpoint ---
-node ch2_discovery
-if 信任度 >= 50 -> route ch3_ally
-if 信任度 < 50 -> route ch3_betrayal
-summary: 在酒吧获得加密芯片……
-```
-结局节点：
-```
---- checkpoint ---
-end
-summary: 所有线索汇集……
-```
-- `node <id>` 或 `end`：标记到达的节点
-- `if 条件 -> route <next_node_id>`：分支路由，取首个命中。无条件命中 → 取第一个分支的 next_node
-- `summary:`：checkpoint 摘要（必填）
 
-### `--- bridge ---`
+#### `<opt>` 属性
 
-标记下一轮 Prompt 组装的触发点。LLM 应先完整生成所有内容块，再选择合适位置插入 bridge。bridge 之后至段末为 bridge_text。bridge 的时序模型（流式 + 首段到达时限）见 [`exec-flow.md` §4.3](./exec-flow.md)。
-
-**bridge 之后的区块限制**：
-
-| 区块 | 允许 | 说明 |
+| 属性 | 必填 | 说明 |
 |------|------|------|
-| `--- state ---` | ❌ | 底层数据变更必须在 bridge 之前 |
-| `--- checkpoint ---` | ❌ | 大纲路由必须在 bridge 之前 |
-| `--- options ---` | ❌ | 选项交互必须在 bridge 之前 |
-| `--- narrative:any_branch ---` | ✅ | 作为不同路径的过渡/悬念文本变体 |
+| `key` | 是 | 字母键 `A`/`B`/`C`/`D`。展示时转为数字选项 |
+| `branch` | 是 | 选中后设置的 `current_branch`，必须对应 bridge 之后同名的 `<branch name>` |
+| `if` | 否 | 条件表达式，满足才可选。格式 `变量名 运算符 值` |
 
-**bridge_text 提取流程**：
+处理逻辑：展示选项 → 玩家选择 → `choice_dict["chip_choice"] = N` → 设置 `current_branch = opt.branch`。
 
-```
-程序解析到 --- bridge --- 后：
-  1. 记录 bridge 之后至段末的全部内容
-  2. 扫描其中的 --- narrative:xxx --- 区块
-  3. 取 branch == current_branch 或 branch == "main" 的那一条（取第一个匹配）
-  4. 剥离该区块的分隔符标记行，保留纯正文
-  5. 组装下轮 User Message：
-       "--- narrative:main ---\n（提取的正文）"
-  6. 其余命名 narrative 跳过（不展示、不注入下轮 Prompt）
-```
+> **约束**：同一个 `<story>` 内最多一个 `<choice>`。
 
-> **效果**：玩家看到其选择路径对应的过渡文本；下一轮 LLM 收到的 User Message 是干净的 `--- narrative:main ---`，不含其他分支残留。
+### `<set>`
 
-**多分支场景**：若本段 checkpoint 为多分支节点（在 bridge 之前已处理），bridge 之后可包含多个命名 `--- narrative ---`，分别对应各分支的承接文本。提取机制保证只有当前路径的那一条被注入下一轮。
+状态变更。自闭合元素，通过属性定义操作：
 
-**结局轮的 bridge 位置**：当 checkpoint 为 `end` 时，bridge **必选**，插入在 `end` 之后、尾部缓冲 narrative 之前：
-
-```
---- checkpoint ---
-end
-summary: ...
---- bridge ---               ← 必选
---- narrative:main ---       ← 缓冲叙事（用户无感知）
-（缓冲正文……）
+```xml
+<set var="体力" op="-" val="10"/>
+<set var="信任度" op="+" val="5" if="approach==1"/>
+<set var="线索" op="+" val="神秘芯片"/>
+<set var="所属势力" op="=" val="叛军"/>
+<set var="背包" op="-" val="旧钥匙"/>
 ```
 
-程序在 bridge 处检测到 `ending_flag` → **不组装正常下一轮 Prompt**，改为提交冒险日志 Prompt（独立 LLM 调用，见 `exec-flow.md` §5.4）。尾部 narrative 作为缓冲确保冒险日志有充裕响应时间。展示完 bridge_text 和 adventure_log 后，返回主菜单。
+**属性**：
 
-> **设计考量**：bridge 位置不宜太靠后，确保 bridge_text 有足够长度供 LLM 响应；位置由 `BRIDGE_SEGMENT_RATIO` 常量控制（见 data-model.md §A.4）。
+| 属性 | 必填 | 说明 |
+|------|------|------|
+| `var` | 是 | 变量名（中文） |
+| `op` | 是 | 操作符：`+`（number 加减 / list 追加），`-`（number 减 / list 移除），`=`（赋值） |
+| `val` | 是 | 操作值 |
+| `if` | 否 | 条件表达式。满足才执行。格式 `变量名 运算符 值`，用 `and`/`or` 组合（最多一个） |
+
+**类型对应**：
+
+| 类型 | 支持操作 | 示例 |
+|------|---------|------|
+| number | `+N`、`-N`、`=N` | `op="-" val="10"`（减10） |
+| string | `=值` | `op="=" val="叛军"` |
+| list | `+元素`、`-元素` | `op="+" val="神秘芯片"` |
+
+> **条件语法规则**：
+> - 变量名引用顺序：`choice_dict`（当前轮选项结果）> `state_vars`
+> - 运算符：`==` `>=` `<=` `>` `<` `has`
+> - 组合：最多一次 `and` 或一次 `or`，不允许混合
+
+### `<checkpoint>`
+
+大纲路由节点。自闭合元素，纯路由不修改 state_vars。可选内含 0-N 个 `<route>` 子元素：
+
+```xml
+<checkpoint node="ch2_discovery" summary="在酒吧获得加密芯片，决定下一步行动。">
+  <route if="信任度 >= 50" target="ch3_ally"/>
+  <route if="信任度 < 50" target="ch3_betrayal"/>
+</checkpoint>
+```
+
+结局节点（无 `<route>` 子元素）：
+
+```xml
+<checkpoint node="end" summary="所有线索在此交汇，故事走向终点。"/>
+```
+
+**属性**：
+
+| 属性 | 必填 | 说明 |
+|------|------|------|
+| `node` | 是 | 节点 ID（`end` 为结局）或 `end`。必须原样复制大纲 ID，禁止拼接后缀 |
+| `summary` | 是 | 1-2 句中文摘要 |
+
+**`<route>` 属性**：
+
+| 属性 | 必填 | 说明 |
+|------|------|------|
+| `if` | 否 | 条件表达式。无条件的第一个 route 为默认分支 |
+| `target` | 是 | 目标节点 ID，必须存在于大纲中 |
+
+路由评估：顺序评估，第一个命中条件执行。无条件命中的 `<route>` 取第一个。
+
+### `<bridge/>`
+
+自闭合元素，恰好出现一次。标记交互区与叙事区的硬分界：
+
+```xml
+<bridge/>
+```
+
+**分界规则**：
+
+| 区域 | 允许元素 | 禁止元素 |
+|------|---------|---------|
+| bridge 之前（交互区） | `<seg>`, `<branch>`, `<choice>`, `<set>`, `<checkpoint>` | — |
+| bridge 之后（叙事区） | `<seg>`, `<branch>` | `<choice>`, `<set>`, `<checkpoint>` |
+
+**bridge_text 提取**：
+
+```
+程序处理到 <bridge/> 后：
+  1. 记录 bridge 之后至 </story> 的全部内容
+  2. 提取其中 <seg> 和 <branch> 内的 <seg> 的文本节点
+  3. 合并为纯文本（去除 XML 标签）
+  4. 作为下一轮 Round N 消息的 bridge_text 字段
+```
+
+**多分支场景**：bridge 之后多个 `<branch>` 分别对应各选项后果叙事。`current_branch` 决定展示哪个分支的内容。未选中的分支不展示、不注入下一轮。
+
+**结局轮**：当 `checkpoint node="end"` 时，`<bridge/>` 仍是必选项。程序在 bridge 处检测到 `ending_flag`，提交冒险日志 Prompt（独立 LLM 调用）。
 
 ---
 
 ## §5 状态变更校验
 
-处理 `--- state ---` 中每条变更，逐条独立执行（一条失败不影响其他）。
+处理 `<set>` 元素，逐条独立执行（一条失败不影响其他）。
 
 **校验规则**：
 
@@ -339,21 +356,26 @@ summary: ...
 **伪代码**：
 
 ```
-for each line in state_block:
-    parse: @var var_name operator value
+for each <set> element:
+    var = set.get("var")
+    op = set.get("op")
+    val = set.get("val")
+    condition = set.get("if")
 
-    var_def = find_var_in_story_config(var_name)
+    if condition and not evaluate(condition):
+        continue    # 条件不满足，跳过
+
+    var_def = find_var_in_story_config(var)
     if not var_def:
-        rejected_changes.append({line, reason: "变量不存在"})
+        rejected_changes.append({set_element, reason: "变量不存在"})
         continue
 
-    valid = validate(var_def.type, operator, value)
-
+    valid = validate(var_def.type, op, val)
     if not valid:
-        rejected_changes.append({line, reason: valid.error})
+        rejected_changes.append({set_element, reason: valid.error})
         continue
 
-    result = apply(state_vars[var_name], operator, value)
+    result = apply(state_vars[var], op, val)
     if var_def.type == "number":
         result = clamp(result, 0, 100)
 ```
