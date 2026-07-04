@@ -1,0 +1,288 @@
+"""Parse LLM XML output into structured data."""
+
+import re
+from dataclasses import dataclass, field
+from xml.etree import ElementTree as ET
+
+
+class ParseError(Exception):
+    """Raised when XML output is malformed or violates rules."""
+    pass
+
+
+@dataclass
+class Segment:
+    """A single narrative segment."""
+    n: int
+    text: str
+    position: str  # "pre" or "post"
+    branch: str | None = None
+
+
+@dataclass
+class SetOperation:
+    """A state change operation."""
+    var: str
+    op: str
+    val: str
+    condition: str | None = None
+
+
+@dataclass
+class RouteTarget:
+    """A checkpoint route target."""
+    condition: str | None
+    target: str
+
+
+@dataclass
+class ParsedOutput:
+    """Structured result of parsing LLM XML output."""
+    segments: list[Segment] = field(default_factory=list)
+    total_segments: int = 0
+    pre_segments: int = 0
+    post_segments: int = 0
+    choice_id: str | None = None
+    opt_branches: list[str] = field(default_factory=list)
+    sets: list[SetOperation] = field(default_factory=list)
+    checkpoint_node: str | None = None
+    checkpoint_summary: str | None = None
+    routes: list[RouteTarget] = field(default_factory=list)
+    bridge_found: bool = False
+    bridge_text: str = ""
+    numbering_issues: list[str] = field(default_factory=list)
+    pre_branches: list[str] = field(default_factory=list)
+    post_branches: list[str] = field(default_factory=list)
+    parse_error: str | None = None
+
+
+class XmlParser:
+    """Parse LLM XML narrative output."""
+
+    PROHIBITED_POST_BRIDGE = {"choice", "set", "checkpoint"}
+
+    @staticmethod
+    def parse(text: str) -> ParsedOutput:
+        """Parse LLM output text into ParsedOutput.
+
+        Args:
+            text: Raw LLM output, may contain markdown fences.
+
+        Returns:
+            ParsedOutput with structured data.
+
+        Raises:
+            ParseError: If XML is malformed or violates rules.
+        """
+        xml_str = XmlParser._extract_xml(text)
+        if xml_str is None:
+            raise ParseError("Missing <story>")
+
+        root = XmlParser._parse_xml(xml_str)
+        children = list(root)
+
+        # Find bridge
+        bridge_idx = XmlParser._find_bridge(children)
+
+        pre_children = children[:bridge_idx]
+        post_children = children[bridge_idx + 1:]
+
+        result = ParsedOutput()
+        result.bridge_found = True
+
+        # Check post-bridge prohibited
+        prohibited = []
+        for el in post_children:
+            if el.tag in XmlParser.PROHIBITED_POST_BRIDGE:
+                prohibited.append(el.tag)
+        if prohibited:
+            raise ParseError(
+                f"Prohibited elements after bridge: {', '.join(prohibited)}"
+            )
+
+        # Collect segments
+        XmlParser._collect_segments(pre_children, "pre", result)
+        XmlParser._collect_segments(post_children, "post", result)
+        result.total_segments = len(result.segments)
+        result.pre_segments = sum(1 for s in result.segments if s.position == "pre")
+        result.post_segments = sum(
+            1 for s in result.segments if s.position == "post"
+        )
+
+        # Check numbering
+        numbers = [s.n for s in result.segments]
+        if numbers:
+            if numbers[0] != 1:
+                result.numbering_issues.append(f"starts at {numbers[0]}")
+            for i in range(1, len(numbers)):
+                if numbers[i] <= numbers[i - 1]:
+                    result.numbering_issues.append(
+                        f"non-sequential: {numbers[i-1]}->{numbers[i]}"
+                    )
+                    break
+
+        # Extract choice
+        XmlParser._extract_choice(pre_children, result)
+
+        # Extract sets
+        XmlParser._extract_sets(root, result)
+
+        # Extract checkpoint
+        XmlParser._extract_checkpoint(pre_children, result)
+
+        # Extract bridge text (all post-bridge text, stripped of XML)
+        result.bridge_text = XmlParser._extract_bridge_text(post_children)
+
+        return result
+
+    @staticmethod
+    def _extract_xml(text: str) -> str | None:
+        """Extract XML from LLM output, removing markdown fences."""
+        parts = text.split("\n---\n", 1)
+        llm_out = parts[1] if len(parts) > 1 else text
+
+        llm_out = re.sub(r"^```(?:xml)?\s*\n", "", llm_out, flags=re.MULTILINE)
+        llm_out = re.sub(r"\n```\s*$", "", llm_out)
+
+        story_start = llm_out.find("<story>")
+        story_end = llm_out.rfind("</story>")
+
+        if story_start < 0:
+            return None
+        if story_end < 0:
+            story_end = len(llm_out)
+        else:
+            story_end += len("</story>")
+
+        xml_str = llm_out[story_start:story_end].strip()
+        if not xml_str:
+            return None
+
+        xml_str = re.sub(
+            r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)",
+            "&amp;",
+            xml_str,
+        )
+        return xml_str
+
+    @staticmethod
+    def _parse_xml(xml_str: str) -> ET.Element:
+        """Parse XML string into ElementTree."""
+        try:
+            root = ET.fromstring(xml_str)
+        except ET.ParseError as e:
+            raise ParseError(f"XML parse error: {e}")
+
+        if root.tag != "story":
+            raise ParseError(
+                f"Root is <{root.tag}>, expected <story>"
+            )
+
+        if not list(root):
+            raise ParseError("Empty <story>")
+        return root
+
+    @staticmethod
+    def _find_bridge(children: list[ET.Element]) -> int:
+        """Find bridge index, raise on 0 or 2+."""
+        bridge_indices = [
+            i
+            for i, el in enumerate(children)
+            if el.tag == "bridge"
+        ]
+        if len(bridge_indices) == 0:
+            raise ParseError("No <bridge/> found")
+        if len(bridge_indices) > 1:
+            raise ParseError("Multiple <bridge/> elements")
+        return bridge_indices[0]
+
+    @staticmethod
+    def _collect_segments(
+        children: list[ET.Element],
+        position: str,
+        result: ParsedOutput,
+    ) -> None:
+        """Collect <seg> elements from children, including nested in <branch>."""
+        for el in children:
+            if el.tag == "seg":
+                n = int(el.get("n", 0))
+                result.segments.append(
+                    Segment(
+                        n=n, text=(el.text or "").strip(), position=position
+                    )
+                )
+            elif el.tag == "branch":
+                branch_name = el.get("name", "")
+                if position == "pre":
+                    result.pre_branches.append(branch_name)
+                else:
+                    result.post_branches.append(branch_name)
+                for seg_el in el.findall("seg"):
+                    n = int(seg_el.get("n", 0))
+                    result.segments.append(
+                        Segment(
+                            n=n,
+                            text=(seg_el.text or "").strip(),
+                            position=position,
+                            branch=branch_name,
+                        )
+                    )
+
+    @staticmethod
+    def _extract_choice(
+        pre_children: list[ET.Element],
+        result: ParsedOutput,
+    ) -> None:
+        """Extract <choice> from pre-bridge children."""
+        for el in pre_children:
+            if el.tag == "choice":
+                result.choice_id = el.get("id")
+                for opt_el in el.findall("opt"):
+                    result.opt_branches.append(
+                        opt_el.get("branch", "")
+                    )
+
+    @staticmethod
+    def _extract_sets(root: ET.Element, result: ParsedOutput) -> None:
+        """Extract all <set> elements."""
+        for el in root.iter("set"):
+            result.sets.append(
+                SetOperation(
+                    var=el.get("var", ""),
+                    op=el.get("op", ""),
+                    val=el.get("val", ""),
+                    condition=el.get("if"),
+                )
+            )
+
+    @staticmethod
+    def _extract_checkpoint(
+        pre_children: list[ET.Element],
+        result: ParsedOutput,
+    ) -> None:
+        """Extract <checkpoint> from pre-bridge children."""
+        for el in pre_children:
+            if el.tag == "checkpoint":
+                result.checkpoint_node = el.get("node")
+                result.checkpoint_summary = el.get("summary")
+                for route_el in el.findall("route"):
+                    result.routes.append(
+                        RouteTarget(
+                            condition=route_el.get("if"),
+                            target=route_el.get("target", ""),
+                        )
+                    )
+
+    @staticmethod
+    def _extract_bridge_text(post_children: list[ET.Element]) -> str:
+        """Extract plain text from post-bridge elements."""
+        texts = []
+        for el in post_children:
+            if el.tag == "seg":
+                if el.text:
+                    texts.append(el.text.strip())
+            elif el.tag == "branch":
+                for seg_el in el.findall("seg"):
+                    if seg_el.text:
+                        texts.append(seg_el.text.strip())
+        return "\n".join(texts)
