@@ -1,29 +1,21 @@
-"""Configurable constants for Storyloom engine.
+"""Configurable constants for Storyloom."""
 
-All constants defined here; no hardcoded values in business logic.
-Reference values from docs/spec/data-model.md §A.
-"""
+# ── Sliding window ─────────────────────────────────────────────
+WINDOW_SIZE = 3          # full rounds to keep in window
+FIRST_COMPRESSION_AT = 5  # round number to trigger first compression
 
-# Path constants
-SAVE_DIR: str = "saves/"
+# ── Segment ranges ────────────────────────────────────────────
+SEGMENTS_PER_ROUND_MIN = 60
+SEGMENTS_PER_ROUND_MAX = 120
+SEGMENTS_HARD_CAP = 120
 
-# Co-creation stage
-MAX_RETRIES: int = 2
-STORY_LABEL_MIN_CHARS: int = 5
-STORY_LABEL_MAX_CHARS: int = 15
+# ── Bridge ─────────────────────────────────────────────────────
+BRIDGE_POSITION_RATIO = 0.5  # target bridge position (fraction of total)
+MIN_TAIL_SEGMENTS = 15       # minimum segments per branch after bridge
 
-# Story tier identifiers
-STORY_TIER_SHORT: str = "short"
-STORY_TIER_MEDIUM: str = "medium"
-STORY_TIER_LONG: str = "long"
+# ── Context budget ────────────────────────────────────────────
+MAX_CONTEXT_TOKENS = 50_000   # target ceiling
 
-# Narrative segment control
-SEGMENTS_PER_ROUND_MIN: int = 60
-SEGMENTS_PER_ROUND_MAX: int = 120
-BRIDGE_SEGMENT_RATIO: float = 0.4
-
-# Runtime
-STREAM_STALL_TIMEOUT_SEC: int = 3
-MIN_NARRATION_CHARS: int = 200
-AUTO_ADVANCE_DELAY_MS: int = 500
-SAVE_VERSION: int = 1
+# ── API defaults ──────────────────────────────────────────────
+DEFAULT_MODEL = "deepseek-chat"
+STREAM_STALL_TIMEOUT_SEC = 60
