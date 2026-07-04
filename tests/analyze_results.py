@@ -155,7 +155,11 @@ def calc_limits(params: dict, delay_ms: int) -> dict:
 
 # ── Output file parsing ─────────────────────────────────────────────
 def parse_output_file(path: Path) -> dict | None:
-    """Extract metadata and tail segments from a test output file."""
+    """Extract metadata and tail segments from a test output file.
+
+    Parses both streaming-mode headers (TTFT, FirstSegment) and
+    non-streaming headers (Time + Tokens).  Returns None on error.
+    """
     if not path.exists():
         return None
 
@@ -165,9 +169,19 @@ def parse_output_file(path: Path) -> dict | None:
     m = re.search(r"\*\*Time\*\*:\s*([\d.]+)s", text)
     if m:
         time_s = float(m.group(1))
-
     if time_s is None:
         return None
+
+    # Streaming metrics (present when run with --stream / default mode)
+    ttft = None
+    m = re.search(r"\*\*TTFT\*\*:\s*([\d.]+)s", text)
+    if m:
+        ttft = float(m.group(1))
+
+    first_seg = None
+    m = re.search(r"\*\*FirstSegment\*\*:\s*([\d.]+)s", text)
+    if m:
+        first_seg = float(m.group(1))
 
     # Split off the metadata header to isolate LLM output
     parts = text.split('\n---\n', 1)
@@ -184,11 +198,11 @@ def parse_output_file(path: Path) -> dict | None:
     pre_segs = len(re.findall(r'^\d+\.', pre_text, re.MULTILINE))
     post_segs = len(re.findall(r'^\d+\.', post_text, re.MULTILINE)) if bridge_m else 0
 
-    total_segs = pre_segs + post_segs
-
     return {
         "time_s": time_s,
-        "segments": total_segs,
+        "ttft": ttft,
+        "first_seg": first_seg,
+        "segments": pre_segs + post_segs,
         "tail_segs": post_segs,
     }
 
