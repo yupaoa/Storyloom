@@ -341,6 +341,8 @@ summary: 在旅店与神秘线人接头，选择了接触策略。
 
 > Round 1 玩家选择了 A（直视对方），信任度 +5。当前推进到 ch2_confrontation。
 > `{MIN}=20` `{MAX}=35` `{BRIDGE_AT}=20` `{RATIO}=75%`。
+>
+> 生成时限：`(MAX − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000` = 7.5s
 
 ```
 你是文字冒险游戏的叙事引擎。根据大纲和状态生成下一段交互式剧情。
