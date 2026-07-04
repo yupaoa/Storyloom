@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Quick test: send a prompt to DeepSeek N times in parallel, save results.
+"""Quick test: send a prompt to DeepSeek N times sequentially, save results.
 
 Usage:
-  # Test a single prompt version (5 runs, parallel, streaming by default)
+  # Test a single prompt version (5 runs, sequential, streaming by default)
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt
 
   # Specify output directory and run count
@@ -10,6 +10,9 @@ Usage:
 
   # Non-streaming mode (for comparison)
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt --no-stream
+
+  # Parallel mode (⚠️ TTFT may be inflated by server-side queuing)
+  python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt --parallel
 
   # Test multiple prompt versions
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/v1.txt
@@ -25,6 +28,12 @@ Prompt file format:
   Split point: the first occurrence of '当前节点目标：'.
   Everything before  → system message
   Everything from there → user message
+
+Execution mode (important):
+  Default is SEQUENTIAL — runs execute one at a time. This ensures TTFT
+  measurements are not inflated by server-side request queuing.
+  Use --parallel only when you need speed and don't care about TTFT accuracy.
+  Testing showed parallel mode can double TTFT due to API-level queuing.
 
 Metrics (streaming mode):
   - TTFT:        time from request to first token
@@ -233,6 +242,12 @@ def main():
         "--no-stream", action="store_true",
         help="Use non-streaming mode (default: streaming for TTFT measurement)",
     )
+    parser.add_argument(
+        "--parallel", action="store_true",
+        help="Run in parallel (default: sequential). "
+             "⚠️ WARNING: parallel mode inflates TTFT due to server-side queuing. "
+             "Only use when TTFT accuracy is not important.",
+    )
     args = parser.parse_args()
 
     if not args.prompt.exists():
@@ -242,16 +257,21 @@ def main():
     system_prompt, user_message = load_prompt(args.prompt)
 
     use_stream = not args.no_stream
+    use_parallel = args.parallel
 
     # Auto-subdir: prompt "v1.txt" → output "v1/"
     output_dir = args.output / args.prompt.stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    mode_parts = ["streaming" if use_stream else "non-streaming"]
+    mode_parts.append("parallel" if use_parallel else "sequential")
     print(f"Prompt:  {args.prompt}  ({len(system_prompt)} + {len(user_message)} chars)")
     print(f"Output:  {output_dir}")
     print(f"Model:   {MODEL}")
-    print(f"Mode:    {'streaming' if use_stream else 'non-streaming'}")
-    print(f"Runs:    {args.runs} (parallel)")
+    print(f"Mode:    {' + '.join(mode_parts)}")
+    print(f"Runs:    {args.runs}")
+    if use_parallel:
+        print("⚠️  Parallel mode: TTFT may be inflated by server-side queuing.")
     print()
 
     shared = {
@@ -264,30 +284,23 @@ def main():
     t_start = time.perf_counter()
     results = []
 
-    with ThreadPoolExecutor(max_workers=args.runs) as executor:
-        futures = {
-            executor.submit(run_one, {"index": i, **shared}): i
-            for i in range(1, args.runs + 1)
-        }
-        for future in as_completed(futures):
-            r = future.result()
+    if use_parallel:
+        # ── Parallel execution (⚠️ TTFT may be inaccurate) ──────────
+        with ThreadPoolExecutor(max_workers=args.runs) as executor:
+            futures = {
+                executor.submit(run_one, {"index": i, **shared}): i
+                for i in range(1, args.runs + 1)
+            }
+            for future in as_completed(futures):
+                r = future.result()
+                results.append(r)
+                _print_result(r, args.runs, use_stream)
+    else:
+        # ── Sequential execution (accurate TTFT) ────────────────────
+        for i in range(1, args.runs + 1):
+            r = run_one({"index": i, **shared})
             results.append(r)
-            i = r["index"]
-            if "error" in r:
-                print(f"[{i}/{args.runs}] ERROR after {r['time']:.1f}s: {r['error']}")
-            elif use_stream:
-                ttft_str = f"{r['ttft']:.1f}s" if r.get('ttft') else "N/A"
-                seg_str = f"{r.get('first_seg', 0):.1f}s" if r.get('first_seg') else "N/A"
-                print(
-                    f"[{i}/{args.runs}] {r['time']:.1f}s  "
-                    f"TTFT: {ttft_str}  FirstSeg: {seg_str}  "
-                    f"tokens: {r['tokens']}  finish: {r['finish']}"
-                )
-            else:
-                print(
-                    f"[{i}/{args.runs}] {r['time']:.1f}s  "
-                    f"tokens: {r['tokens']}  finish: {r['finish']}"
-                )
+            _print_result(r, args.runs, use_stream)
 
     total_elapsed = time.perf_counter() - t_start
     results.sort(key=lambda x: x["index"])
@@ -307,6 +320,26 @@ def main():
                   f"max {max(first_segs):.1f}s  "
                   f"avg {sum(first_segs)/len(first_segs):.1f}s")
     print(f"Results in {output_dir}/")
+
+
+def _print_result(r: dict, total: int, use_stream: bool) -> None:
+    """Print a single test result line."""
+    i = r["index"]
+    if "error" in r:
+        print(f"[{i}/{total}] ERROR after {r['time']:.1f}s: {r['error']}")
+    elif use_stream:
+        ttft_str = f"{r['ttft']:.1f}s" if r.get('ttft') else "N/A"
+        seg_str = f"{r.get('first_seg', 0):.1f}s" if r.get('first_seg') else "N/A"
+        print(
+            f"[{i}/{total}] {r['time']:.1f}s  "
+            f"TTFT: {ttft_str}  FirstSeg: {seg_str}  "
+            f"tokens: {r['tokens']}  finish: {r['finish']}"
+        )
+    else:
+        print(
+            f"[{i}/{total}] {r['time']:.1f}s  "
+            f"tokens: {r['tokens']}  finish: {r['finish']}"
+        )
 
 
 if __name__ == "__main__":
