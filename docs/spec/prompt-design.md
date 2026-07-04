@@ -337,9 +337,9 @@ summary: 在旅店与神秘线人接头，选择了接触策略。
 {bridge_text}
 ```
 
-### 4.3 Prompt 示例（首轮，medium）
+### 4.3 Prompt 示例（Round 2，medium）
 
-> prompt_builder 渲染后的实际输出。单个代码块即完整 Prompt，可直接复制测试。
+> Round 1 玩家选择了 A（直视对方），信任度 +5。当前推进到 ch2_confrontation。
 > `{MIN}=20` `{MAX}=35` `{BRIDGE_AT}=20` `{RATIO}=75%`。
 
 ```
@@ -427,9 +427,9 @@ summary: 在旅店与神秘线人接头，选择了接触策略。
 **角色：** 耗子（地下情报贩子，亦敌亦友）、美智子（荒坂安全主管，前上司）
 
 **大纲：**
-ch1_bar [active] — 霓虹深渊：在酒吧获取情报
-  → ch2_confrontation [pending]
-ch2_confrontation [pending] — 地下交易：与耗子会面
+ch1_bar [completed] — 霓虹深渊：在酒吧获取情报
+  → ch2_confrontation [active]
+ch2_confrontation [active] — 地下交易：与耗子会面
   ├→ ch3_ally [pending]
   └→ ch3_betrayal [pending]
 ch3_ally [pending] — 盟友之路：通过地下网络逃离
@@ -437,26 +437,26 @@ ch3_betrayal [pending] — 背叛之路：杀出重围
 ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 [completed]=已完成 [active]=当前 [pending]=待推进
 
-**进度：** 当前 ch1_bar — 在酒吧获取情报 | 已完成：（无）
+**进度：** 当前 ch2_confrontation — 与耗子完成交易 | 已完成：ch1_bar
 
 **重要事件：**
-（暂无）
+- ch1_bar：在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式，耗子开始信任主角。
 
 **当前状态：**
 体力：80 / 100
-理智值：60 / 100
-信任度：5 / 100
+理智值：55 / 100
+信任度：10 / 100
 芯片完整度：100 / 100
 线索：（无）
 所属势力：自由佣兵
 
-当前节点目标：在酒吧获取情报
+当前节点目标：与耗子完成交易
 
 上一轮结尾：
-（首轮，请开始故事）
+你直视耗子的义眼，那一点红光在昏暗中微微闪烁。
+"芯片在哪儿？"你的声音压得很低。
+耗子的嘴角抽搐了一下。他的手缓缓伸进风衣内袋——你不知道他掏出来的会是芯片，还是武器。
 ```
-
----
 
 ## §5 冒险日志 Prompt
 
