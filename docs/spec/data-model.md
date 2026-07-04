@@ -200,8 +200,8 @@ load_save(filepath):
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `SEGMENTS_PER_ROUND_MIN` | 20 | 每轮最少叙事段数 |
-| `SEGMENTS_PER_ROUND_MAX` | 35 | 每轮最多叙事段数 |
+| `SEGMENTS_PER_ROUND_MIN` | 30 | 每轮最少叙事段数 |
+| `SEGMENTS_PER_ROUND_MAX` | 50 | 每轮最多叙事段数 |
 | `BRIDGE_SEGMENT_RATIO` | 0.75 | bridge 插入位置（段数比例），如 27 段时 bridge 在第 20 段后 |
 
 ### A.5 叙事与运行时
