@@ -120,3 +120,23 @@ class TestXmlParser:
         xml = VALID_XML.replace('n="3"', 'n="5"')
         result = XmlParser.parse(xml)
         assert result.numbering_issues
+
+    def test_parse_handles_ampersand_escaping(self):
+        xml = '<story><seg n="1">R&amp;D department</seg><bridge/><seg n="2">ok</seg></story>'
+        result = XmlParser.parse(xml)
+        assert result.total_segments == 2
+
+    def test_parse_handles_already_escaped_ampersand(self):
+        xml = '<story><seg n="1">R&amp;amp;D</seg><bridge/><seg n="2">ok</seg></story>'
+        result = XmlParser.parse(xml)
+        assert result.total_segments == 2
+
+    def test_parse_rejects_unparseable_seg_number(self):
+        xml = '<story><seg n="abc">text</seg><bridge/><seg n="2">ok</seg></story>'
+        with pytest.raises(ParseError):
+            XmlParser.parse(xml)
+
+    def test_parse_handles_markdown_xml_fence(self):
+        xml = '```xml\n<story><seg n="1">text</seg><bridge/><seg n="2">ok</seg></story>\n```'
+        result = XmlParser.parse(xml)
+        assert result.total_segments == 2
