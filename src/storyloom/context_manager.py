@@ -40,6 +40,9 @@ class ContextManager:
         self._round1_assistant = assistant_content
         self._round_count = 1
 
+        # Extract bridge_text for next round
+        self._last_bridge_text = self._extract_bridge_from_xml(assistant_content)
+
     def add_round(self, user_content: str, assistant_content: str) -> None:
         """Add a new round's messages and trigger compression if needed."""
         if self._round1_user is None:
@@ -56,11 +59,7 @@ class ContextManager:
         self._round_count += 1
 
         # Extract bridge_text for next round
-        try:
-            parsed = XmlParser.parse(assistant_content)
-            self._last_bridge_text = parsed.bridge_text
-        except Exception:
-            self._last_bridge_text = ""
+        self._last_bridge_text = self._extract_bridge_from_xml(assistant_content)
 
         self._maybe_compress()
 
@@ -141,6 +140,15 @@ class ContextManager:
         """Extract checkpoint summary from XML output."""
         match = re.search(r'<checkpoint[^>]*summary="([^"]*)"', xml)
         return match.group(1) if match else ""
+
+    @staticmethod
+    def _extract_bridge_from_xml(xml: str) -> str:
+        """Extract bridge text from assistant XML output. Returns empty string on failure."""
+        try:
+            parsed = XmlParser.parse(xml)
+            return parsed.bridge_text
+        except Exception:
+            return ""
 
     @staticmethod
     def _build_compression_messages(summaries: list[str]) -> tuple[str, str]:
