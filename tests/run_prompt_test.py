@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
-"""Quick test: send a prompt to DeepSeek, save response + timing.
+"""Quick test: send a prompt to DeepSeek N times in parallel, save results.
 
 Usage:
-  python3 tests/run_prompt_test.py
+  # Test a single prompt version (5 runs, parallel)
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt
+
+  # Specify output directory and run count
   python3 tests/run_prompt_test.py --prompt my-prompt.txt --output results/ --runs 3
 
-Default prompt file: tests/data/prompts/default.txt
-Default output dir:  tests/data/output/
+  # Test multiple prompt versions
+  python3 tests/run_prompt_test.py --prompt tests/data/prompts/v1.txt
+  python3 tests/run_prompt_test.py --prompt tests/data/prompts/v2.txt
+
+Setup:
+  1. Copy .env.example to .env and fill in your DEEPSEEK_API_KEY
+  2. Put prompt files in tests/data/prompts/ (or anywhere)
+  3. Results auto-saved to tests/data/output/<prompt_name>/
+
+Prompt file format:
+  A plain text file containing the full LLM prompt (system + user combined).
+  Split point: the first occurrence of '当前节点目标：'.
+  Everything before  → system message
+  Everything from there → user message
 """
 
 import argparse
@@ -22,7 +36,6 @@ from openai import OpenAI
 
 # ── Defaults ─────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_PROMPT = PROJECT_ROOT / "tests" / "data" / "prompts" / "default.txt"
 DEFAULT_OUTPUT = PROJECT_ROOT / "tests" / "data" / "output"
 
 
@@ -136,8 +149,9 @@ def main():
         description="Send a prompt to DeepSeek N times in parallel, save results."
     )
     parser.add_argument(
-        "--prompt", type=Path, default=DEFAULT_PROMPT,
-        help=f"Path to prompt text file (default: {DEFAULT_PROMPT})",
+        "--prompt", type=Path, required=True,
+        help="Path to prompt text file (required). "
+             "See tests/data/prompts/ for examples.",
     )
     parser.add_argument(
         "--output", type=Path, default=DEFAULT_OUTPUT,
