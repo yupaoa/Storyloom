@@ -6,40 +6,36 @@
 
 Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward + dual-end interface. Currently in design/specification phase — no production code yet.
 
-**Current direction (2026-07-04):** Moving from custom `--- block ---` delimiters to **XML output format** (3/3 correctness in first test vs ~20-74% for text-based format). Planning **conversation-based architecture** with sliding window + Round 1 anchoring to replace stateless per-round prompts. See memory: [[xml-format-decision]] [[conversation-architecture]].
+**Implementing (2026-07-04):** Both major migrations are now complete.
+1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters — see `src/storyloom/xml_parser.py`.
+2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts — see `src/storyloom/context_manager.py` and `src/storyloom/prompt_builder.py`.
 
 ## Core Design Concepts
 
 These are the foundational ideas. The authoritative spec is `docs/spec/exec-flow.md`.
 
 ### Bridge Mechanism
-Each story segment contains a `--- bridge ---` marker. When the program reaches it during parsing, it immediately submits the next round's prompt to the LLM — while continuing to display the tail text after the bridge. The player perceives continuous narration with no segment boundary pauses.
+Each story segment contains a `<bridge/>` marker. When the program reaches it during parsing, it immediately submits the next round's prompt to the LLM — while continuing to display the tail text after the bridge. The player perceives continuous narration with no segment boundary pauses.
 
 ### Two-Layer Branching
-- **Intra-segment branching** (`@branch`): Narrative variants within one segment. Player choices route to different `--- narrative:branch_name ---` blocks. Does NOT affect the outline.
-- **Outline branching** (`if → route`): Story-direction forks at checkpoint nodes. The program evaluates conditions against local state and routes to different outline nodes. Irreversible.
+- **Intra-segment branching** (`<branch>` containers): Narrative variants within one segment. Player choices route to different `<branch name="...">` blocks via `<opt branch="...">`. Does NOT affect the outline.
+- **Outline branching** (`<route>` elements): Story-direction forks at checkpoint nodes. The program evaluates conditions against local state and routes to different outline nodes. Irreversible.
 
 ### Local Source of Truth
-All game data lives in a local `GameState` object. The LLM can only *suggest* changes via `--- state ---` blocks. The program validates each suggestion — type checks, range checks, variable existence — before applying. Rejected changes are fed back to the LLM in the next round.
+All game data lives in a local `GameState` object. The LLM can only *suggest* changes via `<set>` elements. The program validates each suggestion — type checks, range checks, variable existence — before applying. Rejected changes are fed back to the LLM in the next round.
 
-### Block Separators (current: `--- block ---`, target: XML)
-LLM output uses structured markers: `--- narrative ---`, `--- options ---`, `--- state ---`, `--- checkpoint ---`, `--- bridge ---`. The program parses these with regex (`^--- (\w+)(?::(\w+))? ---$`). Full spec: `docs/spec/block-spec.md`.
+### XML Output Format (current, replacing `--- block ---`)
+LLM output is an XML document (`<story>...</story>`) containing `<seg>`, `<choice>`, `<set>`, `<checkpoint>`, `<bridge/>`, and `<branch>` elements. Parsed by `XmlParser` via `xml.etree.ElementTree`. Full spec: `docs/spec/block-spec.md`.
 
-**⚠️ In transition:** Testing shows XML format (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) achieves 100% correctness vs ~20-74% for text blocks. Key advantages: node IDs as attributes prevent suffix appending; `<branch>` as container prevents missing post-choice narratives; `<bridge/>` as unique tag prevents double-bridge misuse. See `tests/data/prompts/frame-v1.txt` and `tests/analyze_frame.py`.
+Key advantages over old `--- block ---` format: node IDs as attributes prevent suffix appending; `<branch>` as container prevents missing post-choice narratives; `<bridge/>` as unique tag prevents double-bridge misuse. Achieved 100% correctness vs ~20-74% for text blocks in comparative tests.
 
-### Minimal Context Strategy (current)
-Each round's prompt carries only 5 information categories (no accumulated chat history):
-1. Outline tree + node progress — "where the story is going"
-2. State snapshot — "the result of what happened"
-3. Checkpoint summaries — "key events so far"
-4. Bridge text — "what's happening right now"
-5. Rejected change feedback — "what state changes were invalid last round"
-
-**⚠️ Planned change:** Conversation-based architecture with sliding window (see [[conversation-architecture]]):
-- Round 1 output preserved as permanent format anchor (self-bootstrapping few-shot)
-- Last 3-5 rounds as full dialogue history for narrative coherence
-- Earlier rounds compressed into checkpoint summaries
-- Target ~50K token context ceiling
+### Conversation-Based Architecture (current)
+Messages array with sliding window + Round 1 anchoring, managed by `ContextManager`:
+- **Round 1**: Permanent anchor — full format spec + story context + XML example. NEVER compressed or removed.
+- **Sliding window**: Last 3 full rounds kept as complete conversation history (user + assistant).
+- **Compression**: Earlier rounds compressed into checkpoint summaries (from `<checkpoint summary="...">`).
+- **Round N context**: Lightweight user message (progress, state, bridge_text, errors) — no format spec repetition.
+- **Target**: ~50K token context ceiling.
 
 ## Document Map
 
@@ -47,15 +43,24 @@ Each round's prompt carries only 5 information categories (no accumulated chat h
 |----------|------|-----------|
 | `docs/design.md` | Vision, architecture, phased roadmap | Advisory |
 | `docs/spec/exec-flow.md` | Phase 1 execution pipeline | **Authoritative** |
-| `docs/spec/block-spec.md` | Block separator syntax, numbering, branching, state validation | **Authoritative** |
-| `docs/spec/prompt-design.md` | All Prompt templates, constraints, and examples | **Authoritative** |
+| `docs/spec/block-spec.md` | XML element syntax, branch routing, state validation | **Authoritative** |
+| `docs/spec/prompt-design.md` | All Prompt templates, conversation architecture, constraints | **Authoritative** |
 | `docs/spec/data-model.md` | State, save system, constants | **Authoritative** |
-| `docs/spec/walkthrough.md` | 4-round narrative loop example | Reference |
+| `docs/spec/walkthrough.md` | 4-round narrative loop example (may be outdated) | Reference |
 | `docs/README.md` | Documentation index | — |
-| `tests/data/prompts/frame-v1.txt` | XML-format prompt (new direction) | Test |
+| `docs/superpowers/specs/2026-07-04-conversation-prompt-design.md` | Conversation architecture spec | Reference |
+| `src/storyloom/prompt_builder.py` | Round 1 / Round N prompt content builder | Implementation |
+| `src/storyloom/xml_parser.py` | LLM XML output parser | Implementation |
+| `src/storyloom/context_manager.py` | Messages array, sliding window, compression | Implementation |
+| `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
+| `tests/test_prompt_builder.py` | PromptBuilder unit tests | Test |
+| `tests/test_xml_parser.py` | XmlParser unit tests | Test |
+| `tests/test_context_manager.py` | ContextManager unit tests | Test |
+| `tests/test_integration.py` | Multi-round conversation flow integration tests | Test |
+| `tests/data/prompts/frame-v1.txt` | XML-format test prompt | Test |
 | `tests/analyze_frame.py` | XML output correctness analyzer | Test |
 | `tests/run_prompt_test.py` | LLM API test harness | Test |
-| `tests/analyze_results.py` | Text-format output analyzer | Test |
+| `tests/analyze_results.py` | Text-format output analyzer (legacy) | Test |
 
 **Authority rule:** `docs/spec/exec-flow.md` wins over `docs/design.md` on any conflict.
 
@@ -72,7 +77,7 @@ Each round's prompt carries only 5 information categories (no accumulated chat h
 - **Code comments & git commits:** English
 - **Git commits:** Conventional Commits (feat/fix/docs/refactor)
 - **Prompt language:** Chinese (all LLM prompts)
-- **Block separator names:** English (`--- narrative ---`, `--- checkpoint ---`, etc.)
+- **XML element names:** English (`<seg>`, `<checkpoint>`, `<bridge/>`, etc.)
 - **Variable names in prompts:** Chinese (state variable names, choice names)
 - **Config constants:** Defined in `config.py`, referenced by name — no hardcoded values in business logic
 
