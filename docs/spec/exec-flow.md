@@ -2,8 +2,9 @@
 
 > **定位**：Phase 1 程序执行管线——从启动到结局的完整流程。  
 > **配套文档**：
-> - [`block-spec.md`](./block-spec.md) — 区块分隔符语法、分支路由、状态校验规则
+> - [`block-spec.md`](./block-spec.md) — XML 元素语法、分支路由、状态校验规则
 > - [`data-model.md`](./data-model.md) — GameState 结构、存档系统、可配置常量、全局约定
+> - [`prompt-design.md`](./prompt-design.md) — Prompt 模板与对话式消息数组设计
 > - [`design.md`](../design.md) — 设计理念与阶段规划（非规范性参考）
 >
 > **权威性**：本文档与 design.md 如有冲突，以本文档为准。
@@ -31,9 +32,9 @@
 | **关键节点 (checkpoint)** | 大纲上的里程碑节点。到达时触发进度推进和自动存档 | [data-model.md](./data-model.md) |
 | **段内分支** | 同一剧情段内的叙事分支，不影响大纲走向 | [block-spec.md](./block-spec.md) |
 | **大纲分支** | 大纲层面的分叉路线，通过 `if -> route` 实现 | [block-spec.md](./block-spec.md) |
-| **bridge** | `--- bridge ---` 分隔符，标记下一轮 Prompt 组装触发点 | [block-spec.md](./block-spec.md) |
-| **bridge_text** | bridge 之后至段末的正文内容，作为下一轮 User Message | [block-spec.md](./block-spec.md) |
-| **区块分隔符** | LLM 输出结构化标记，格式 `--- 区块名:分支名 ---` | [block-spec.md](./block-spec.md) |
+| **bridge** | `<bridge/>` 自闭合 XML 元素，标记下一轮 Prompt 组装触发点 | [block-spec.md](./block-spec.md) |
+| **bridge_text** | `<bridge/>` 之后至 `</story>` 的纯文本内容，作为下一轮 User Message 中的 bridge_text 字段 | [block-spec.md](./block-spec.md) |
+| **XML 元素** | LLM 输出使用 XML 格式，根元素 `<story>`，内含 `<seg>`/`<choice>`/`<set>`/`<checkpoint>`/`<bridge/>`/`<branch>` | [block-spec.md](./block-spec.md) |
 | **current_branch** | 当前段内分支名，决定程序匹配哪些命名区块 | [block-spec.md](./block-spec.md) |
 | **choice_dict** | 本轮选项结果，key 为 `choice:` 声明值 | [block-spec.md](./block-spec.md) |
 
@@ -410,28 +411,56 @@ Round N 开始
 └─────────────────────────────┘
 ```
 
-> 以上 8 步每轮执行一次。LLM 响应先完整接收再解析（非流式解析）。区块分隔符语法、分支路由、状态校验的完整规则见 [`block-spec.md`](./block-spec.md)。节点推进与存档见 [`data-model.md`](./data-model.md)。
+> 以上 8 步每轮执行一次。LLM 响应使用 `XmlParser` 解析（非流式解析后一次性处理）。XML 元素语法、分支路由、状态校验的完整规则见 [`block-spec.md`](./block-spec.md)。节点推进与存档见 [`data-model.md`](./data-model.md)。
 
 ### 4.2 每轮 Prompt 的组成
 
-每轮发送给 LLM 的完整 Prompt = System Prompt + User Message：
+采用**对话式消息数组架构**，由 `ContextManager` 管理。每轮发送给 LLM 的 requests 格式为 messages 数组：
 
 ```
-完整 Prompt:
-  ├── System Prompt（由 prompt_builder 组装）:
-  │     ├── 固定部分：角色定义 + 输出格式要求（含编号规则）+ 质量约束
-  │     ├── 故事背景：story_config 全部字段
-  │     ├── 大纲：outline_text（所有节点 + [completed]/[active]/[pending] 标注）
-  │     ├── 进度：current_node + goal + completed_nodes_summary
-  │     ├── 重要事件：checkpoint_summaries_text
-  │     ├── 当前状态：state_summary（所有 state_vars 格式化）
-  │     └── 拒绝反馈：rejected_changes_feedback（仅当非空）
-  │
-  └── User Message:
-        └── bridge_text（上一轮 bridge 之后至段末的正文，带编号；首轮为空）
-
-> 完整的 Prompt 模板与示例见 [`prompt-design.md`](./prompt-design.md)。
+messages = [
+  {role: "user",      content: Round1_完整Prompt},      // 永久锚定，不压缩不删除
+  {role: "assistant", content: Round1_XML输出},          // 永久锚定，作为格式 few-shot 范例
+  // ── 以下为滑出窗口的轮次 → 压缩为摘要 ──
+  {role: "user",      content: "已发生的主要事件：..."},
+  {role: "assistant", content: "（以上为已发生事件的摘要。当前故事继续推进。）"},
+  // ── 窗口内轮次 → 完整保留 ──
+  {role: "user",      content: Round_N-3_上下文},
+  {role: "assistant", content: Round_N-3_XML输出},
+  {role: "user",      content: Round_N-2_上下文},
+  {role: "assistant", content: Round_N-2_XML输出},
+  {role: "user",      content: Round_N-1_上下文},
+  {role: "assistant", content: Round_N-1_XML输出},
+  // ── 当前轮 ──
+  {role: "user",      content: Round_N_上下文},           // 由 PromptBuilder.build_round_n() 构建
+]
 ```
+
+#### Round 1（永久锚定）
+
+由 `PromptBuilder.build_round1()` 构建，内容：
+
+- 角色定义 + XML 输出格式规范（元素结构 + 完整格式示例 + 核心规则）
+- 质量要求
+- 故事上下文（背景、主角、风格、冲突、角色、大纲、当前状态变量）
+
+`ContextManager.set_round1(user, assistant)` 存储 Round 1 消息对。Round 1 永不压缩、永不删除。
+
+#### Round N 上下文（N ≥ 2）
+
+由 `PromptBuilder.build_round_n()` 构建，作为自然消息追加在对话末尾。不含角色定义、格式规范、故事上下文：
+
+| 内容 | 来源 |
+|------|------|
+| 当前节点 ID 与目标 | `outline` 进度 |
+| 已完成节点列表 | `progress` |
+| 压缩摘要（滑出窗口轮次） | `ContextManager` 的压缩列表 |
+| 当前状态快照 | `state_vars` |
+| 被拒变更反馈 | `rejected_changes`（仅当非空） |
+| 格式错误纠正 | `format_error`（仅当存在） |
+| 上一轮结尾 | `bridge_text`（从上一轮 assistant XML 输出中提取） |
+
+> 完整的 Prompt 模板与示例见 [`prompt-design.md`](./prompt-design.md) §4.2-4.4。
 
 ### 4.3 API 调用与响应接收
 
@@ -473,36 +502,32 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
 
 ### 4.4 响应解析
 
-采用**边遍历边执行 + 显示缓冲**模式：程序遍历区块时，state/checkpoint 等数据区块立即执行，narrative/options 等显示区块缓存后按节奏展示。
+采用 `XmlParser`（`xml_parser.py`）解析 LLM 的 XML 输出。核心流程：
 
 **解析流程**：
 
 ```
 1. 预处理
-   → 去除首尾空白
-   → 去除 markdown 代码块围栏（```...``` 或 ```text...```）
-   → 检测阶段标记：
-       === xxx === → 共创阶段（本循环不应出现，视为错误）
-       --- xxx --- → 叙事阶段，继续
+   → 去除 markdown 代码块围栏（```xml...```）
+   → 提取 <story>...</story> 内容
+   → 修复未转义的 & 符号
 
-2. 按正则 ^--- (\w+)(?::(\w+))? ---$ 分割
-   → 得到 [(block_type, block_branch, block_content), ...] 列表
+2. XmlParser.parse(text)：
+   a. 使用 xml.etree.ElementTree 解析为 XML 树
+   b. 验证根元素为 <story>
+   c. 找到 <bridge/> 位置（恰好 1 个）
+   d. 分离 pre 子元素（bridge 前）和 post 子元素（bridge 后）
+   e. 验证 post 区域无 <choice>/<set>/<checkpoint>
 
-3. 遍历列表（按物理顺序）：
-   对每个区块：
-     block_branch == current_branch 或 block_branch == "main"？
-     ├── 否 → 跳过
-     └── 是 → 按类型分发：
-         "narrative" → 缓存到展示队列
-         "options"   → 缓存到展示队列（等 narrative 展示完再展示）
-         "state"     → 立即执行（见 block-spec.md）
-         "checkpoint"→ 立即执行（见 data-model.md）
-         "bridge"    → 触发下一轮组装 + 提取 bridge_text（§4.7）
+3. 提取结构化数据：
+   → <seg>：收集叙事段及其编号 n、位置（pre/post）、所属 branch
+   → <choice>：提取 id 属性和各 <opt> 的 key/branch
+   → <set>：提取 var/op/val/if 属性
+   → <checkpoint>：提取 node/summary 属性及 <route> 子元素
+   → bridge_text：从 post 子元素的文本节点提取纯文本
 ```
 
-> **关键**：程序执行快于展示。遍历时 state/checkpoint 立即生效（数据层），而 narrative 缓存后逐段展示（表现层）。两者异步，互不阻塞。
-
-**各区块语法**：见 [`block-spec.md`](./block-spec.md)。
+> **各元素语法**：见 [`block-spec.md`](./block-spec.md) §4。
 
 ### 4.5 内容展示
 
@@ -523,11 +548,11 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
    └── 手动模式：打印段文本 → 等待按键 → 继续下一段
 
 4. narrative 展示完毕后：
-   ├── 有 --- options ---？→ 展示选项面板（§4.6）
+   ├── 有 <choice>？→ 展示选项面板（§4.6）
    └── 无 → 展示 bridge_text → 自动进入下一轮
 ```
 
-**bridge_text 展示**：bridge 之后的 narrative 同样按编号分割展示。用户无感知——体感上是连续叙事。
+**bridge_text 展示**：`<bridge/>` 之后的 `<seg>` 和 `<branch>` 内的 <seg> 同样按编号分割展示。用户无感知——体感上是连续叙事。
 
 **命名 narrative 展示**：遍历时仅 `current_branch` 匹配的 narrative 进入展示队列。
 
@@ -558,7 +583,7 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
 
 ```
 对每个选项：
-  有 @if:条件？
+  有 opt 的 if 属性？
   ├── 否 → enabled
   └── 是 → 用本地 state_vars 评估条件
       ├── 满足 → enabled
@@ -573,14 +598,14 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
 ### 4.7 下一轮准备与结局检测
 
 ```
-程序执行到 --- bridge ---：
+程序执行到 <bridge/>：
     │
     ├── ending_flag == true？
     │   └── 是 → 组装冒险日志 Prompt（§5.4）→ 发 LLM → 继续展示 bridge_text
     │           → bridge_text 展示完毕 + 响应就绪 → 展示 adventure_log → 返回主菜单
     │
     └── 否 → 正常准备：
-        1. bridge_text 提取（见 block-spec.md bridge 节）
+        1. bridge_text 提取（见 block-spec.md §4 `<bridge/>` 节）
         2. round_count += 1
         3. 组装下一轮 Prompt → Round N+1
 ```
