@@ -4,7 +4,9 @@
 
 ## Project
 
-Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward + dual-end interface. Currently in design/specification phase — no code yet.
+Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward + dual-end interface. Currently in design/specification phase — no production code yet.
+
+**Current direction (2026-07-04):** Moving from custom `--- block ---` delimiters to **XML output format** (3/3 correctness in first test vs ~20-74% for text-based format). Planning **conversation-based architecture** with sliding window + Round 1 anchoring to replace stateless per-round prompts. See memory: [[xml-format-decision]] [[conversation-architecture]].
 
 ## Core Design Concepts
 
@@ -20,16 +22,24 @@ Each story segment contains a `--- bridge ---` marker. When the program reaches 
 ### Local Source of Truth
 All game data lives in a local `GameState` object. The LLM can only *suggest* changes via `--- state ---` blocks. The program validates each suggestion — type checks, range checks, variable existence — before applying. Rejected changes are fed back to the LLM in the next round.
 
-### Block Separators
-LLM output uses structured markers: `--- narrative ---`, `--- options ---`, `--- state ---`, `--- checkpoint ---`, `--- bridge ---`. The program parses these with regex (`^--- (\w+)(?::(\w+))? ---$`) and executes each block type accordingly. Full spec: `docs/spec/block-spec.md`.
+### Block Separators (current: `--- block ---`, target: XML)
+LLM output uses structured markers: `--- narrative ---`, `--- options ---`, `--- state ---`, `--- checkpoint ---`, `--- bridge ---`. The program parses these with regex (`^--- (\w+)(?::(\w+))? ---$`). Full spec: `docs/spec/block-spec.md`.
 
-### Minimal Context Strategy
+**⚠️ In transition:** Testing shows XML format (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) achieves 100% correctness vs ~20-74% for text blocks. Key advantages: node IDs as attributes prevent suffix appending; `<branch>` as container prevents missing post-choice narratives; `<bridge/>` as unique tag prevents double-bridge misuse. See `tests/data/prompts/frame-v1.txt` and `tests/analyze_frame.py`.
+
+### Minimal Context Strategy (current)
 Each round's prompt carries only 5 information categories (no accumulated chat history):
 1. Outline tree + node progress — "where the story is going"
 2. State snapshot — "the result of what happened"
 3. Checkpoint summaries — "key events so far"
 4. Bridge text — "what's happening right now"
 5. Rejected change feedback — "what state changes were invalid last round"
+
+**⚠️ Planned change:** Conversation-based architecture with sliding window (see [[conversation-architecture]]):
+- Round 1 output preserved as permanent format anchor (self-bootstrapping few-shot)
+- Last 3-5 rounds as full dialogue history for narrative coherence
+- Earlier rounds compressed into checkpoint summaries
+- Target ~50K token context ceiling
 
 ## Document Map
 
@@ -42,6 +52,10 @@ Each round's prompt carries only 5 information categories (no accumulated chat h
 | `docs/spec/data-model.md` | State, save system, constants | **Authoritative** |
 | `docs/spec/walkthrough.md` | 4-round narrative loop example | Reference |
 | `docs/README.md` | Documentation index | — |
+| `tests/data/prompts/frame-v1.txt` | XML-format prompt (new direction) | Test |
+| `tests/analyze_frame.py` | XML output correctness analyzer | Test |
+| `tests/run_prompt_test.py` | LLM API test harness | Test |
+| `tests/analyze_results.py` | Text-format output analyzer | Test |
 
 **Authority rule:** `docs/spec/exec-flow.md` wins over `docs/design.md` on any conflict.
 
