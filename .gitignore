@@ -19,6 +19,3 @@ venv/
 
 # Runtime data (generated at runtime, not source)
 saves/
-
-# Test output (generated files)
-tests/data/output/
