@@ -209,7 +209,14 @@ class ApiClient:
                         f"HTTP {status}: API returned error"
                     )
 
-                data = json.loads(response.read())
+                body = response.read()
+                data = json.loads(body)
+
+                # Check for API-level error in response body
+                if "error" in data:
+                    msg = data["error"].get("message", "Unknown API error")
+                    raise ApiError(f"API error: {msg}")
+
                 choices = data.get("choices", [])
                 if not choices:
                     raise ApiError("No choices in API response")
