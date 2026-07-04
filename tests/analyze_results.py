@@ -250,13 +250,14 @@ def main():
         print(f"[WARN] No prompt-test-*.md files found in {args.output_dir}")
         return
 
-    print(f"{'File':<20s} {'Time':>7s}  {'Segs':>5s}  {'Tail':>5s}  "
-          f"{'尾时':>6s}  {'时限':>6s}  {'Status':>6s}")
+    print(f"{'File':<20s} {'GenTime':>7s}  {'Segs':>5s}  {'Tail':>5s}  "
+          f"{'尾时':>6s}  {'Gen-尾':>7s}  {'无缝?':>6s}")
     print("-" * 72)
 
     times = []
     segs = []
     tail_segs_list = []
+    seamless_count = 0
     for f in files:
         result = parse_output_file(f)
         if result is None:
@@ -272,14 +273,14 @@ def main():
         segs.append(s)
         tail_segs_list.append(tail)
 
-        # Status: is the actual tail time enough to meet the guaranteed minimum?
-        if tail_time >= limits["guaranteed_s"]:
-            status = "✓"
-        else:
-            status = "⚠ SHORT"
+        # Seamless check: can the LLM finish generating before tail ends?
+        gap = t - tail_time
+        seamless = "✓" if gap <= 0 else f"gap {gap:.0f}s"
+        if gap <= 0:
+            seamless_count += 1
 
         print(f"{f.name:<20s}  {t:5.1f}s  {s:5d}  {tail:5d}  "
-              f"{tail_time:5.1f}s  {limits['expected_s']:5.1f}s  {status:>6s}")
+              f"{tail_time:5.1f}s  {gap:6.1f}s  {seamless:>6s}")
 
     print("-" * 72)
     if times:
@@ -292,22 +293,22 @@ def main():
             if tl * delay_ms / 1000 < limits["guaranteed_s"]
         )
         print(f"{len(times)} files  "
-              f"time: {min(times):.1f}s ~ {max(times):.1f}s (avg {avg_t:.1f}s)  "
-              f"segments: {min(segs)} ~ {max(segs)} (avg {avg_s:.0f})")
-        print(f"Tail time: {min(tail_segs_list)*delay_ms/1000:.1f}s ~ "
-              f"{max(tail_segs_list)*delay_ms/1000:.1f}s "
-              f"(avg {avg_tail_time:.1f}s)  "
-              f"vs guaranteed {limits['guaranteed_s']}s")
+              f"gen: {min(times):.1f}s ~ {max(times):.1f}s (avg {avg_t:.1f}s)  "
+              f"tail: {min(tail_segs_list)*delay_ms/1000:.1f}s ~ "
+              f"{max(tail_segs_list)*delay_ms/1000:.1f}s (avg {avg_tail_time:.1f}s)")
         if short_count:
             print(f"⚠ {short_count}/{len(times)} tests have tail time below "
                   f"guaranteed minimum ({limits['guaranteed_s']}s)")
         print()
-        print("Note: total generation time (Time column) is measured with "
-              "stream=False.")
-        print("With streaming, only TTFT + first-segment latency matters — "
-              "total time is")
-        print("irrelevant to bridge timing. Run streaming tests to measure "
-              "the true deadline.")
+        if seamless_count == 0:
+            print(f"无缝: 0/{len(times)} — LLM 生成时间({avg_t:.0f}s)远超"
+                  f"尾部播放时间({avg_tail_time:.0f}s)，无法在尾部播完前返回完整响应。")
+            print(f"要达到无缝，需生成时间 ≤ 尾部时间。当前差距约 {avg_t - avg_tail_time:.0f}s。")
+            needed_tail = avg_t / (delay_ms / 1000)
+            print(f"若保持当前生成速度，需尾部 ≥ {needed_tail:.0f} 段（总段数 ≈ {needed_tail/(1-params['ratio']):.0f}），"
+                  f"或模型提速 {avg_t/avg_tail_time:.0f}×。")
+        else:
+            print(f"无缝: {seamless_count}/{len(times)}")
 
 
 if __name__ == "__main__":
