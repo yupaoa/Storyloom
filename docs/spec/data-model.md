@@ -1,0 +1,233 @@
+# 数据模型与基础设施
+
+> **定位**：GameState 结构、存档系统、可配置常量、全局约定。  
+> **配套文档**：
+> - [`exec-flow.md`](./exec-flow.md) — 程序执行管线
+> - [`block-spec.md`](./block-spec.md) — 区块分隔符与状态校验
+>
+> 本文档内容原属 `Phase1-exec-flow.md` §3.6 + §4.9 + §6 + §A + §B，独立为数据参考。
+
+---
+
+## §1 GameState 初始化
+
+共创阶段 Step 5（大纲校验通过后），初始化内存中的 GameState：
+
+```
+game_state = GameState()
+game_state.story_config   = story_config           // Step 3 解析结果
+game_state.state_template = genre                  // "romance"|"adventure"|"mystery"
+game_state.state_vars     = templates[genre].vars  // 模板默认初始值（深拷贝）
+game_state.outline        = outline                // Step 4 解析+校验结果
+  → 第一个节点 status = "active"，其余 = "pending"
+game_state.progress = {
+    current_node:         outline[0].node_id,
+    round_count:          0,
+    checkpoint_history:   [],
+    checkpoint_summaries: [],
+    checkpoint_snapshots: {}
+}
+game_state.bridge_text    = ""                     // 首轮为空
+game_state.rejected_changes = []
+
+进入叙事循环（见 exec-flow.md §4）
+```
+
+---
+
+## §2 节点推进与存档触发
+
+`--- checkpoint ---` 区块触发（由 exec-flow.md §4.4 响应解析分发至此）。
+
+**流程**：
+
+```
+1. 提取第一行：
+   ├── "node <node_id>" → 标记关键节点
+   └── "end" → 结局节点：设置 ending_flag = true，其余推进逻辑相同
+      （标记 completed、存入摘要和快照、触发存档）。
+      后续 bridge 处检测到此标志时走结局路径（见 exec-flow.md §4.7）
+
+2. 验证 node_id 存在于 outline：
+   ├── 否 → 记日志，忽略该 checkpoint，继续
+   └── 是
+
+3. 标记旧 current_node 为 "completed"
+
+4. 若有 if 条件行：
+   逐条评估（按物理顺序，取首个命中）：
+     if 条件 -> route <target_node_id>
+     ├── 条件命中 → 目标节点 = target_node_id
+     ├── 条件中引用的变量不存在 → 该条视为无效，跳过
+     ├── 多个命中 → 取第一个
+     └── 全部不命中 → 取第一条分支的 target_node_id（兜底）
+
+   若无分支 → 目标节点 = outline 中下一个节点
+
+5. 标记目标节点为 "active"，更新 progress.current_node
+
+6. 存入 checkpoint_summaries（summary 字段）
+
+7. 存储 checkpoint_snapshots[current_node] = deep_copy(state_vars)
+
+8. 触发自动存档 → 覆盖 saves/{label}.json（原子写入，见 §3.3）
+```
+
+**兜底策略说明**：分支条件全部不命中 → 取 LLM 列出的第一个分支。这要求 LLM 按优先级排列分支条件。
+
+---
+
+## §3 存档系统
+
+### 3.1 存档文件结构
+
+`saves/` 目录下每个 `.json` 文件代表一次完整游玩。文件名来源于 `story_config.label`（重名追加 `_2`、`_3`）。
+
+核心结构：
+```
+{
+  version: 1,
+  metadata: { label, created_at, updated_at, round_count },
+  config: { temperature, ... },          // 不存储模型标识，模型以 .env 为准
+  story_config: { ... },
+  state_template: "romance",
+  state_vars: { ... },
+  outline: [{ node_id, title, goal, status, branches[] }],
+  progress: {
+    current_node, round_count,
+    checkpoint_history[], checkpoint_summaries[], checkpoint_snapshots{}
+  },
+  bridge_text: "..."
+}
+```
+
+> **概念区分**：「游戏存档」是 `saves/` 下的文件；「checkpoint 快照」是存档内部的 `checkpoint_snapshots`。
+
+**存档命名**：文件名来源于 `story_config.label`。非法字符（`/` `\` `:` `*` `?` `"` `<` `>` `|`）替换为 `_`。重名时追加 `_2`、`_3`（取最小未占用编号）。统一存放在 `SAVE_DIR` 下。
+
+### 3.2 自动存档时机
+
+**仅在 checkpoint 到达时触发**（§2 步骤 8）。不设手动存档、不在每轮结束时存档。
+
+| 触发条件 | 行为 |
+|----------|------|
+| `--- checkpoint ---` 中 `node <id>` 或 `end` 被成功处理 | 覆盖 `saves/{label}.json` |
+| 其他时机 | 不存档 |
+
+### 3.3 原子写入
+
+```
+1. 序列化 GameState → JSON 字符串（indent=2，确保可读）
+2. 确保 SAVE_DIR 存在（不存在则 os.makedirs）
+3. 写入临时文件：saves/{label}.tmp
+4. os.replace(tmp, saves/{label}.json)   // 原子 rename，跨平台安全
+```
+
+> 整个过程不涉及 LLM，仅本地文件操作。
+
+### 3.4 存档加载流程
+
+```
+load_save(filepath):
+  1. 读取 + JSON 解析
+     ├── 解析失败 → 存档损坏（JSON 不合法）
+
+  2. 校验 version 字段存在且 == 1
+     ├── 不匹配 → 存档损坏（版本不支持）
+
+  3. 校验关键字段存在：
+     story_config, state_vars, outline, progress, state_template
+     ├── 任一缺失 → 存档损坏（结构不完整）
+
+  4. 校验 state_template 值在 TEMPLATES_PATH 中存在
+     ├── 不存在 → 存档损坏（模板被删除）
+
+  5. 校验 progress.current_node 指向的 node_id 在 outline 中存在
+     ├── 不存在 → 存档损坏（数据不一致）
+
+  6. 校验通过 → 构建 GameState：
+     ├── 状态变量值以存档为准（模板仅提供类型定义校验）
+     ├── outline 节点状态以存档为准
+     └── config（temperature 等）以存档为准，模型以 .env 为准
+
+  7. 返回 GameState → 进入叙事循环（见 exec-flow.md §4）
+
+  以上任一校验失败 → 存档损坏（致命），永久失效，提示用户后删除文件并返回主菜单。
+```
+
+> **模板独立性**：存档自包含——一次游戏创建后，其状态变量集、大纲结构均以存档为准。`templates/states.json` 的后续变更不影响已有存档。模板文件仅在加载时用于验证 `state_template` 标识存在、运行时用于校验 state 变更的类型合法性。
+
+### 3.5 存档字段说明
+
+| 字段 | 存储时机 | 说明 |
+|------|---------|------|
+| `metadata.label` | 共创结束后首次存档时写入 | 来源于 `story_config.label` |
+| `metadata.created_at` | 首次存档时写入 | 之后不变 |
+| `metadata.updated_at` | 每次覆盖存档时更新 | |
+| `metadata.round_count` | 每次覆盖存档时更新 | = 当前 `progress.round_count` |
+| `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |
+| `bridge_text` | 每次覆盖存档时更新 | 加载后作为首轮 User Message |
+
+---
+
+## §A 可配置常量参考
+
+> 以下常量集中在 `config.py` 中定义。所有模块引用常量名，不硬编码数值。参考值可根据实际运行调整。
+
+### A.1 路径常量
+
+| 常量 | 参考值 | 说明 |
+|------|--------|------|
+| `TEMPLATES_PATH` | `templates/states.json` | 状态模板文件路径 |
+| `SAVE_DIR` | `saves/` | 存档目录 |
+
+### A.2 共创阶段
+
+| 常量 | 参考值 | 说明 |
+|------|--------|------|
+| `MAX_RETRIES` | 2 | 格式解析/校验失败后的最大重试次数（所有 LLM 调用共用） |
+| `STORY_LABEL_MIN_CHARS` | 5 | 故事标签最短字符数 |
+| `STORY_LABEL_MAX_CHARS` | 15 | 故事标签最长字符数 |
+
+### A.3 故事规模档位
+
+> 共创阶段由用户选择或 LLM 判断，写入 `story_config.tier`（`short` / `medium` / `long`）。影响 Prompt 中的字数指引和大纲节点数推荐。
+
+| 档位 | 适用 | 目标总段数 | 每段目标字数 | 每段选项数 |
+|-----------|------|-----------|-------------|-----------|
+| `STORY_TIER_SHORT` | 短篇 | 5-10 | 2000 | 0-3 |
+| `STORY_TIER_MEDIUM` | 中篇 | 15-20 | 2500 | 0-4 |
+| `STORY_TIER_LONG` | 长篇 | 25-50 | 3000 | 0-4 |
+
+档位选定后在 Prompt 中注入对应指引。
+
+### A.4 叙事与运行时
+
+| 常量 | 参考值 | 说明 |
+|------|--------|------|
+| `STREAM_STALL_TIMEOUT_SEC` | 3 | 流式输出停顿超时秒数 |
+| `MIN_NARRATION_CHARS` | 200 | 截取内容最低字符数，低于此值判定异常 |
+| `MAX_NARRATION_CHARS` | 4000 | 正文长度上限，超出则程序在完整段落处截断 |
+| `BRIDGE_MIN_RATIO_BEFORE_END` | 0.25 | bridge 距段末最少字符数比例 |
+| `AUTO_ADVANCE_DELAY_MS` | 500 | 自动展示模式下段落间延迟（毫秒） |
+| `GENRE_TEMPLATE_MAP` | `{"romance": "恋爱", "adventure": "冒险", "mystery": "悬疑"}` | 题材到模板的映射表 |
+| `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏 |
+
+---
+
+## §B 全局约定
+
+> 以下为 Phase 1 全流程的实现规则，与 core principles 互补——原则解释"为什么"，约定定义"怎么做"。
+
+| # | 约定 | 说明 |
+|---|------|------|
+| 1 | **Prompt 语言** | 所有 LLM Prompt 使用中文 |
+| 2 | **区块分隔符** | 全部英文（`--- narrative ---`、`--- checkpoint ---` 等） |
+| 3 | **变量命名** | 状态变量名、choice 名使用中文 |
+| 4 | **正文限制** | `---` 不得在 narrative 正文中单独成行，避免解析歧义 |
+| 5 | **重试策略** | 格式/校验错误最多 `MAX_RETRIES` 次，附带纠正提示重试；API 调用失败**不**自动重试——告知用户，用户决定 |
+| 6 | **用户决策** | 重试耗尽、API 失败、内容过短等异常——告知用户具体信息，由用户选择（重试 / 继续 / 返回主菜单） |
+| 7 | **错误隔离** | state 逐条校验、options 逐行解析——单条失败不影响同轮其余有效条目 |
+| 8 | **静默错误** | 微小校验错误（list 增删不存在元素、number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
+| 9 | **常量引用** | 统一使用 §A 中定义的常量名，禁止在业务代码中硬编码数值 |
+| 10 | **存档原子写入** | 先写 `{label}.tmp`，再 `os.replace` 到目标文件 |
