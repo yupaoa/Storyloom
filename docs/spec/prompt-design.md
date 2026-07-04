@@ -373,6 +373,8 @@ if approach == 2 -> route ch3_wait
 > 当前时限：`((MIN+MAX)/2 − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000` = 5s
 > （期望尾部段数 × 段延迟 = LLM 响应期望时限。(40−30)=10 段 → 5s。bridge 机制要求下一轮首个可用段落在此时间内到达。）
 > 参考：bridge 触发点 = `BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000` = 15s（本轮开始到 bridge 的播放时间）
+>
+> ⚠️ **以上时限针对的是首个段落到达时间，不是 LLM 完整响应时间。** 程序使用流式 API（`stream=True`），边接收边展示——只要首段在缓冲播完前到达，用户就感知不到停顿。后续段落可在展示过程中持续到达。详见 [`exec-flow.md` §4.3](./exec-flow.md)。
 
 ```
 你是文字冒险游戏的叙事引擎。根据大纲和状态生成下一段交互式剧情。

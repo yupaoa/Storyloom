@@ -2,11 +2,14 @@
 """Quick test: send a prompt to DeepSeek N times in parallel, save results.
 
 Usage:
-  # Test a single prompt version (5 runs, parallel)
+  # Test a single prompt version (5 runs, parallel, streaming by default)
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt
 
   # Specify output directory and run count
   python3 tests/run_prompt_test.py --prompt my-prompt.txt --output results/ --runs 3
+
+  # Non-streaming mode (for comparison)
+  python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt --no-stream
 
   # Test multiple prompt versions
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/v1.txt
@@ -22,6 +25,13 @@ Prompt file format:
   Split point: the first occurrence of '当前节点目标：'.
   Everything before  → system message
   Everything from there → user message
+
+Metrics (streaming mode):
+  - TTFT:        time from request to first token
+  - FirstSegment: time from request to first numbered narrative segment
+                 (i.e., when the program has enough content to start display)
+  - Total:       total generation time
+  These are the metrics that matter for bridge timing analysis.
 """
 
 import argparse
@@ -93,19 +103,62 @@ def run_one(args: dict) -> dict:
     index = args["index"]
     out_path = args["output_dir"] / f"prompt-test-{index:02d}.md"
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    use_stream = args.get("stream", True)
 
     t0 = time.perf_counter()
+    ttft = None        # Time To First Token
+    first_seg = None   # Time to first numbered segment
+    finish_reason = None
+    usage = None
+    content_parts = []
+
     try:
-        response = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": args["system_prompt"]},
-                {"role": "user", "content": args["user_message"]},
-            ],
-            temperature=0.8,
-            max_tokens=8192,
-            stream=False,
-        )
+        if use_stream:
+            # ── Streaming mode: measure TTFT + FirstSegment ──────────
+            stream = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": args["system_prompt"]},
+                    {"role": "user", "content": args["user_message"]},
+                ],
+                temperature=0.8,
+                max_tokens=8192,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    token_text = chunk.choices[0].delta.content
+                    if ttft is None:
+                        ttft = time.perf_counter() - t0
+                    content_parts.append(token_text)
+                    # Detect first complete numbered segment: "N. text\n"
+                    if first_seg is None:
+                        full_so_far = "".join(content_parts)
+                        import re
+                        if re.search(r'(?:^|\n)\d+\.\s+', full_so_far, re.MULTILINE):
+                            first_seg = time.perf_counter() - t0
+                if chunk.choices and chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    usage = chunk.usage
+            content = "".join(content_parts)
+        else:
+            # ── Non-streaming mode ────────────────────────────────────
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": args["system_prompt"]},
+                    {"role": "user", "content": args["user_message"]},
+                ],
+                temperature=0.8,
+                max_tokens=8192,
+                stream=False,
+            )
+            content = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            usage = response.usage
+
     except Exception as e:
         elapsed = time.perf_counter() - t0
         out_path.write_text(
@@ -118,27 +171,41 @@ def run_one(args: dict) -> dict:
         return {"index": index, "time": elapsed, "error": str(e)}
 
     elapsed = time.perf_counter() - t0
-    content = response.choices[0].message.content
-    finish_reason = response.choices[0].finish_reason
-    usage = response.usage
 
-    header = (
-        f"# Test {index:02d}\n\n"
-        f"- **Time**: {elapsed:.1f}s\n"
-        f"- **Model**: {MODEL}\n"
-        f"- **Finish**: {finish_reason}\n"
-        f"- **Tokens**: prompt={usage.prompt_tokens}, "
-        f"completion={usage.completion_tokens}, "
-        f"total={usage.total_tokens}\n"
-        f"- **Timestamp**: {datetime.now(timezone.utc).isoformat()}\n"
-        f"\n---\n\n"
+    # Build header
+    header_lines = [
+        f"# Test {index:02d}",
+        "",
+        f"- **Time**: {elapsed:.1f}s",
+        f"- **Model**: {MODEL}",
+        f"- **Finish**: {finish_reason}",
+    ]
+    if use_stream:
+        header_lines.append(
+            f"- **TTFT**: {ttft:.1f}s" if ttft else "- **TTFT**: N/A"
+        )
+        header_lines.append(
+            f"- **FirstSegment**: {first_seg:.1f}s" if first_seg else "- **FirstSegment**: N/A"
+        )
+    if usage:
+        header_lines.append(
+            f"- **Tokens**: prompt={usage.prompt_tokens}, "
+            f"completion={usage.completion_tokens}, "
+            f"total={usage.total_tokens}"
+        )
+    header_lines.append(
+        f"- **Timestamp**: {datetime.now(timezone.utc).isoformat()}"
     )
+    header_lines.extend(["", "---", ""])
+    header = "\n".join(header_lines)
 
     out_path.write_text(header + content, encoding="utf-8")
     return {
         "index": index,
         "time": elapsed,
-        "tokens": usage.total_tokens,
+        "ttft": ttft,
+        "first_seg": first_seg,
+        "tokens": usage.total_tokens if usage else None,
         "finish": finish_reason,
     }
 
@@ -162,6 +229,10 @@ def main():
         "--runs", type=int, default=5,
         help="Number of test runs (default: 5)",
     )
+    parser.add_argument(
+        "--no-stream", action="store_true",
+        help="Use non-streaming mode (default: streaming for TTFT measurement)",
+    )
     args = parser.parse_args()
 
     if not args.prompt.exists():
@@ -170,6 +241,8 @@ def main():
 
     system_prompt, user_message = load_prompt(args.prompt)
 
+    use_stream = not args.no_stream
+
     # Auto-subdir: prompt "v1.txt" → output "v1/"
     output_dir = args.output / args.prompt.stem
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +250,7 @@ def main():
     print(f"Prompt:  {args.prompt}  ({len(system_prompt)} + {len(user_message)} chars)")
     print(f"Output:  {output_dir}")
     print(f"Model:   {MODEL}")
+    print(f"Mode:    {'streaming' if use_stream else 'non-streaming'}")
     print(f"Runs:    {args.runs} (parallel)")
     print()
 
@@ -184,6 +258,7 @@ def main():
         "system_prompt": system_prompt,
         "user_message": user_message,
         "output_dir": output_dir,
+        "stream": use_stream,
     }
 
     t_start = time.perf_counter()
@@ -200,6 +275,14 @@ def main():
             i = r["index"]
             if "error" in r:
                 print(f"[{i}/{args.runs}] ERROR after {r['time']:.1f}s: {r['error']}")
+            elif use_stream:
+                ttft_str = f"{r['ttft']:.1f}s" if r.get('ttft') else "N/A"
+                seg_str = f"{r.get('first_seg', 0):.1f}s" if r.get('first_seg') else "N/A"
+                print(
+                    f"[{i}/{args.runs}] {r['time']:.1f}s  "
+                    f"TTFT: {ttft_str}  FirstSeg: {seg_str}  "
+                    f"tokens: {r['tokens']}  finish: {r['finish']}"
+                )
             else:
                 print(
                     f"[{i}/{args.runs}] {r['time']:.1f}s  "
@@ -213,6 +296,16 @@ def main():
     if times:
         print(f"Per-run: min {min(times):.1f}s  max {max(times):.1f}s  "
               f"avg {sum(times)/len(times):.1f}s")
+    if use_stream:
+        ttfts = [r.get("ttft") for r in results if r.get("ttft")]
+        first_segs = [r.get("first_seg") for r in results if r.get("first_seg")]
+        if ttfts:
+            print(f"TTFT: min {min(ttfts):.1f}s  max {max(ttfts):.1f}s  "
+                  f"avg {sum(ttfts)/len(ttfts):.1f}s")
+        if first_segs:
+            print(f"FirstSegment: min {min(first_segs):.1f}s  "
+                  f"max {max(first_segs):.1f}s  "
+                  f"avg {sum(first_segs)/len(first_segs):.1f}s")
     print(f"Results in {output_dir}/")
 
 

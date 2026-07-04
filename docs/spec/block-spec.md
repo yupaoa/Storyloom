@@ -277,7 +277,7 @@ summary: 所有线索汇集……
 
 ### `--- bridge ---`
 
-标记下一轮 Prompt 组装的触发点。LLM 应先完整生成所有内容块，再选择合适位置插入 bridge。bridge 之后至段末为 bridge_text。
+标记下一轮 Prompt 组装的触发点。LLM 应先完整生成所有内容块，再选择合适位置插入 bridge。bridge 之后至段末为 bridge_text。bridge 的时序模型（流式 + 首段到达时限）见 [`exec-flow.md` §4.3](./exec-flow.md)。
 
 **bridge 之后的区块限制**：
 
