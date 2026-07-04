@@ -227,7 +227,7 @@ User Message 单独组装：
 |--------|------|---------|
 | `{MIN}` | `config.SEGMENTS_PER_ROUND_MIN` | 直接替换 |
 | `{MAX}` | `config.SEGMENTS_PER_ROUND_MAX` | 直接替换 |
-| `{MAX_SEGMENTS_HARD}` | `config.SEGMENTS_PER_ROUND_MAX` + 20 | 硬上限，超过截断 |
+| `{MAX_SEGMENTS_HARD}` | `config.SEGMENTS_PER_ROUND_MAX` | 硬上限，同 MAX，超过截断 |
 | `{RATIO}` | `config.BRIDGE_SEGMENT_RATIO` | 转为百分比（0.4 → "40%"） |
 | `{RATIO_PCT}` | `config.BRIDGE_SEGMENT_RATIO` | 保留小数（0.4 → "0.4"） |
 | `{MIN_TAIL}` | 从 MIN/MAX/RATIO 计算 | `floor(MIN × (1 − RATIO))` |
@@ -387,13 +387,13 @@ if approach == 2 -> route ch3_wait
 ### 4.3 Prompt 示例（Round 2，medium）
 
 > Round 1 玩家选择了 A（直视对方），信任度 +5。当前推进到 ch2_confrontation。
-> `{MIN}=60` `{MAX}=100` `{MAX_SEGMENTS_HARD}=120` `{BRIDGE_AT}=32` `{RATIO}=40%` `{MIN_TAIL}=24`。
+> `{MIN}=60` `{MAX}=120` `{BRIDGE_AT}=36` `{RATIO}=40%` `{MIN_TAIL}=24`。
 >
 > 保证时限：`MIN × (1 − RATIO) × AUTO_ADVANCE_DELAY_MS / 1000` = 18.0s
 > （最小尾部段数 × 段延迟。MIN=60 时尾部至少 36 段 → 18s）
-> 当前时限：`((MIN+MAX)/2 − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000` = 24.0s
-> （期望尾部段数 × 段延迟。(80−32)=48 段 → 24s。首段到达时限。）
-> 参考：bridge 触发点 = `BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000` = 16.0s（本轮开始到提交下一轮的时间）
+> 当前时限：`((MIN+MAX)/2 − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000` = 27.0s
+> （期望尾部段数 × 段延迟。(90−36)=54 段 → 27s。首段到达时限。）
+> 参考：bridge 触发点 = `BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000` = 18.0s（本轮开始到提交下一轮的时间）
 
 ```
 你是文字冒险游戏的叙事引擎。根据大纲和状态生成下一段交互式剧情。

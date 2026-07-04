@@ -1,71 +1,44 @@
 #!/usr/bin/env python3
-r"""Analyze prompt time limits and compare against actual test results.
+r"""Analyze prompt test results: timing + correctness in one pass.
 
 Usage:
-  # Prompt only (no test data yet — just print the time budget)
-  python3 tests/analyze_results.py --prompt tests/data/prompts/default.txt
-
-  # Prompt + test output directory (compare actual vs expected)
+  # Full analysis (timing + correctness)
   python3 tests/analyze_results.py --prompt tests/data/prompts/default.txt \
       --output-dir tests/data/output/default/
 
-─── Time limit formulas (from prompt-design.md §4.3) ─────────────────
+  # Timing only (skip correctness checks)
+  python3 tests/analyze_results.py --prompt tests/data/prompts/default.txt \
+      --output-dir tests/data/output/default/ --no-correctness
 
-Two limits are calculated from the prompt's segment parameters:
+  # Prompt analysis only (no test data yet)
+  python3 tests/analyze_results.py --prompt tests/data/prompts/default.txt
 
-  guaranteed (保证时限)
-    = MIN × (1 − RATIO) × AUTO_ADVANCE_DELAY_MS / 1000
-    The absolute minimum tail display time.  Even if the LLM generates
-    only MIN segments, the tail (the portion after bridge) provides at
-    least this much reading time for the player.  This is the floor:
-    the next round's LLM MUST deliver its first usable segment within
-    this window for seamless playback.
+─── Timing metrics ──────────────────────────────────────────────────
 
-  expected (当前时限)
-    = ((MIN + MAX) / 2 − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000
-    where BRIDGE_AT = floor((MIN + MAX) / 2 × RATIO)
-    The expected tail display time at the design-segment count (avg of
-    MIN and MAX).  This is the typical LLM generation deadline for the
-    bridge mechanism to deliver seamless transitions.
+  TTFT / FirstSegment: bridge deadline (from streaming-mode file headers).
+  The key check: FirstSegment ≤ tail_time → seamless transition.
 
-  reference: bridge trigger point
-    = BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000
-    Time from round start until the bridge marker triggers the next
-    prompt submission.  Informational only — not a deadline.
+  guaranteed (保证时限) = MIN × (1−RATIO) × delay
+  expected   (当前时限) = ((MIN+MAX)/2 − BRIDGE_AT) × delay
 
-The bridge mechanism:
-  1. Program reaches bridge marker during display → submits next prompt
-  2. Continues displaying tail segments while LLM generates
-  3. LLM must return first usable segment before tail display completes
-  4. With streaming: only TTFT + first-segment matters, not total time
+─── Correctness checks ──────────────────────────────────────────────
 
-Parameters are extracted from the prompt text:
-  - MIN, MAX  → "本轮生成 30-50 个叙事段"
-  - RATIO      → "约 75% 处" or "× 0.75"
-  - AUTO_ADVANCE_DELAY_MS → from data-model.md §A.5 (default 500)
+  1. choice:       options block has `choice: 变量名` on first line
+  2. pre-branch:   pre-bridge options/state use only `:main` branch
+  3. first-block:  output starts with `--- narrative:main ---`
+  4. numbering:    first segment is numbered 1
+  5. node:         checkpoint `node {id}` exists in outline
+  6. routes:       all `route {target}` targets exist in outline
+  7. segments:     total ≤ hard cap (MAX + 20)
+  8. tail:         tail segments ≥ minimum (MIN × (1−RATIO))
 
-─── Output columns ──────────────────────────────────────────────────
-
-  Streaming mode (default — files contain TTFT + FirstSegment):
-    TTFT      → time to first token
-    1stSeg    → time to first numbered narrative segment
-                (this is the bridge deadline — first displayable content)
-    Segs      → total narrative segments in the output
-    Tail      → segments after bridge marker (the display buffer)
-    尾时       → tail × delay = actual time budget for next round
-    到达-尾    → FirstSegment − tail_time (≤ 0 = seamless)
-    无缝?      → ✓ if FirstSegment arrives before tail ends
-
-  Non-streaming mode (--no-stream — files contain only total time):
-    GenTime   → total LLM generation time
-    Gen-尾    → GenTime − tail_time
-    无缝?      → ✓ (only possible if gen is extremely fast)
+  Valid nodes and the hard segment cap are parsed from the prompt file's
+  outline section and rules respectively.
 
 ─── Reference ───────────────────────────────────────────────────────
 
-  docs/spec/prompt-design.md  §4.3  (formulas, worked example)
-  docs/spec/data-model.md     §A.4  (SEGMENTS_PER_ROUND_*)
-  docs/spec/data-model.md     §A.5  (AUTO_ADVANCE_DELAY_MS)
+  docs/spec/prompt-design.md  §4.3  (formulas, example)
+  docs/spec/data-model.md     §A.4  (segment constants)
 """
 
 import argparse
@@ -76,38 +49,47 @@ from pathlib import Path
 
 # ── Config ──────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-AUTO_ADVANCE_DELAY_MS = 500  # from data-model.md §A.5
+AUTO_ADVANCE_DELAY_MS = 500
 
 
-def load_config() -> int:
-    """Try to read AUTO_ADVANCE_DELAY_MS from data-model.md, fallback to 500."""
+def load_delay_ms() -> int:
     data_model = PROJECT_ROOT / "docs" / "spec" / "data-model.md"
     if data_model.exists():
-        text = data_model.read_text(encoding="utf-8")
-        m = re.search(r"AUTO_ADVANCE_DELAY_MS\s*\|\s*(\d+)", text)
+        m = re.search(r"AUTO_ADVANCE_DELAY_MS\s*\|\s*(\d+)", data_model.read_text(encoding="utf-8"))
         if m:
             return int(m.group(1))
     return 500
 
 
 # ── Prompt parsing ──────────────────────────────────────────────────
-def parse_prompt(path: Path) -> dict:
-    """Extract MIN, MAX, RATIO from a prompt file."""
+
+def parse_prompt_params(path: Path) -> dict:
+    """Extract MIN, MAX, RATIO, hard cap, valid nodes from a prompt file."""
     text = path.read_text(encoding="utf-8")
 
-    m = re.search(r"本轮生成\s*(\d+)\s*-\s*(\d+)\s*个叙事段", text)
+    # Segment range
+    m = re.search(r"本轮\S*\s*(\d+)\s*[-–]\s*(\d+)\s*个叙事段", text)
     if not m:
         m = re.search(r"生成\s*\{MIN\}\s*-\s*\{MAX\}\s*个叙事段", text)
         if m:
             raise RuntimeError(
-                "Prompt contains placeholders ({MIN}-{MAX}), not concrete values. "
-                "Use a concrete prompt file (e.g. from §4.3)."
+                "Prompt contains placeholders ({MIN}-{MAX}). "
+                "Use a concrete prompt file."
             )
-        raise RuntimeError("Could not find '本轮生成 N-M 个叙事段' in prompt.")
+        raise RuntimeError("Could not find segment range in prompt.")
 
     lo = int(m.group(1))
     hi = int(m.group(2))
 
+    # Hard cap
+    hard_cap = None
+    m_cap = re.search(r"超过\s*(\d+)\s*段.*截断", text)
+    if m_cap:
+        hard_cap = int(m_cap.group(1))
+    else:
+        hard_cap = hi + 20  # default
+
+    # Bridge ratio
     m = re.search(r"[约×]\s*(\d+)%", text)
     if not m:
         m = re.search(r"×\s*(0\.\d+)", text)
@@ -119,54 +101,63 @@ def parse_prompt(path: Path) -> dict:
 
     bridge_at = floor((lo + hi) / 2 * ratio)
 
+    # Min tail
+    min_tail = None
+    m_tail = re.search(r"尾部不足\s*(\d+)\s*段", text)
+    if m_tail:
+        min_tail = int(m_tail.group(1))
+    else:
+        min_tail = floor(lo * (1 - ratio))
+
+    # Valid node IDs from outline section
+    valid_nodes = set()
+    story_start = text.find("# 故事")
+    if story_start < 0:
+        story_start = text.find("**背景")
+    if story_start > 0:
+        story_text = text[story_start:]
+        for m in re.finditer(r'\b(ch\d+_\w+)\b', story_text):
+            # Only nodes listed as outline entries (with [status] or —)
+            pass
+        # Simpler: find all node_id patterns in the outline block
+        outline_start = story_text.find("大纲")
+        if outline_start < 0:
+            outline_start = 0
+        outline_block = story_text[outline_start:]
+        # Match lines like: ch1_bar [completed] — title
+        for m in re.finditer(r'\b(ch\d+_\w+)\b', outline_block):
+            valid_nodes.add(m.group(1))
+
     return {
         "min": lo,
         "max": hi,
+        "hard_cap": hard_cap,
         "ratio": ratio,
         "bridge_at": bridge_at,
+        "min_tail": min_tail,
+        "valid_nodes": valid_nodes,
     }
 
 
 def calc_limits(params: dict, delay_ms: int) -> dict:
-    """Calculate time limits from prompt parameters.
-
-    guaranteed (保证时限): minimum tail display time (at MIN segments).
-    expected (当前时限):   expected tail display time (at avg segments).
-                           This is the LLM's generation deadline.
-    pre_bridge:            time from round start to bridge trigger
-                           (informational, not a deadline).
-    """
-    lo = params["min"]
-    hi = params["max"]
-    ratio = params["ratio"]
-    bridge_at = params["bridge_at"]
-
+    lo, hi, ratio, bridge_at = params["min"], params["max"], params["ratio"], params["bridge_at"]
     avg_total = (lo + hi) / 2
     expected_tail = avg_total - bridge_at
-
-    guaranteed = lo * (1 - ratio) * delay_ms / 1000
-    expected = expected_tail * delay_ms / 1000
-    pre_bridge = bridge_at * delay_ms / 1000
-
     return {
-        "guaranteed_s": round(guaranteed, 1),
-        "expected_s": round(expected, 1),
-        "pre_bridge_s": round(pre_bridge, 1),
+        "guaranteed_s": round(lo * (1 - ratio) * delay_ms / 1000, 1),
+        "expected_s": round(expected_tail * delay_ms / 1000, 1),
+        "pre_bridge_s": round(bridge_at * delay_ms / 1000, 1),
     }
 
 
 # ── Output file parsing ─────────────────────────────────────────────
-def parse_output_file(path: Path) -> dict | None:
-    """Extract metadata and tail segments from a test output file.
 
-    Parses both streaming-mode headers (TTFT, FirstSegment) and
-    non-streaming headers (Time + Tokens).  Returns None on error.
-    """
+def parse_output_file(path: Path) -> dict | None:
+    """Extract timing + correctness data from a test output file."""
     if not path.exists():
         return None
 
     text = path.read_text(encoding="utf-8")
-
     time_s = None
     m = re.search(r"\*\*Time\*\*:\s*([\d.]+)s", text)
     if m:
@@ -174,7 +165,6 @@ def parse_output_file(path: Path) -> dict | None:
     if time_s is None:
         return None
 
-    # Streaming metrics (present when run with --stream / default mode)
     ttft = None
     m = re.search(r"\*\*TTFT\*\*:\s*([\d.]+)s", text)
     if m:
@@ -185,42 +175,121 @@ def parse_output_file(path: Path) -> dict | None:
     if m:
         first_seg = float(m.group(1))
 
-    # Split off the metadata header to isolate LLM output
+    # Split header from LLM output
     parts = text.split('\n---\n', 1)
     llm_out = parts[1] if len(parts) > 1 else text
 
-    # Find bridge marker
+    # --- Pre-bridge section ---
     bridge_m = re.search(r'^--- bridge ---$', llm_out, re.MULTILINE)
     bridge_pos = bridge_m.start() if bridge_m else len(llm_out)
-
-    # Count segments before and after bridge
     pre_text = llm_out[:bridge_pos]
     post_text = llm_out[bridge_pos:] if bridge_m else ""
 
+    # --- Timing ---
     pre_segs = len(re.findall(r'^\d+\.', pre_text, re.MULTILINE))
     post_segs = len(re.findall(r'^\d+\.', post_text, re.MULTILINE)) if bridge_m else 0
+    total_segs = pre_segs + post_segs
+
+    # --- Correctness ---
+    # 1. choice declaration
+    has_choice = bool(re.search(r'^choice:\s*\S+', pre_text, re.MULTILINE))
+
+    # 2. pre-bridge branch names (options/state must be :main or unqualified)
+    pre_blocks = re.findall(r'^--- (options|state)(:\w+)? ---', pre_text, re.MULTILINE)
+    bad_branches = [
+        f"{btype}{branch}"
+        for btype, branch in pre_blocks
+        if branch and branch != ":main"
+    ]
+
+    # 3. first narrative block
+    first_block_m = re.search(r'^--- narrative:(\S+) ---', llm_out, re.MULTILINE)
+    first_block = first_block_m.group(1) if first_block_m else None
+
+    # 4. first segment number
+    first_num_m = re.search(r'^(\d+)\.\s', llm_out, re.MULTILINE)
+    first_num = int(first_num_m.group(1)) if first_num_m else None
+
+    # 5. checkpoint node
+    node_m = re.search(r'^node\s+(\S+)', pre_text, re.MULTILINE)
+    checkpoint_node = node_m.group(1) if node_m else None
+
+    # 6. route targets
+    route_targets = re.findall(r'route\s+(\S+)', pre_text)
 
     return {
+        # Timing
         "time_s": time_s,
         "ttft": ttft,
         "first_seg": first_seg,
-        "segments": pre_segs + post_segs,
+        "segments": total_segs,
         "tail_segs": post_segs,
+        # Correctness
+        "has_choice": has_choice,
+        "bad_branches": bad_branches,
+        "first_block": first_block,
+        "first_num": first_num,
+        "checkpoint_node": checkpoint_node,
+        "route_targets": route_targets,
+        "finish": _parse_finish(text),
     }
 
 
+def _parse_finish(text: str) -> str:
+    m = re.search(r"\*\*Finish\*\*:\s*(\S+)", text)
+    return m.group(1) if m else "?"
+
+
+# ── Correctness evaluation ──────────────────────────────────────────
+
+def check_correctness(r: dict, params: dict) -> list[str]:
+    """Return list of issue labels. Empty list = clean."""
+    issues = []
+
+    if not r["has_choice"]:
+        issues.append("choice?")
+
+    if r["bad_branches"]:
+        issues.append(f"branch({','.join(r['bad_branches'])})?")
+
+    if r["first_block"] != "main":
+        issues.append(f"first={r['first_block']}")
+
+    if r["first_num"] != 1:
+        issues.append(f"start={r['first_num']}")
+
+    node = r["checkpoint_node"]
+    valid = params["valid_nodes"]
+    if node and valid and node not in valid:
+        issues.append(f"node({node})?")
+
+    for rt in r["route_targets"]:
+        if valid and rt not in valid:
+            issues.append(f"route({rt})?")
+
+    if r["segments"] > params["hard_cap"]:
+        issues.append(f"segs={r['segments']}(>{params['hard_cap']})")
+
+    if r["tail_segs"] < params["min_tail"]:
+        issues.append(f"tail={r['tail_segs']}(<{params['min_tail']})")
+
+    if r["finish"] == "length":
+        issues.append("TRUNCATED")
+
+    return issues
+
+
 # ── Main ─────────────────────────────────────────────────────────────
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Analyze prompt time limits and compare against test results."
+        description="Analyze prompt test results: timing + correctness."
     )
+    parser.add_argument("--prompt", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument(
-        "--prompt", type=Path, required=True,
-        help="Path to prompt file",
-    )
-    parser.add_argument(
-        "--output-dir", type=Path, default=None,
-        help="Directory containing prompt-test-*.md files (optional)",
+        "--no-correctness", action="store_true",
+        help="Skip correctness checks (timing only)."
     )
     args = parser.parse_args()
 
@@ -228,135 +297,158 @@ def main():
         print(f"[ERROR] Prompt file not found: {args.prompt}")
         sys.exit(1)
 
-    delay_ms = load_config()
-
-    # ── Prompt analysis ──────────────────────────────────────────
-    params = parse_prompt(args.prompt)
+    delay_ms = load_delay_ms()
+    params = parse_prompt_params(args.prompt)
     limits = calc_limits(params, delay_ms)
+    check_correct = not args.no_correctness
 
+    # ── Prompt summary ──────────────────────────────────────────────
     print("═" * 72)
     print(f"Prompt:  {args.prompt.name}")
     print(f"Params:  MIN={params['min']}  MAX={params['max']}  "
-          f"RATIO={int(params['ratio']*100)}%  BRIDGE_AT={params['bridge_at']}")
+          f"HARD={params['hard_cap']}  RATIO={int(params['ratio']*100)}%  "
+          f"BRIDGE_AT={params['bridge_at']}  MIN_TAIL={params['min_tail']}")
+    if params["valid_nodes"]:
+        print(f"Nodes:   {', '.join(sorted(params['valid_nodes']))}")
     print(f"Delay:   {delay_ms}ms/segment")
     print()
     print("Time budget (bridge mechanism):")
-    print(f"  保证时限 (min tail time):   {limits['guaranteed_s']:5.1f}s  "
+    print(f"  保证时限 (min tail):   {limits['guaranteed_s']:5.1f}s  "
           f"(MIN × (1−RATIO) × delay)")
-    print(f"  当前时限 (exp tail time):   {limits['expected_s']:5.1f}s  "
-          f"((avg_total − BRIDGE_AT) × delay)")
-    print(f"  bridge 触发点 (pre-bridge): {limits['pre_bridge_s']:5.1f}s  "
-          f"(BRIDGE_AT × delay, informational)")
-    print(f"  ↑ LLM 必须在当前时限内返回首个可用段落，bridge 机制才能无缝衔接。")
+    print(f"  当前时限 (expected):   {limits['expected_s']:5.1f}s  "
+          f"((avg − BRIDGE_AT) × delay)")
+    print(f"  bridge 触发点:         {limits['pre_bridge_s']:5.1f}s  "
+          f"(BRIDGE_AT × delay)")
     print()
 
-    # ── No output files ──────────────────────────────────────────
     if args.output_dir is None:
-        print("(No --output-dir specified. Run with --output-dir to compare "
-              "against actual results.)")
+        print("(No --output-dir specified.)")
         return
 
     if not args.output_dir.exists():
         print(f"[WARN] Output directory not found: {args.output_dir}")
         return
 
-    # ── Compare against results ──────────────────────────────────
     files = sorted(args.output_dir.glob("prompt-test-*.md"))
     if not files:
-        print(f"[WARN] No prompt-test-*.md files found in {args.output_dir}")
+        print(f"[WARN] No prompt-test-*.md files found.")
         return
 
-    # Detect if files have streaming metrics
+    # ── Results table ───────────────────────────────────────────────
     sample = parse_output_file(files[0])
     has_streaming = sample and sample.get("first_seg") is not None
 
     if has_streaming:
-        print(f"{'File':<20s} {'TTFT':>6s} {'1stSeg':>7s} {'Segs':>5s} "
-              f"{'Tail':>5s} {'尾时':>6s} {'到达-尾':>7s} {'无缝?':>6s}")
+        header = (f"{'File':<20s} {'TTFT':>6s} {'1stSeg':>7s} {'Segs':>5s} "
+                  f"{'Tail':>5s} {'尾时':>6s} {'到达-尾':>7s} {'无缝':>5s}")
+        if check_correct:
+            header += "  正确性"
     else:
-        print(f"{'File':<20s} {'GenTime':>7s} {'Segs':>5s} {'Tail':>5s} "
-              f"{'尾时':>6s} {'Gen-尾':>7s} {'无缝?':>6s}")
-    print("-" * 72)
+        header = (f"{'File':<20s} {'GenTime':>7s} {'Segs':>5s} {'Tail':>5s} "
+                  f"{'尾时':>6s} {'Gen-尾':>7s} {'无缝':>5s}")
+    print(header)
+    print("-" * (len(header) + 4))
 
-    times = []
-    first_segs = []
-    segs = []
-    tail_segs_list = []
+    all_times = []
+    all_first_segs = []
+    all_segs = []
+    all_tails = []
     seamless_count = 0
+    clean_count = 0
+
     for f in files:
-        result = parse_output_file(f)
-        if result is None:
-            print(f"{f.name:<20s}  {'(parse error)':>40s}")
+        r = parse_output_file(f)
+        if r is None:
+            print(f"{f.name:<20s}  {'(parse error)':>50s}")
             continue
 
-        t = result["time_s"]
-        fs = result.get("first_seg")
-        s = result["segments"]
-        tail = result["tail_segs"]
+        t = r["time_s"]
+        fs = r.get("first_seg")
+        s = r["segments"]
+        tail = r["tail_segs"]
         tail_time = tail * delay_ms / 1000
 
-        times.append(t)
+        all_times.append(t)
         if fs is not None:
-            first_segs.append(fs)
-        segs.append(s)
-        tail_segs_list.append(tail)
+            all_first_segs.append(fs)
+        all_segs.append(s)
+        all_tails.append(tail)
 
-        # Seamless check: FirstSegment is the true bridge deadline (streaming).
-        # Fall back to total generation time for non-streaming data.
+        # Seamless
         deadline = fs if fs is not None else t
         gap = deadline - tail_time
-        seamless = "✓" if gap <= 0 else f"gap {gap:.0f}s"
+        seamless = "✓" if gap <= 0 else f"+{gap:.0f}s"
         if gap <= 0:
             seamless_count += 1
 
+        # Timing columns
         if has_streaming:
-            ttft_str = f"{result.get('ttft', 0):.1f}s" if result.get('ttft') else "N/A"
-            fs_str = f"{fs:.1f}s" if fs else "N/A"
-            print(f"{f.name:<20s}  {ttft_str:>6s}  {fs_str:>7s}  {s:5d}  "
-                  f"{tail:5d}  {tail_time:5.1f}s  {gap:6.1f}s  {seamless:>6s}")
+            ttft_s = f"{r.get('ttft', 0):.1f}" if r.get('ttft') else "?"
+            fs_s = f"{fs:.1f}" if fs else "?"
+            line = (f"{f.name:<20s}  {ttft_s:>5s}s  {fs_s:>6s}s  {s:5d}  "
+                    f"{tail:5d}  {tail_time:5.1f}s  {gap:6.1f}s  {seamless:>5s}")
         else:
-            print(f"{f.name:<20s}  {t:5.1f}s  {s:5d}  {tail:5d}  "
-                  f"{tail_time:5.1f}s  {gap:6.1f}s  {seamless:>6s}")
+            line = (f"{f.name:<20s}  {t:5.1f}s  {s:5d}  {tail:5d}  "
+                    f"{tail_time:5.1f}s  {gap:6.1f}s  {seamless:>5s}")
 
+        # Correctness
+        if check_correct:
+            issues = check_correctness(r, params)
+            if issues:
+                line += f"  ✗ {' '.join(issues)}"
+            else:
+                line += "  ✓"
+                clean_count += 1
+
+        print(line)
+
+    # ── Summary ─────────────────────────────────────────────────────
     print("-" * 72)
-    if times:
-        avg_t = sum(times) / len(times)
-        avg_s = sum(segs) / len(segs)
-        avg_tail = sum(tail_segs_list) / len(tail_segs_list)
+    if all_times:
+        avg_t = sum(all_times) / len(all_times)
+        avg_s = sum(all_segs) / len(all_segs)
+        avg_tail = sum(all_tails) / len(all_tails)
         avg_tail_time = avg_tail * delay_ms / 1000
         short_count = sum(
-            1 for tl in tail_segs_list
+            1 for tl in all_tails
             if tl * delay_ms / 1000 < limits["guaranteed_s"]
         )
-        print(f"{len(times)} files  "
-              f"gen: {min(times):.1f}s ~ {max(times):.1f}s (avg {avg_t:.1f}s)  "
-              f"tail: {min(tail_segs_list)*delay_ms/1000:.1f}s ~ "
-              f"{max(tail_segs_list)*delay_ms/1000:.1f}s (avg {avg_tail_time:.1f}s)")
-        if first_segs:
-            avg_fs = sum(first_segs) / len(first_segs)
-            print(f"FirstSegment: {min(first_segs):.1f}s ~ {max(first_segs):.1f}s "
-                  f"(avg {avg_fs:.1f}s)  ← bridge 时限指标")
+
+        print(f"{len(files)} files  "
+              f"gen: {min(all_times):.1f}s ~ {max(all_times):.1f}s "
+              f"(avg {avg_t:.1f}s)  "
+              f"segments: {min(all_segs)} ~ {max(all_segs)} (avg {avg_s:.0f})")
+
+        if all_first_segs:
+            avg_fs = sum(all_first_segs) / len(all_first_segs)
+            print(f"FirstSegment: {min(all_first_segs):.1f}s ~ "
+                  f"{max(all_first_segs):.1f}s (avg {avg_fs:.1f}s)")
+
         if short_count:
-            print(f"⚠ {short_count}/{len(times)} tests have tail time below "
-                  f"guaranteed minimum ({limits['guaranteed_s']}s)")
-        print()
-        if seamless_count == len(times):
-            print(f"无缝: {seamless_count}/{len(times)} ✓")
+            print(f"⚠ {short_count}/{len(files)} tail below guaranteed "
+                  f"({limits['guaranteed_s']}s)")
+
+        # Seamless summary
+        if seamless_count == len(files):
+            print(f"无缝: {seamless_count}/{len(files)} ✓")
         elif seamless_count > 0:
-            print(f"无缝: {seamless_count}/{len(times)} (部分)")
+            print(f"无缝: {seamless_count}/{len(files)} (部分)")
         else:
-            if has_streaming:
-                avg_fs = sum(first_segs) / len(first_segs)
-                print(f"无缝: 0/{len(times)} — FirstSegment({avg_fs:.1f}s) > "
-                      f"尾部时间({avg_tail_time:.1f}s)，差距 {avg_fs - avg_tail_time:.1f}s。")
-                needed_tail = avg_fs / (delay_ms / 1000)
-                print(f"需尾部 ≥ {needed_tail:.0f} 段（当前 avg {avg_tail:.0f}），"
-                      f"或模型 TTFT+首段 提速 {avg_fs/avg_tail_time:.0f}×。")
+            deadline_label = "FirstSegment" if all_first_segs else "GenTime"
+            avg_deadline = (sum(all_first_segs) / len(all_first_segs)
+                            if all_first_segs else avg_t)
+            print(f"无缝: 0/{len(files)} — {deadline_label}({avg_deadline:.1f}s) > "
+                  f"尾部({avg_tail_time:.1f}s), gap {avg_deadline - avg_tail_time:.1f}s")
+
+        # Correctness summary
+        if check_correct:
+            print(f"正确: {clean_count}/{len(files)}", end="")
+            if clean_count == len(files):
+                print(" ✓")
             else:
-                print(f"无缝: 0/{len(times)} — LLM 生成时间({avg_t:.0f}s)远超"
-                      f"尾部播放时间({avg_tail_time:.0f}s)。")
-                needed_tail = avg_t / (delay_ms / 1000)
-                print(f"需尾部 ≥ {needed_tail:.0f} 段，或模型提速 {avg_t/avg_tail_time:.0f}×。")
+                print()
+
+    print()
 
 
 if __name__ == "__main__":
