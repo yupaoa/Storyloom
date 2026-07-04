@@ -186,25 +186,31 @@ load_save(filepath):
 
 ### A.3 故事规模档位
 
-> 共创阶段由用户选择或 LLM 判断，写入 `story_config.tier`（`short` / `medium` / `long`）。影响 Prompt 中的字数指引和大纲节点数推荐。
+> 共创阶段由用户选择或 LLM 判断，写入 `story_config.tier`（`short` / `medium` / `long`）。影响大纲节点数和总轮数推荐。每轮段数和 bridge 位置由 `SEGMENTS_PER_ROUND_*` 控制，不随档位变化。
 
-| 档位 | 适用 | 目标总段数 | 每段目标字数 | 每段选项数 |
-|-----------|------|-----------|-------------|-----------|
-| `STORY_TIER_SHORT` | 短篇 | 5-10 | 2000 | 0-3 |
-| `STORY_TIER_MEDIUM` | 中篇 | 15-20 | 2500 | 0-4 |
-| `STORY_TIER_LONG` | 长篇 | 25-50 | 3000 | 0-4 |
+| 档位 | 适用 | 推荐大纲节点数 | 预估总轮数 |
+|-----------|------|--------------|----------|
+| `STORY_TIER_SHORT` | 短篇 | 3-5 | 5-10 |
+| `STORY_TIER_MEDIUM` | 中篇 | 5-8 | 15-20 |
+| `STORY_TIER_LONG` | 长篇 | 8-15 | 25-50 |
 
-档位选定后在 Prompt 中注入对应指引。
+档位选定后在 Prompt 中注入对应指引。**通过限制轮次来控制总长，而非限制每段字数。**
 
-### A.4 叙事与运行时
+### A.4 叙事段控制
+
+| 常量 | 参考值 | 说明 |
+|------|--------|------|
+| `SEGMENTS_PER_ROUND_MIN` | 15 | 每轮最少叙事段数 |
+| `SEGMENTS_PER_ROUND_MAX` | 25 | 每轮最多叙事段数 |
+| `BRIDGE_SEGMENT_RATIO` | 0.75 | bridge 插入位置（段数比例），如 20 段时 bridge 在第 15 段后 |
+
+### A.5 叙事与运行时
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
 | `STREAM_STALL_TIMEOUT_SEC` | 3 | 流式输出停顿超时秒数 |
 | `MIN_NARRATION_CHARS` | 200 | 截取内容最低字符数，低于此值判定异常 |
-| `MAX_NARRATION_CHARS` | 4000 | 正文长度上限，超出则程序在完整段落处截断 |
-| `BRIDGE_MIN_RATIO_BEFORE_END` | 0.25 | bridge 距段末最少字符数比例 |
-| `AUTO_ADVANCE_DELAY_MS` | 500 | 自动展示模式下段落间延迟（毫秒） |
+| `AUTO_ADVANCE_DELAY_MS` | 500 | 自动展示模式下段间延迟（毫秒） |
 | `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏 |
 
 ---
@@ -224,4 +230,5 @@ load_save(filepath):
 | 7 | **错误隔离** | state 逐条校验、options 逐行解析——单条失败不影响同轮其余有效条目 |
 | 8 | **静默错误** | 微小校验错误（list 增删不存在元素、number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
 | 9 | **常量引用** | 统一使用 §A 中定义的常量名，禁止在业务代码中硬编码数值 |
+| 10 | **编号宽容** | 叙事段编号偏差（跳号、重复、起始非 1）不触发重试——内容质量优先于编号准确性 |
 | 10 | **存档原子写入** | 先写 `{label}.tmp`，再 `os.replace` 到目标文件 |

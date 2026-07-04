@@ -457,7 +457,7 @@ Round N 开始
 ```
 完整 Prompt:
   ├── System Prompt（由 prompt_builder 组装）:
-  │     ├── 固定部分：游戏规则 + 输出格式要求 + 格式示例
+  │     ├── 固定部分：角色定义 + 输出格式要求（含编号规则）+ 质量约束
   │     ├── 故事背景：story_config 全部字段
   │     ├── 大纲：outline_text（所有节点 + [completed]/[active]/[pending] 标注）
   │     ├── 进度：current_node + goal + completed_nodes_summary
@@ -466,7 +466,9 @@ Round N 开始
   │     └── 拒绝反馈：rejected_changes_feedback（仅当非空）
   │
   └── User Message:
-        └── bridge_text（上一轮 bridge 之后至段末的正文；首轮为空）
+        └── bridge_text（上一轮 bridge 之后至段末的正文，带编号；首轮为空）
+
+> 完整的 Prompt 模板与示例见 [`prompt-design.md`](./prompt-design.md)。
 ```
 
 ### 4.3 API 调用与响应接收
@@ -538,16 +540,18 @@ Round N 开始
 **展示流程**：
 
 ```
-1. 从展示队列取 --- narrative --- 正文
-2. 按空行分割为段落
-3. 逐段展示：
-   ├── 自动模式：打印段落 → 延迟 → 继续下一段
-   └── 手动模式：打印段落 → 等待按键 → 继续下一段
+1. 从展示队列取匹配 current_branch 的 narrative 正文
+2. 按数字编号分割为展示段（见 block-spec.md §2）
+3. 剥离编号前缀，逐段展示纯文本：
+   ├── 自动模式：打印段文本 → delay(AUTO_ADVANCE_DELAY_MS) → 继续下一段
+   └── 手动模式：打印段文本 → 等待按键 → 继续下一段
 
 4. narrative 展示完毕后：
    ├── 有 --- options ---？→ 展示选项面板（§4.6）
    └── 无 → 展示 bridge_text → 自动进入下一轮
 ```
+
+**bridge_text 展示**：bridge 之后的 narrative 同样按编号分割展示。用户无感知——体感上是连续叙事。
 
 **命名 narrative 展示**：遍历时仅 `current_branch` 匹配的 narrative 进入展示队列。
 

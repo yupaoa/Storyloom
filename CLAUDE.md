@@ -37,7 +37,8 @@ Each round's prompt carries only 5 information categories (no accumulated chat h
 |----------|------|-----------|
 | `docs/design.md` | Vision, architecture, phased roadmap | Advisory |
 | `docs/spec/exec-flow.md` | Phase 1 execution pipeline | **Authoritative** |
-| `docs/spec/block-spec.md` | Block separator syntax & prompt format | **Authoritative** |
+| `docs/spec/block-spec.md` | Block separator syntax, numbering, branching, state validation | **Authoritative** |
+| `docs/spec/prompt-design.md` | All Prompt templates, constraints, and examples | **Authoritative** |
 | `docs/spec/data-model.md` | State, save system, constants | **Authoritative** |
 | `docs/spec/walkthrough.md` | 4-round narrative loop example | Reference |
 | `docs/README.md` | Documentation index | — |

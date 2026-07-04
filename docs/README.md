@@ -6,8 +6,9 @@
 |------|------|------|--------|
 | [`design.md`](./design.md) | 设计理念、架构愿景、阶段规划 | 设计者、新贡献者 | 参考 |
 | [`spec/exec-flow.md`](./spec/exec-flow.md) | Phase 1 程序执行管线（启动→结局） | 开发者、AI 工具 | **权威** |
-| [`spec/block-spec.md`](./spec/block-spec.md) | 区块分隔符语法、分支路由、状态校验 | 开发者 | **权威** |
+| [`spec/block-spec.md`](./spec/block-spec.md) | 区块分隔符语法、编号规范、分支路由、状态校验 | 开发者 | **权威** |
 | [`spec/data-model.md`](./spec/data-model.md) | GameState、存档系统、常量、约定 | 开发者 | **权威** |
+| [`spec/prompt-design.md`](./spec/prompt-design.md) | 全阶段 Prompt 模板、约束与示例（核心） | 开发者、调试者 | **权威** |
 | [`spec/walkthrough.md`](./spec/walkthrough.md) | 4 轮叙事循环完整走查样例 | 开发者、审查者 | 参考 |
 | [`spec/tests/`](./spec/tests/) | LLM 输出样本（解析器测试 fixture） | 实现者 | 参考 |
 
@@ -21,7 +22,8 @@
 ### 开始实现
 1. [`spec/exec-flow.md`](./spec/exec-flow.md) — 执行管线（主文档）
 2. [`spec/block-spec.md`](./spec/block-spec.md) — 区块格式（实现解析器时参考）
-3. [`spec/data-model.md`](./spec/data-model.md) — 数据结构（实现 GameState 和存档时参考）
+3. [`spec/prompt-design.md`](./spec/prompt-design.md) — Prompt 模板（实现 prompt_builder 时参考）
+4. [`spec/data-model.md`](./spec/data-model.md) — 数据结构（实现 GameState 和存档时参考）
 
 ### 审查设计
 1. [`spec/exec-flow.md`](./spec/exec-flow.md) + 配套 spec — 完整规范
@@ -31,10 +33,11 @@
 ## 权威层级
 
 ```
-spec/exec-flow.md  ──── 最高权威（执行流程）
-spec/block-spec.md ──── 同等权威（区块格式）
-spec/data-model.md ──── 同等权威（数据模型）
-design.md          ──── 参考（设计理念）
+spec/exec-flow.md     ──── 最高权威（执行流程）
+spec/block-spec.md    ──── 同等权威（区块格式 + 编号）
+spec/prompt-design.md ──── 同等权威（Prompt 模板）
+spec/data-model.md    ──── 同等权威（数据模型）
+design.md             ──── 参考（设计理念）
 ```
 
 **冲突解决**：spec 文档之间应保持一致。spec 与 design.md 冲突时，以 spec 为准。design.md 的讨论结论应回溯修正 spec。
