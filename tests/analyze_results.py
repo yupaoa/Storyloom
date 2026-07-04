@@ -46,18 +46,20 @@ Parameters are extracted from the prompt text:
 
 ─── Output columns ──────────────────────────────────────────────────
 
-  File      → test output filename
-  Time      → total LLM generation time (from file header)
-  Segs      → total narrative segments in the output
-  Tail      → segments after bridge marker (the display buffer)
-  尾时       → tail × delay = actual time budget for next round
-  时限       → expected time limit (当前时限) for comparison
-  Status    → ✓ tail ≥ guaranteed  /  ⚠ tail < guaranteed
+  Streaming mode (default — files contain TTFT + FirstSegment):
+    TTFT      → time to first token
+    1stSeg    → time to first numbered narrative segment
+                (this is the bridge deadline — first displayable content)
+    Segs      → total narrative segments in the output
+    Tail      → segments after bridge marker (the display buffer)
+    尾时       → tail × delay = actual time budget for next round
+    到达-尾    → FirstSegment − tail_time (≤ 0 = seamless)
+    无缝?      → ✓ if FirstSegment arrives before tail ends
 
-  Note: total generation time (Time column) is measured with
-  stream=False.  With streaming, only TTFT + first-segment latency
-  matters — total time is irrelevant to bridge timing.  Run streaming
-  tests to measure the true deadline metric.
+  Non-streaming mode (--no-stream — files contain only total time):
+    GenTime   → total LLM generation time
+    Gen-尾    → GenTime − tail_time
+    无缝?      → ✓ (only possible if gen is extremely fast)
 
 ─── Reference ───────────────────────────────────────────────────────
 
@@ -264,11 +266,20 @@ def main():
         print(f"[WARN] No prompt-test-*.md files found in {args.output_dir}")
         return
 
-    print(f"{'File':<20s} {'GenTime':>7s}  {'Segs':>5s}  {'Tail':>5s}  "
-          f"{'尾时':>6s}  {'Gen-尾':>7s}  {'无缝?':>6s}")
+    # Detect if files have streaming metrics
+    sample = parse_output_file(files[0])
+    has_streaming = sample and sample.get("first_seg") is not None
+
+    if has_streaming:
+        print(f"{'File':<20s} {'TTFT':>6s} {'1stSeg':>7s} {'Segs':>5s} "
+              f"{'Tail':>5s} {'尾时':>6s} {'到达-尾':>7s} {'无缝?':>6s}")
+    else:
+        print(f"{'File':<20s} {'GenTime':>7s} {'Segs':>5s} {'Tail':>5s} "
+              f"{'尾时':>6s} {'Gen-尾':>7s} {'无缝?':>6s}")
     print("-" * 72)
 
     times = []
+    first_segs = []
     segs = []
     tail_segs_list = []
     seamless_count = 0
@@ -279,22 +290,33 @@ def main():
             continue
 
         t = result["time_s"]
+        fs = result.get("first_seg")
         s = result["segments"]
         tail = result["tail_segs"]
         tail_time = tail * delay_ms / 1000
 
         times.append(t)
+        if fs is not None:
+            first_segs.append(fs)
         segs.append(s)
         tail_segs_list.append(tail)
 
-        # Seamless check: can the LLM finish generating before tail ends?
-        gap = t - tail_time
+        # Seamless check: FirstSegment is the true bridge deadline (streaming).
+        # Fall back to total generation time for non-streaming data.
+        deadline = fs if fs is not None else t
+        gap = deadline - tail_time
         seamless = "✓" if gap <= 0 else f"gap {gap:.0f}s"
         if gap <= 0:
             seamless_count += 1
 
-        print(f"{f.name:<20s}  {t:5.1f}s  {s:5d}  {tail:5d}  "
-              f"{tail_time:5.1f}s  {gap:6.1f}s  {seamless:>6s}")
+        if has_streaming:
+            ttft_str = f"{result.get('ttft', 0):.1f}s" if result.get('ttft') else "N/A"
+            fs_str = f"{fs:.1f}s" if fs else "N/A"
+            print(f"{f.name:<20s}  {ttft_str:>6s}  {fs_str:>7s}  {s:5d}  "
+                  f"{tail:5d}  {tail_time:5.1f}s  {gap:6.1f}s  {seamless:>6s}")
+        else:
+            print(f"{f.name:<20s}  {t:5.1f}s  {s:5d}  {tail:5d}  "
+                  f"{tail_time:5.1f}s  {gap:6.1f}s  {seamless:>6s}")
 
     print("-" * 72)
     if times:
@@ -310,19 +332,31 @@ def main():
               f"gen: {min(times):.1f}s ~ {max(times):.1f}s (avg {avg_t:.1f}s)  "
               f"tail: {min(tail_segs_list)*delay_ms/1000:.1f}s ~ "
               f"{max(tail_segs_list)*delay_ms/1000:.1f}s (avg {avg_tail_time:.1f}s)")
+        if first_segs:
+            avg_fs = sum(first_segs) / len(first_segs)
+            print(f"FirstSegment: {min(first_segs):.1f}s ~ {max(first_segs):.1f}s "
+                  f"(avg {avg_fs:.1f}s)  ← bridge 时限指标")
         if short_count:
             print(f"⚠ {short_count}/{len(times)} tests have tail time below "
                   f"guaranteed minimum ({limits['guaranteed_s']}s)")
         print()
-        if seamless_count == 0:
-            print(f"无缝: 0/{len(times)} — LLM 生成时间({avg_t:.0f}s)远超"
-                  f"尾部播放时间({avg_tail_time:.0f}s)，无法在尾部播完前返回完整响应。")
-            print(f"要达到无缝，需生成时间 ≤ 尾部时间。当前差距约 {avg_t - avg_tail_time:.0f}s。")
-            needed_tail = avg_t / (delay_ms / 1000)
-            print(f"若保持当前生成速度，需尾部 ≥ {needed_tail:.0f} 段（总段数 ≈ {needed_tail/(1-params['ratio']):.0f}），"
-                  f"或模型提速 {avg_t/avg_tail_time:.0f}×。")
+        if seamless_count == len(times):
+            print(f"无缝: {seamless_count}/{len(times)} ✓")
+        elif seamless_count > 0:
+            print(f"无缝: {seamless_count}/{len(times)} (部分)")
         else:
-            print(f"无缝: {seamless_count}/{len(times)}")
+            if has_streaming:
+                avg_fs = sum(first_segs) / len(first_segs)
+                print(f"无缝: 0/{len(times)} — FirstSegment({avg_fs:.1f}s) > "
+                      f"尾部时间({avg_tail_time:.1f}s)，差距 {avg_fs - avg_tail_time:.1f}s。")
+                needed_tail = avg_fs / (delay_ms / 1000)
+                print(f"需尾部 ≥ {needed_tail:.0f} 段（当前 avg {avg_tail:.0f}），"
+                      f"或模型 TTFT+首段 提速 {avg_fs/avg_tail_time:.0f}×。")
+            else:
+                print(f"无缝: 0/{len(times)} — LLM 生成时间({avg_t:.0f}s)远超"
+                      f"尾部播放时间({avg_tail_time:.0f}s)。")
+                needed_tail = avg_t / (delay_ms / 1000)
+                print(f"需尾部 ≥ {needed_tail:.0f} 段，或模型提速 {avg_t/avg_tail_time:.0f}×。")
 
 
 if __name__ == "__main__":
