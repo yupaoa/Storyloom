@@ -53,7 +53,6 @@ class ParsedOutput:
     numbering_issues: list[str] = field(default_factory=list)
     pre_branches: list[str] = field(default_factory=list)
     post_branches: list[str] = field(default_factory=list)
-    parse_error: str | None = None
 
 
 class XmlParser:
@@ -205,7 +204,12 @@ class XmlParser:
         """Collect <seg> elements from children, including nested in <branch>."""
         for el in children:
             if el.tag == "seg":
-                n = int(el.get("n", 0))
+                try:
+                    n = int(el.get("n", 0))
+                except ValueError:
+                    raise ParseError(
+                        f"Non-integer seg n value: {el.get('n')}"
+                    )
                 result.segments.append(
                     Segment(
                         n=n, text=(el.text or "").strip(), position=position
@@ -218,7 +222,12 @@ class XmlParser:
                 else:
                     result.post_branches.append(branch_name)
                 for seg_el in el.findall("seg"):
-                    n = int(seg_el.get("n", 0))
+                    try:
+                        n = int(seg_el.get("n", 0))
+                    except ValueError:
+                        raise ParseError(
+                            f"Non-integer seg n value: {seg_el.get('n')}"
+                        )
                     result.segments.append(
                         Segment(
                             n=n,
@@ -236,6 +245,8 @@ class XmlParser:
         """Extract <choice> from pre-bridge children."""
         for el in pre_children:
             if el.tag == "choice":
+                if result.choice_id is not None:
+                    raise ParseError("Multiple <choice> elements")
                 result.choice_id = el.get("id")
                 for opt_el in el.findall("opt"):
                     result.opt_branches.append(
@@ -263,6 +274,8 @@ class XmlParser:
         """Extract <checkpoint> from pre-bridge children."""
         for el in pre_children:
             if el.tag == "checkpoint":
+                if result.checkpoint_node is not None:
+                    raise ParseError("Multiple <checkpoint> elements")
                 result.checkpoint_node = el.get("node")
                 result.checkpoint_summary = el.get("summary")
                 for route_el in el.findall("route"):
