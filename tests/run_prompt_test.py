@@ -141,7 +141,8 @@ def main():
     )
     parser.add_argument(
         "--output", type=Path, default=DEFAULT_OUTPUT,
-        help=f"Output directory for test results (default: {DEFAULT_OUTPUT})",
+        help=f"Base output directory (default: {DEFAULT_OUTPUT}). "
+             "A subdirectory named after the prompt file is created automatically.",
     )
     parser.add_argument(
         "--runs", type=int, default=5,
@@ -154,10 +155,13 @@ def main():
         sys.exit(1)
 
     system_prompt, user_message = load_prompt(args.prompt)
-    args.output.mkdir(parents=True, exist_ok=True)
+
+    # Auto-subdir: prompt "v1.txt" → output "v1/"
+    output_dir = args.output / args.prompt.stem
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"Prompt:  {args.prompt}  ({len(system_prompt)} + {len(user_message)} chars)")
-    print(f"Output:  {args.output}")
+    print(f"Output:  {output_dir}")
     print(f"Model:   {MODEL}")
     print(f"Runs:    {args.runs} (parallel)")
     print()
@@ -165,7 +169,7 @@ def main():
     shared = {
         "system_prompt": system_prompt,
         "user_message": user_message,
-        "output_dir": args.output,
+        "output_dir": output_dir,
     }
 
     t_start = time.perf_counter()
@@ -195,7 +199,7 @@ def main():
     if times:
         print(f"Per-run: min {min(times):.1f}s  max {max(times):.1f}s  "
               f"avg {sum(times)/len(times):.1f}s")
-    print(f"Results in {args.output}/")
+    print(f"Results in {output_dir}/")
 
 
 if __name__ == "__main__":
