@@ -3,8 +3,10 @@
 > **定位**：所有 LLM 调用的 Prompt 规范与全文。本文档是 `prompt_builder` 模块的实现标准。
 > **配套文档**：
 > - [`exec-flow.md`](./exec-flow.md) — 何时调用、调用结果如何流转
-> - [`block-spec.md`](./block-spec.md) — 输出的区块格式（LLM 侧遵守，程序侧解析）
+> - [`block-spec.md`](./block-spec.md) — XML 元素语法（LLM 侧遵守，程序侧解析）
 > - [`data-model.md`](./data-model.md) — 常量引用
+>
+> **架构变更（2026-07-04）**：从每轮独立 system prompt 迁移到**对话式消息数组**（Round 1 永久锚定 + 滑动窗口）。`prompt_builder.py` 现在构建单个消息的内容，`context_manager.py` 管理 messages 数组结构。
 >
 > **迭代策略**：每次 LLM 生成质量问题的根因分析与 Prompt 调整，均记录到 §6 迭代日志。
 >
@@ -59,7 +61,7 @@
 | 故事设定 | 共创 Step 3 | `=== story_config ===` | §3.2 |
 | 变量定义 | 共创 Step 3.5 | `=== variables ===` | §3.3 |
 | 大纲生成 | 共创 Step 4 | `=== outline ===` | §3.4 |
-| 叙事循环 | 每轮 | `--- narrative:* ---` 等 | §4 |
+| 叙事循环 | 每轮 | XML 文档（`<story>` + `<seg>`/`<choice>`/`<set>`/`<checkpoint>`/`<bridge/>`/`<branch>`） | §4 |
 | 冒险日志 | 结局 | Markdown 纯文本 | §5 |
 
 ---
@@ -200,161 +202,194 @@
 
 ## §4 叙事循环 Prompt
 
-> 最频繁调用的 Prompt。每轮至少一次。以下为 `prompt_builder` 的开发标准。
+> 最频繁调用的 Prompt。每轮至少一次。以下为 `prompt_builder` 和 `context_manager` 的开发标准。
+>
+> **架构**：对话式消息数组。Round 1 永久锚定（格式规范 + 故事上下文 + 完整 XML 示例），
+> Round N 仅发送轻量上下文（进度、状态、bridge_text、错误反馈）。
+> `ContextManager` 管理 messages 数组结构，`XmlParser` 解析 LLM 的 XML 输出。
 
-### 4.1 组装规范
+### 4.1 消息数组架构
 
-#### 组装顺序
+#### 数组结构
 
-System Prompt 按以下顺序拼接，各部分之间空一行：
+```
+messages = [
+  {role: "user",      content: Round1_完整Prompt},      // 永久锚定（不压缩不删除）
+  {role: "assistant", content: Round1_XML输出},          // 永久锚定（story opening）
+  // ── 以下为滑出窗口的轮次 → 压缩为摘要 ──
+  {role: "user",      content: "已发生的主要事件：..."},
+  {role: "assistant", content: "（以上为已发生事件的摘要。当前故事继续推进。）"},
+  // ── 窗口内轮次 → 完整保留 ──
+  {role: "user",      content: Round_N-3_上下文},
+  {role: "assistant", content: Round_N-3_XML输出},
+  {role: "user",      content: Round_N-2_上下文},
+  {role: "assistant", content: Round_N-2_XML输出},
+  {role: "user",      content: Round_N-1_上下文},
+  {role: "assistant", content: Round_N-1_XML输出},
+  // ── 当前轮 ──
+  {role: "user",      content: Round_N_上下文},           // 由 PromptBuilder.build_round_n() 构建
+]
+```
 
-| # | 部分 | 来源 | 说明 |
-|---|------|------|------|
-| 1 | 格式示例 | 固定文本 | 完整格式样例，LLM 的主要模仿依据 |
-| 2 | 核心规则 | 固定文本 + config 常量 | 量化约束（段数、bridge 位置）和禁止项 |
-| 3 | 故事上下文 | story_config + outline + state_vars 等 | 本轮的故事素材 |
+#### 各部分职责
 
-User Message 单独组装：
+| 部分 | 模块 | 说明 |
+|------|------|------|
+| Round 1 user | `PromptBuilder.build_round1()` | 角色定义 + XML 格式规范 + 完整示例 + 核心规则 + 故事上下文 |
+| Round 1 assistant | LLM 输出 | 永久保留的 few-shot 范例（~1500 tokens） |
+| 压缩摘要 | `ContextManager._build_compression_messages()` | 滑出窗口轮次的 checkpoint 摘要列表 |
+| 窗口轮次 | `ContextManager` 维护 | 最近 WINDOW_SIZE=3 轮的完整 user/assistant 消息对 |
+| 当前 Round N | `PromptBuilder.build_round_n()` | 轻量上下文（不含格式规范和故事上下文） |
 
-| 内容 | 来源 |
-|------|------|
-| 当前节点目标 | `outline[progress.current_node].goal` |
-| 上一轮结尾 | `bridge_text`（首轮为空，提示 LLM 开始故事） |
+#### 滑动窗口与压缩
 
-#### 占位符计算
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `WINDOW_SIZE` | 3 | 保留的完整历史轮数 |
+| `FIRST_COMPRESSION_AT` | 5 | 首次触发压缩的轮次 |
+| 压缩来源 | checkpoint summary | 从 `<checkpoint summary="...">` 属性提取 |
 
-| 占位符 | 来源 | 计算方式 |
-|--------|------|---------|
-| `{MIN}` | `config.SEGMENTS_PER_ROUND_MIN` | 直接替换 |
-| `{MAX}` | `config.SEGMENTS_PER_ROUND_MAX` | 直接替换 |
-| `{MAX_SEGMENTS_HARD}` | `config.SEGMENTS_PER_ROUND_MAX` | 硬上限，同 MAX，超过截断 |
-| `{RATIO}` | `config.BRIDGE_SEGMENT_RATIO` | 转为百分比（0.4 → "40%"） |
-| `{RATIO_PCT}` | `config.BRIDGE_SEGMENT_RATIO` | 保留小数（0.4 → "0.4"） |
-| `{MIN_TAIL}` | 从 MIN/MAX/RATIO 计算 | `floor(MIN × (1 − RATIO))` |
-| `{BRIDGE_AT}` | 从 MIN/MAX 计算 | `floor((MIN+MAX)/2 * BRIDGE_SEGMENT_RATIO)` |
+**压缩时序**：
 
-#### 状态变量格式化
+```
+Round 1:  无压缩（仅锚定 + 输出）
+Round 2:  无压缩（窗口内）
+Round 3:  无压缩（窗口内）
+Round 4:  无压缩（窗口内）
+Round 5:  压缩 Round 2 → 窗口保持 3 轮
+Round N:  压缩 Round 2~N-4 → 窗口保留 [N-3, N-2, N-1]
+```
 
-- number：`变量名：当前值 / 100`
-- string：`变量名：当前值`
-- list：`变量名：元素1, 元素2, ...`（空则 `（无）`）
+压缩摘要格式：
+```
+user: 以下是之前发生的主要事件：
 
-#### 大纲格式化
+- ch1_bar：在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式
+- ch2_confrontation：与耗子完成芯片交易，耗子透露芯片来自荒坂R&D
 
-- 每节点一行：`node_id [status] — 标题：目标`
-- 分支缩进：`├→ target [status]`
-- status：`[completed]` / `[active]` / `[pending]`。未选分支标注 `[skipped]`
+assistant: （以上为已发生事件的摘要。当前故事继续推进。）
+```
+
+#### 格式错误纠正
+
+仅当上一轮解析出现格式错误时，在当前 Round N 消息末尾追加纠正提示：
+```
+上一轮输出存在格式问题——{format_error}。请严格遵循 XML 格式规范。
+```
+正确时不追加。不删除 Round 1 中的格式范例——LLM 自然从最近的正确输出学习。
 
 #### 边界情况
 
 | 情况 | 处理 |
 |------|------|
-| 首轮（round_count=0） | bridge_text 为空，User Message 中写"（首轮，请开始故事）" |
-| checkpoint_summaries 为空 | 写"（暂无）" |
+| 首轮（round_count=0） | 调用 `build_round1()` 而非 `build_round_n()`，bridge_text 为空 |
+| compressed_summaries 为空 | 不注入压缩摘要消息对 |
 | rejected_changes 为空 | 不注入反馈节 |
+| format_error 为空 | 不注入纠正提示 |
 | ending_flag=true | 不组装叙事 Prompt，组装冒险日志 Prompt（§5） |
-| 段数不足 MIN | 接受，记入 rejected_changes 下轮反馈 |
-| bridge 位置偏离 >20% | 接受，记入 rejected_changes 下轮反馈 |
 
-### 4.2 Prompt 模板
+### 4.2 Round 1 Prompt 模板
 
-> 完整 Prompt 全文。`{占位符}` 由 prompt_builder 替换。代码块内的空行原样保留。
-> 末尾 `当前节点目标` 和 `上一轮结尾` 属于同一 Prompt，不拆分为独立消息。
+> `ROUND1_TEMPLATE` 在 `prompt_builder.py` 中定义。`{占位符}` 由 `build_round1()` 替换。
+> 永久保留在 messages[0]，不压缩不删除。
 
 ```
 你是文字冒险游戏的叙事引擎。根据大纲和状态生成下一段交互式剧情。
 
 # 输出格式
 
-由区块标记分隔。标记独占一行，格式 --- 区块名 --- 或 --- 区块名:分支名 ---。
-严格遵循此结构——包括编号方式、区块顺序和 bridge 位置。
-示例中的编号仅用于示范格式，你的输出必须从 1 开始重新编号。
+你的输出必须是 XML 文档。以 <story> 开头，以 </story> 结尾。
+不要输出 markdown 代码围栏、XML 声明、或 XML 之外的任何文本。
 
---- narrative:main ---
-1. 炉火在石砌的壁炉里噼啪作响，旅店大堂里弥漫着麦酒和松木的气味。
-2. 你推开厚重的橡木门，冷风裹挟着雪花卷入室内。
-3. 旅店老板从吧台后抬起头，手里的抹布停在半空。
-4. 旅店老板: 这么晚了还赶路？
-5. 角落里一个裹着斗篷的身影动了动。
-6. 你看不清那人的脸，但注意到他手边的剑柄。
-7. 老板给你倒了杯热麦酒，压低声音。
-8. 旅店老板: 那位客人等了你半个钟头。
-9. 他指了指角落里的斗篷人。窗外暴风雪愈发猛烈。
-10. 疤脸人摘下兜帽——一张布满疤痕的脸，眼神出奇的平静。
-11. 疤脸人: 坐。听说你在找一样东西。
+## 结构
 
---- options:main ---
-choice: approach
-A. 先开口 -> take_lead
-B. 保持沉默 -> wait
+<story>
+  <seg n="1">叙事文本</seg>
+  <seg n="2">叙事文本</seg>
+  ...
+  <branch name="分支名">
+    <seg n="N">局部小分支叙事</seg>
+  </branch>
+  <choice id="变量名">
+    <opt key="A" branch="分支名">选项文本</opt>
+    <opt key="B" branch="分支名">选项文本</opt>
+  </choice>
+  <set var="变量" op="操作" val="值"/>
+  <set var="变量" op="操作" val="值" if="条件"/>
+  <checkpoint node="节点ID" summary="摘要">
+    <route if="条件" target="目标节点"/>
+  </checkpoint>
+  <bridge/>
+  <!-- bridge 之后：纯叙事，禁止交互元素 -->
+  <branch name="分支名">
+    <seg n="N">分支叙事</seg>
+    ...
+  </branch>
+</story>
 
---- state:main ---
-if approach == 1 -> @var 声望 +5
-if approach == 2 -> @var 谨慎度 +10
+## 元素说明
 
---- checkpoint ---
-node ch2_meeting
-summary: 在旅店与神秘线人接头，选择了接触策略。
-if approach == 1 -> route ch3_lead
-if approach == 2 -> route ch3_wait
+**<seg n="N">** — 叙事段。n 从 1 开始全局连续。旁白（纯叙述，15-40 字）或对话（`角色名: 内容`，英文冒号+空格，无引号，≤50字）。每段只做一件事，禁止混合。
 
---- bridge ---
+**<choice id="变量名">** — 玩家选项。内含 2-5 个 `<opt>`。opt 的 key 为字母键（A/B/C/D），branch 对应 bridge 之后的 `<branch name="...">`。
 
---- narrative:take_lead ---
-12. 你在他对面坐下，指尖在木桌上轻轻敲了两下。
-13. 林焰: 听说你手里有我要的情报。
-14. 疤脸人微微一笑，从斗篷里掏出蜡封的羊皮纸卷放在桌上。
+**<set>** — 状态变更。var/op/val 必填。number 用 +/-/=/=N，string 用 =，list 用 +/-。if 属性可选，格式 `变量名 运算符 值`，用 and/or 组合（最多一个）。
 
---- narrative:wait ---
-15. 你站着没动，不动声色地啜了一口麦酒。
-16. 沉默像一根绷紧的弦，疤脸人先沉不住气了。
+**<checkpoint>** — 关键节点。node 必须原样复制大纲节点 ID，summary 为 1-2 句中文摘要。内含 0-N 个 `<route>` 元素。
 
-（以上为格式示例。你的输出是全新的剧情段，必须从 1 开始编号，以 --- narrative:main --- 开头。）
+**<bridge/>** — 自闭合，恰好一次。前：交互区（可含 seg/branch/choice/set/checkpoint）。后：纯叙事区（只有 seg 或 branch），禁止 choice/set/checkpoint。
+
+**<branch name>** — 分支叙事容器。bridge 之前用于局部小分支，bridge 之后用于选项后果分支。name 与 `<opt>` 的 branch 属性精确对应。
+
+## 完整格式示例
+
+以下为格式示例（内容为虚构的奇幻故事）：
+
+<story>
+<seg n="1">炉火在石砌的壁炉里噼啪作响，旅店大堂里弥漫着麦酒和松木的气味。</seg>
+<seg n="2">你推开厚重的橡木门，冷风裹挟着雪花卷入室内。</seg>
+<seg n="3">旅店老板: 这么晚了还赶路？</seg>
+<seg n="4">角落里一个裹着斗篷的身影动了动。</seg>
+<seg n="5">疤脸人摘下兜帽，眼神出奇的平静。</seg>
+<seg n="6">疤脸人: 坐。听说你在找一样东西。</seg>
+<choice id="approach">
+  <opt key="A" branch="take_lead">先开口</opt>
+  <opt key="B" branch="wait">保持沉默</opt>
+</choice>
+<set var="声望" op="+" val="5" if="approach==1"/>
+<set var="谨慎度" op="+" val="10" if="approach==2"/>
+<checkpoint node="ch2_meeting" summary="在旅店与神秘线人接头，选择了接触策略。">
+  <route if="approach==1" target="ch3_lead"/>
+  <route if="approach==2" target="ch3_wait"/>
+</checkpoint>
+<bridge/>
+<branch name="take_lead">
+<seg n="7">你在他对面坐下，指尖在木桌上轻轻敲了两下。</seg>
+<seg n="8">林焰: 听说你手里有我要的情报。</seg>
+<seg n="9">疤脸人微微一笑，从斗篷里掏出蜡封的羊皮纸卷。</seg>
+</branch>
+<branch name="wait">
+<seg n="10">你站着没动，不动声色地啜了一口麦酒。</seg>
+<seg n="11">沉默像一根绷紧的弦，疤脸人先沉不住气了。</seg>
+<seg n="12">他把羊皮纸卷推到桌子中央。</seg>
+</branch>
+</story>
+
+（以上为格式示例。你的输出是全新的剧情段——从 1 开始编号，不要复制示例内容或编号。）
 
 # 核心规则
 
-**段格式（重要）**
-- 每个叙事段只能是旁白或对话，严格禁止混合。段前加数字编号，从 1 开始。段间空行。
-- 旁白段：纯叙述描写，不含角色对话。一段只说一件事，15-40 字。
-- 对话段：纯角色对话。格式固定为 `角色名: 对话内容`（英文半角冒号，冒号后空一格，对话不加引号）。
-- 角色动作、表情、语气单独成旁白段。每段不超过 50 字。
-
-**编号**
-- 所有 narrative 块（含不同分支）共享同一数字序列。分支编号接续前一分支，禁止重复。
-- 选项行用字母编号（A / B / C / D），不占数字序列。
-
-**options（重要）**
-- 第一行必须是 `choice: 变量名`（如示例 `choice: approach`）。state 条件通过此变量名 + 数字引用选项（A=1, B=2...）。
-- 禁止 `choice == "A"` 或 `选择1 == 1` 等占位写法。
-
-**段数与 bridge（重要）**
-- 本轮严格控制在 {MIN}-{MAX} 个叙事段。超过 {MAX_SEGMENTS_HARD} 段会被程序截断，剧情断裂。
-- bridge 放在总段数的约 {RATIO} 处——总段数 × {RATIO_PCT}，向下取整。
-  总 80 段 → bridge 在第 32 段后 ✓；总 100 段 → bridge 在第 40 段后 ✓。
-  禁止 bridge 之后尾部不足 {MIN_TAIL} 段（太短导致衔接断裂）✗。
-- bridge 是交互与叙事的分界线：bridge 之前放 options、state、checkpoint，bridge 之后只能有 narrative。
-- bridge 之前的 options 和 state 必须使用 `:main` 分支（`--- options:main ---`、`--- state:main ---`）。
-  命名分支（`:take_lead`）只出现在 bridge 之后的 narrative 中。`bridge` 是保留字，禁止用作分支名。
-
-**state**
-- `@var 变量名 操作符 值`（无条件）；`if 条件 -> @var 变量名 操作符 值`（条件触发）
-- number 用 `+N` / `-N` / `=N`；string 用 `=值`；list 用 `+元素` / `-元素`
-- 条件引用 choice 用声明名 + 数字，或引用状态变量（`if 信任度 >= 30`）。用 `and` / `or` 组合。
-
-**checkpoint（重要）**
-- `node {node_id}` 或 `end`，必须附 `summary:`（1-2 句中文摘要）。分支：`if 条件 -> route {target}`。放在 bridge 之前。
-- node_id 和 route 目标必须严格复制大纲中列出的节点 ID，禁止修改或拼接后缀。
-  大纲有 `ch2_confrontation` → 必须写 `node ch2_confrontation`，禁止 `ch2_confrontation_resolved`。
-
-**禁止**
-- bridge 之后出现非 narrative 区块。bridge 之前 options/state 使用非 `:main` 分支。
-- narrative 正文中 `---` 单独成行。用保留字作 branch 名。
-- 对话段用引号、代词作角色名（`你: ...`）、附加动作描写（`他笑了笑: ...` 应拆为旁白）。
-- JSON/XML 替代区块标记。对玩家说话。引用不存在的变量或大纲节点。
+- 所有 <seg> 的 n 从 1 开始，全局连续递增，不重复不跳号
+- {MIN}-{MAX} 个叙事段。bridge 放在交互与叙事分界处，约总段数一半
+- bridge 之后只能有 <seg> 或 <branch>，严格禁止 <choice>/<set>/<checkpoint>
+- <checkpoint> 的 node 和 <route> 的 target 必须严格复制大纲节点 ID，禁止修改或拼接后缀
+- 有 <choice> 时，每个 <opt> 的 branch 必须在 bridge 之后有对应 <branch name>
+- 对话不加引号，不用代词做角色名，不段内混动作描写
+- 文本中 & 须转义为 &amp;
 
 # 质量要求
 
-每段只做一件事。对话与旁白交替出现，避免连续 3 段以上纯描写。选项后果在叙事中铺垫。bridge 之后制造悬念。
+每段只做一件事——描写一个画面或表达一句对白。对话与旁白交替出现，避免连续 3 段以上纯描写。选项的后果在叙事中铺垫。bridge 之后制造悬念。
 
 # 故事
 
@@ -368,135 +403,169 @@ if approach == 2 -> route ch3_wait
 {outline_text}
 [completed]=已完成 [active]=当前 [pending]=待推进
 
-**进度：** 当前 {current_node} — {goal} | 已完成：{completed_nodes}
-
-**重要事件：**
-{checkpoint_summaries}
-
 **当前状态：**
 {state_vars_text}
 
-{rejected_feedback_section}
-
 当前节点目标：{goal}
 
+请开始故事。
+```
+
+### 4.3 Round N 上下文
+
+> Round N（N ≥ 2）的 user 消息由 `PromptBuilder.build_round_n()` 构建。
+> 不含角色定义、格式规范、故事上下文——这些已在 Round 1 中永久锚定。
+
+#### 消息内容
+
+| 内容 | 来源 | 说明 |
+|------|------|------|
+| 当前节点 | `current_node` | 当前大纲节点 ID |
+| 目标 | `goal` | 当前节点的叙事目标 |
+| 已完成节点 | `completed_nodes` | 已通过的 checkpoint 列表 |
+| 压缩摘要 | `compressed_summaries` | 滑出窗口轮次的 checkpoint 摘要 |
+| 状态快照 | `state_vars` | 所有变量的当前值 |
+| 被拒变更 | `rejected_changes` | 仅当非空时注入 |
+| 格式错误 | `format_error` | 仅当存在时注入 |
+| bridge_text | 上一轮 assistant 输出 | 从 `<bridge/>` 之后提取的纯文本 |
+
+#### 格式示例（Round N）
+
+```
+当前节点：ch3_ally — 通过地下网络逃离
+已完成节点：ch1_bar, ch2_confrontation
+
+已完成的章节摘要：
+- 在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式
+- 与耗子完成芯片交易，耗子透露芯片来自荒坂R&D
+
+当前状态：
+  体力：60 / 100
+  信任度：25 / 100
+  所属势力：自由佣兵
+
 上一轮结尾：
-{bridge_text}
+你对耗子点了点头。
+耗子: 跟我来。
 ```
 
-### 4.3 Prompt 示例（Round 2，medium）
+#### 状态变量格式化
 
-> Round 1 玩家选择了 A（直视对方），信任度 +5。当前推进到 ch2_confrontation。
-> `{MIN}=60` `{MAX}=120` `{BRIDGE_AT}=36` `{RATIO}=40%` `{MIN_TAIL}=24`。
->
-> 保证时限：`MIN × (1 − RATIO) × AUTO_ADVANCE_DELAY_MS / 1000` = 18.0s
-> （最小尾部段数 × 段延迟。MIN=60 时尾部至少 36 段 → 18s）
-> 当前时限：`((MIN+MAX)/2 − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000` = 27.0s
-> （期望尾部段数 × 段延迟。(90−36)=54 段 → 27s。首段到达时限。）
-> 参考：bridge 触发点 = `BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000` = 18.0s（本轮开始到提交下一轮的时间）
+| 类型 | 格式 |
+|------|------|
+| number | `变量名：当前值 / 100` |
+| string | `变量名：当前值` |
+| list | `变量名：元素1, 元素2`（空则 `（无）`） |
+
+#### 大纲格式化
+
+与旧架构一致（未变）：
+- 每节点一行：`node_id [status] — 标题：目标`
+- 分支缩进：`├→ target [status]`
+- status：`[completed]` / `[active]` / `[pending]`
+
+### 4.4 Round 1 Prompt 示例
+
+> Round 1，赛博朋克 medium 故事。`{MIN}=60` `{MAX}=120`。
 
 ```
+
 你是文字冒险游戏的叙事引擎。根据大纲和状态生成下一段交互式剧情。
 
 # 输出格式
 
-你的输出由区块标记分隔。标记独占一行，格式为 --- 区块名 --- 或 --- 区块名:分支名 ---。
-以下是完整格式示例。请严格遵循此结构——包括编号方式、区块顺序和 bridge 位置。
-注意：示例中的编号仅用于示范格式，你的输出必须从 1 开始重新编号。
+你的输出必须是 XML 文档。以 <story> 开头，以 </story> 结尾。
+不要输出 markdown 代码围栏、XML 声明、或 XML 之外的任何文本。
 
---- narrative:main ---
-1. 炉火在石砌的壁炉里噼啪作响，旅店大堂里弥漫着麦酒和松木的气味。
-2. 你推开厚重的橡木门，冷风裹挟着雪花卷入室内。
-3. 旅店老板从吧台后抬起头，手里的抹布停在半空。
-4. 旅店老板: 这么晚了还赶路？
-5. 角落里一个裹着斗篷的身影动了动。
-6. 你看不清那人的脸，但注意到他手边的剑柄。
-7. 老板给你倒了杯热麦酒，压低声音。
-8. 旅店老板: 那位客人等了你半个钟头。
-9. 旅店老板: 他说有笔买卖——但我劝你小心。最近这条路不太平。
-10. 你端起酒杯，斗篷人站了起来。
-11. 那人身材比你预想的矮小，动作却异常轻盈。
-12. 他走到你桌前，摘下兜帽。
-13. 一张布满疤痕的脸，但眼神出奇的平静。
-14. 疤脸人: 坐。
-15. 他没有伸手，只是用下巴点了点对面的椅子。
-16. 窗外暴风雪愈发猛烈，木窗框在风压下嘎吱作响。
-17. 你注意到旅店老板不知何时已退入后厨，只留下半扇虚掩的门。
-18. 疤脸人把手伸进斗篷内侧，动作很慢。
+## 结构
 
---- options:main ---
-choice: approach
-A. 先开口 -> take_lead
-B. 保持沉默，等对方先亮出底牌 -> wait
+<story>
+  <seg n="1">叙事文本</seg>
+  <seg n="2">叙事文本</seg>
+  ...
+  <branch name="分支名">
+    <seg n="N">局部小分支叙事</seg>
+  </branch>
+  <choice id="变量名">
+    <opt key="A" branch="分支名">选项文本</opt>
+    <opt key="B" branch="分支名">选项文本</opt>
+  </choice>
+  <set var="变量" op="操作" val="值"/>
+  <set var="变量" op="操作" val="值" if="条件"/>
+  <checkpoint node="节点ID" summary="摘要">
+    <route if="条件" target="目标节点"/>
+  </checkpoint>
+  <bridge/>
+  <!-- bridge 之后：纯叙事，禁止交互元素 -->
+  <branch name="分支名">
+    <seg n="N">分支叙事</seg>
+    ...
+  </branch>
+</story>
 
---- state:main ---
-if approach == 1 -> @var 声望 +5
-if approach == 2 -> @var 谨慎度 +10
+## 元素说明
 
---- checkpoint ---
-node ch2_meeting
-summary: 在旅店与神秘线人接头，选择了接触策略。
-if approach == 1 -> route ch3_lead
-if approach == 2 -> route ch3_wait
+**<seg n="N">** — 叙事段。n 从 1 开始全局连续。旁白（纯叙述，15-40 字）或对话（`角色名: 内容`，英文冒号+空格，无引号，≤50字）。每段只做一件事，禁止混合。
 
---- bridge ---
+**<choice id="变量名">** — 玩家选项。内含 2-5 个 `<opt>`。opt 的 key 为字母键（A/B/C/D），branch 对应 bridge 之后的 `<branch name="...">`。
 
---- narrative:take_lead ---
-19. 你在他对面坐下，指尖在木桌上轻轻敲了两下。
-20. 林焰: 听说你手里有我要的情报。
-21. 疤脸人微微一笑，从斗篷里掏出蜡封的羊皮纸卷放在桌上。
+**<set>** — 状态变更。var/op/val 必填。number 用 +/-/=/=N，string 用 =，list 用 +/-。if 属性可选，格式 `变量名 运算符 值`，用 and/or 组合（最多一个）。
 
---- narrative:wait ---
-22. 你站着没动，不动声色地啜了一口麦酒。
-23. 沉默在空气中拉长，像一根绷紧的弦。
-24. 疤脸人先沉不住气了，从斗篷里掏出蜡封的羊皮纸卷推到桌子中央。
+**<checkpoint>** — 关键节点。node 必须原样复制大纲节点 ID，summary 为 1-2 句中文摘要。内含 0-N 个 `<route>` 元素。
+
+**<bridge/>** — 自闭合，恰好一次。前：交互区（可含 seg/branch/choice/set/checkpoint）。后：纯叙事区（只有 seg 或 branch），禁止 choice/set/checkpoint。
+
+**<branch name>** — 分支叙事容器。bridge 之前用于局部小分支，bridge 之后用于选项后果分支。name 与 `<opt>` 的 branch 属性精确对应。
+
+## 完整格式示例
+
+以下为格式示例（内容为虚构的奇幻故事）：
+
+<story>
+<seg n="1">炉火在石砌的壁炉里噼啪作响，旅店大堂里弥漫着麦酒和松木的气味。</seg>
+<seg n="2">你推开厚重的橡木门，冷风裹挟着雪花卷入室内。</seg>
+<seg n="3">旅店老板: 这么晚了还赶路？</seg>
+<seg n="4">角落里一个裹着斗篷的身影动了动。</seg>
+<seg n="5">疤脸人摘下兜帽，眼神出奇的平静。</seg>
+<seg n="6">疤脸人: 坐。听说你在找一样东西。</seg>
+<choice id="approach">
+  <opt key="A" branch="take_lead">先开口</opt>
+  <opt key="B" branch="wait">保持沉默</opt>
+</choice>
+<set var="声望" op="+" val="5" if="approach==1"/>
+<set var="谨慎度" op="+" val="10" if="approach==2"/>
+<checkpoint node="ch2_meeting" summary="在旅店与神秘线人接头，选择了接触策略。">
+  <route if="approach==1" target="ch3_lead"/>
+  <route if="approach==2" target="ch3_wait"/>
+</checkpoint>
+<bridge/>
+<branch name="take_lead">
+<seg n="7">你在他对面坐下，指尖在木桌上轻轻敲了两下。</seg>
+<seg n="8">林焰: 听说你手里有我要的情报。</seg>
+<seg n="9">疤脸人微微一笑，从斗篷里掏出蜡封的羊皮纸卷。</seg>
+</branch>
+<branch name="wait">
+<seg n="10">你站着没动，不动声色地啜了一口麦酒。</seg>
+<seg n="11">沉默像一根绷紧的弦，疤脸人先沉不住气了。</seg>
+<seg n="12">他把羊皮纸卷推到桌子中央。</seg>
+</branch>
+</story>
+
+（以上为格式示例。你的输出是全新的剧情段——从 1 开始编号，不要复制示例内容或编号。）
 
 # 核心规则
 
-**编号：**
-- 叙事段前加数字编号，从 1 开始。所有 narrative 块（含不同分支）共享同一序列。
-- 不同分支块的编号必须连续——后出现的分支接续前一分支的编号，禁止重复使用已出现的编号（如两个分支都从 21 开始）。
-- 选项行用字母编号（A / B / C / D），不占数字序列。
-- 段之间空行分隔。
-
-**段格式（重要）：**
-- 每个叙事段只能是以下两种类型之一，严格禁止混合：
-  - **旁白段**：纯叙述描写，不含任何角色对话。一段只说一件事，控制在 15-40 字。
-  - **对话段**：纯角色对话。格式固定为 `角色名: 对话内容`（英文半角冒号 `:`，冒号后空一格，对话不加引号）。
-- 角色的动作、表情、语气描写单独成旁白段，不得塞进对话段。
-- 每段不超过 50 字，超过则拆为多段。
-
-**段数与 bridge：**
-- 本轮生成 30-50 个叙事段。bridge 放在总段数的约 75% 处——总段数 × 0.75，向下取整。例如：总 40 段 → bridge 在第 30 段后。
-- bridge 是交互区块与尾部叙事的分界线——bridge 之前放 options、state、checkpoint，bridge 之后**只能有 narrative 区块**，严格禁止出现任何其他区块类型。
-
-**state 语法：**
-- `@var 变量名 操作符 值` — 无条件变更
-- `if 条件 -> @var 变量名 操作符 值` — 条件变更
-- number 用 `+N` / `-N` / `=N`；string 用 `=值`；list 用 `+元素` / `-元素`
-- 条件可引用 choice 名（`if approach == 1`）或状态变量（`if 信任度 >= 30`）
-
-**checkpoint：**
-- `node {node_id}` 或 `end`。必须附 `summary:`（1-2 句）。
-- 分支（如有）：`if 条件 -> route {target_node_id}`。放在 bridge 之前。
-
-**禁止：**
-- bridge 之后出现 options、state、checkpoint 等任何非 narrative 区块（bridge 是交互与叙事的硬分界）
-- narrative 正文中 `---` 单独成行
-- 叙事段编号不从 1 开始（示例编号仅作示范，你的输出必须从 1 开始重新编号）
-- state 条件中引用 choice 时使用 `choice == "A"` 写法（必须用 options 声明的 choice 变量名 + `== N`，N 为 A=1, B=2, ...。如 `if approach == 1`，禁止 `if choice == "A"`）
-- 一段内同时包含旁白和对话（混排）
-- 对话段使用引号
-- 对话段中附加动作描写（如 `他笑了笑: ...`，应拆为旁白 `他笑了笑。` + 对话 `角色名: ...`）
-- 对话段用代词代替角色名（如 `你: ...`、`我: ...`。必须使用声明的角色姓名，如 `林焰: ...`）
-- JSON、XML 替代区块标记
-- 对玩家说话（"你选择……"）
-- 编号从 0 或负数开始
+- 所有 <seg> 的 n 从 1 开始，全局连续递增，不重复不跳号
+- 60-120 个叙事段。bridge 放在交互与叙事分界处，约总段数一半
+- bridge 之后只能有 <seg> 或 <branch>，严格禁止 <choice>/<set>/<checkpoint>
+- <checkpoint> 的 node 和 <route> 的 target 必须严格复制大纲节点 ID，禁止修改或拼接后缀
+- 有 <choice> 时，每个 <opt> 的 branch 必须在 bridge 之后有对应 <branch name>
+- 对话不加引号，不用代词做角色名，不段内混动作描写
+- 文本中 & 须转义为 &amp;
 
 # 质量要求
 
-每段只做一件事——描写一个画面或表达一句对白。对话与旁白交替出现，避免连续 3 段以上纯描写。选项后果在叙事中铺垫。bridge 之后制造悬念。
-
+每段只做一件事——描写一个画面或表达一句对白。对话与旁白交替出现，避免连续 3 段以上纯描写。选项的后果在叙事中铺垫。bridge 之后制造悬念。
 
 # 故事
 
@@ -517,11 +586,6 @@ ch3_betrayal [pending] — 背叛之路：杀出重围
 ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 [completed]=已完成 [active]=当前 [pending]=待推进
 
-**进度：** 当前 ch2_confrontation — 与耗子完成交易 | 已完成：ch1_bar
-
-**重要事件：**
-- ch1_bar：在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式，耗子开始信任主角。
-
 **当前状态：**
 体力：80 / 100
 理智值：55 / 100
@@ -532,10 +596,7 @@ ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 
 当前节点目标：与耗子完成交易
 
-上一轮结尾：
-你直视耗子的义眼，那一点红光在昏暗中微微闪烁。
-"芯片在哪儿？"你的声音压得很低。
-耗子的嘴角抽搐了一下。他的手缓缓伸进风衣内袋——你不知道他掏出来的会是芯片，还是武器。
+请开始故事。
 ```
 
 ## §5 冒险日志 Prompt
@@ -616,7 +677,8 @@ ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 |------|------|------|
 | 2026-07-04 | 初始版本 | — |
 | 2026-07-04 | v4 模板重构：示例精简(18→11段)、规则结构化、新增6条设计原则 | 6轮30+次测试验证。正确率33%→83%，TTFT 38s→11s。关键改进：(1)独立options节+choice显式规则 (2)checkpoint反例约束 (3)pre-bridge的:main双重覆盖 (4)示例后防续写屏障 (5)bridge/bridge段数上下限+反例 (6)(重要)注意力标签 |
-| 2026-07-04 | 跨题材泛化测试：恋爱/悬疑/古风各3轮 | v4模板在4题材下正确率波动大（1/3~3/3）。发现2个跨题材共性问题：(1) **bridge-before-options** — LLM在options之前插入bridge（romance r2, mystery r2），说明"bridge之前放options"的单向规则不够，需增加"禁止在options前放bridge"的反向约束；(2) **bridge位置偏离** — romance r1的bridge在88%处（目标40%），tail仅11段，LLM在慢节奏叙事中推迟了交互断点。古风表现最好(3/3)，推测因武侠叙事有自然的事件节奏断点 |
+| 2026-07-04 | 跨题材泛化测试：恋爱/悬疑/古风各3轮 | v4模板在4题材下正确率波动大（1/3~3/3）。发现2个跨题材共性问题：(1) **bridge-before-options** — LLM在options之前插入bridge；(2) **bridge位置偏离** — 慢节奏叙事推迟了交互断点 |
+| 2026-07-04 | **架构迁移：对话式消息数组 + XML 输出格式** | 从每轮 system prompt 迁移到 messages 数组架构。(1) **XML 格式**（`<seg>`/`<choice>`/`<set>`/`<checkpoint>`/`<bridge/>`/`<branch>`）替代 `--- block ---`，frame-v1 测试正确率 100%；(2) **对话式** Round 1 永久锚定 + 滑动窗口（WINDOW_SIZE=3）+ checkpoint 压缩；(3) `context_manager.py`、`prompt_builder.py`、`xml_parser.py` 替代旧 prompt 组装管线。旧格式 prompt 文件清理归档 |
 
 ---
 
