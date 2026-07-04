@@ -5,7 +5,7 @@
 > - [`exec-flow.md`](./exec-flow.md) — 程序执行管线（如何组装 Prompt、解析响应、展示内容）
 > - [`data-model.md`](./data-model.md) — 数据模型、存档、常量
 >
-> 本文档内容原属 `Phase1-exec-flow.md` §4.2 + §4.8，独立为规范参考。
+>
 
 ---
 
@@ -289,7 +289,7 @@ summary: ...
 
 程序在 bridge 处检测到 `ending_flag` → **不组装正常下一轮 Prompt**，改为提交冒险日志 Prompt（独立 LLM 调用，见 `exec-flow.md` §5.4）。尾部 narrative 作为缓冲确保冒险日志有充裕响应时间。展示完 bridge_text 和 adventure_log 后，返回主菜单。
 
-> **设计考量**：bridge 位置不宜太靠后，确保 bridge_text 有足够长度供 LLM 响应；可通过 `BRIDGE_MIN_RATIO_BEFORE_END` 常量约束。
+> **设计考量**：bridge 位置不宜太靠后，确保 bridge_text 有足够长度供 LLM 响应；位置由 `BRIDGE_SEGMENT_RATIO` 常量控制（见 data-model.md §A.4）。
 
 ---
 

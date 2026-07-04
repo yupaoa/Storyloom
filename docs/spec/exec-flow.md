@@ -267,20 +267,7 @@ saves/*.json 存在？
 4. 故事设定不向用户展示（保持新鲜度）
 ```
 
-**`=== story_config ===` 解析字段**：
-
-| 字段 | 必需 | 说明 |
-|------|------|------|
-| `题材` | ✅ | 自由文本标签（如"赛博朋克冒险"、"古风恋爱"），不驱动模板选择 |
-| `档位` | ✅ | `short` / `medium` / `long` |
-| `标签` | ✅ | `STORY_LABEL_MIN_CHARS`-`STORY_LABEL_MAX_CHARS` 字简短命名 |
-| `世界观` | ✅ | 一句话世界观描述 |
-| `主角姓名` | ✅ | |
-| `主角身份` | ✅ | |
-| `主角特质` | ✅ | |
-| `叙事风格` | ✅ | |
-| `核心冲突` | ✅ | |
-| `主要角色` | ✅ | 至少 1 个，每行 `- 角色名 \| 角色定位 \| 与主角关系` |
+> 解析字段定义和 LLM 输出格式见 [`prompt-design.md` §3.2](./prompt-design.md)。
 
 ### 3.5 Step 3.5: 生成变量定义
 
@@ -320,25 +307,7 @@ saves/*.json 存在？
 5. 存储到 story_config.variables = [{name, type, initial}] 列表
 ```
 
-**`=== variables ===` 解析格式**（每行一个变量）：
-
-```
-体力: number, 初始 80
-信任度: number, 初始 5
-所属势力: string, 初始 "中立"
-背包: list, 初始 []
-```
-
-**校验规则**：
-
-| 校验项 | 规则 | 失败处理 |
-|--------|------|---------|
-| 变量名唯一 | 无重复 | 拒绝，提示去重 |
-| 变量名合法 | 非空、不含 `\n` / `:` | 拒绝 |
-| 类型合法 | 仅 `number` / `string` / `list` | 拒绝 |
-| number 初始值 | 在 [0, 100] 范围内 | 拒绝 |
-| string 初始值 | 非空 | 拒绝 |
-| list 初始值 | 可为 `[]`，元素须为 string | 拒绝 |
+> 输出格式和完整示例见 [`prompt-design.md` §3.3](./prompt-design.md)。校验失败处理：拒绝 → 重试（附带错误提示），最多 MAX_RETRIES 次。
 
 ### 3.6 Step 4: 生成大纲树
 
@@ -376,14 +345,7 @@ saves/*.json 存在？
 5. 大纲不向用户展示
 ```
 
-**`=== outline ===` 解析字段**（每个节点）：
-
-| 字段 | 必需 | 说明 |
-|------|------|------|
-| `节点N：标题 \| node_id` | ✅ | N 从 1 递增；node_id 格式 `ch序号_英文缩写` |
-| `目标` | ✅ | 本章叙事目标（内部指引） |
-| `分支说明` | 可选 | 人类可读的分支方向描述 |
-| `分支：条件 → node_id` | 可选 | 0-2 条；无分支写 `分支：无` |
+> 输出格式和完整示例见 [`prompt-design.md` §3.4](./prompt-design.md)。
 
 ### 3.7 Step 5: 初始化 GameState
 
@@ -686,17 +648,6 @@ Round N 开始
 
 **触发时机**：checkpoint `end` 轮 bridge 处 / Q 键确认后。
 
-**Prompt 注入数据**：
-
-| 数据 | 来源 |
-|------|------|
-| 故事设定全文 | `story_config` |
-| 最终状态快照 | `state_vars`（当前值） |
-| 已完成的 checkpoint 摘要 | `checkpoint_summaries` |
-| checkpoint 节点列表 | `checkpoint_history`（node_id + 标题） |
-
-**Prompt 要点**：要求 LLM 生成面向玩家的冒险回顾，包含章节摘要、关键抉择及其影响、结局评语。纯文本格式，不加区块分隔符。
-
 **程序行为**：
 ```
 prompt = build_adventure_log_prompt(story_config, state_vars, checkpoint_summaries, checkpoint_history)
@@ -704,4 +655,4 @@ response = api_client.call(prompt)   // 非流式，快速生成
 展示 response 正文
 ```
 
-> 冒险日志为独立 LLM 调用——不走正常叙事循环的解析管线。
+> 冒险日志为独立 LLM 调用——不走正常叙事循环的解析管线。Prompt 模板与示例见 [`prompt-design.md` §5](./prompt-design.md)。

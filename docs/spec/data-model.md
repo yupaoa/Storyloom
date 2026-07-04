@@ -5,7 +5,7 @@
 > - [`exec-flow.md`](./exec-flow.md) — 程序执行管线
 > - [`block-spec.md`](./block-spec.md) — 区块分隔符与状态校验
 >
-> 本文档内容原属 `Phase1-exec-flow.md` §3.6 + §4.9 + §6 + §A + §B，独立为数据参考。
+>
 
 ---
 
@@ -231,4 +231,4 @@ load_save(filepath):
 | 8 | **静默错误** | 微小校验错误（list 增删不存在元素、number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
 | 9 | **常量引用** | 统一使用 §A 中定义的常量名，禁止在业务代码中硬编码数值 |
 | 10 | **编号宽容** | 叙事段编号偏差（跳号、重复、起始非 1）不触发重试——内容质量优先于编号准确性 |
-| 10 | **存档原子写入** | 先写 `{label}.tmp`，再 `os.replace` 到目标文件 |
+| 11 | **存档原子写入** | 先写 `{label}.tmp`，再 `os.replace` 到目标文件 |
