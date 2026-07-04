@@ -11,9 +11,6 @@ Usage:
   # Non-streaming mode (for comparison)
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt --no-stream
 
-  # Parallel mode (⚠️ TTFT may be inflated by server-side queuing)
-  python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt --parallel
-
   # Test multiple prompt versions
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/v1.txt
   python3 tests/run_prompt_test.py --prompt tests/data/prompts/v2.txt
@@ -29,11 +26,10 @@ Prompt file format:
   Everything before  → system message
   Everything from there → user message
 
-Execution mode (important):
-  Default is SEQUENTIAL — runs execute one at a time. This ensures TTFT
-  measurements are not inflated by server-side request queuing.
-  Use --parallel only when you need speed and don't care about TTFT accuracy.
-  Testing showed parallel mode can double TTFT due to API-level queuing.
+Execution mode:
+  SEQUENTIAL ONLY — runs execute one at a time. Multi-threaded parallel
+  execution has been REMOVED as it caused WSL2 system crashes due to
+  concurrent streaming API connections exhausting virtual network buffers.
 
 Metrics (streaming mode):
   - TTFT:        time from request to first token
@@ -47,7 +43,6 @@ import argparse
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -222,7 +217,7 @@ def run_one(args: dict) -> dict:
 # ── Main ─────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
-        description="Send a prompt to DeepSeek N times in parallel, save results."
+        description="Send a prompt to DeepSeek N times sequentially, save results. Multi-threaded execution has been removed for safety."
     )
     parser.add_argument(
         "--prompt", type=Path, required=True,
@@ -242,12 +237,6 @@ def main():
         "--no-stream", action="store_true",
         help="Use non-streaming mode (default: streaming for TTFT measurement)",
     )
-    parser.add_argument(
-        "--parallel", action="store_true",
-        help="Run in parallel (default: sequential). "
-             "⚠️ WARNING: parallel mode inflates TTFT due to server-side queuing. "
-             "Only use when TTFT accuracy is not important.",
-    )
     args = parser.parse_args()
 
     if not args.prompt.exists():
@@ -257,21 +246,17 @@ def main():
     system_prompt, user_message = load_prompt(args.prompt)
 
     use_stream = not args.no_stream
-    use_parallel = args.parallel
 
     # Auto-subdir: prompt "v1.txt" → output "v1/"
     output_dir = args.output / args.prompt.stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    mode_parts = ["streaming" if use_stream else "non-streaming"]
-    mode_parts.append("parallel" if use_parallel else "sequential")
+    mode_str = "streaming" if use_stream else "non-streaming"
     print(f"Prompt:  {args.prompt}  ({len(system_prompt)} + {len(user_message)} chars)")
     print(f"Output:  {output_dir}")
     print(f"Model:   {MODEL}")
-    print(f"Mode:    {' + '.join(mode_parts)}")
+    print(f"Mode:    {mode_str} (sequential)")
     print(f"Runs:    {args.runs}")
-    if use_parallel:
-        print("⚠️  Parallel mode: TTFT may be inflated by server-side queuing.")
     print()
 
     shared = {
@@ -284,23 +269,11 @@ def main():
     t_start = time.perf_counter()
     results = []
 
-    if use_parallel:
-        # ── Parallel execution (⚠️ TTFT may be inaccurate) ──────────
-        with ThreadPoolExecutor(max_workers=args.runs) as executor:
-            futures = {
-                executor.submit(run_one, {"index": i, **shared}): i
-                for i in range(1, args.runs + 1)
-            }
-            for future in as_completed(futures):
-                r = future.result()
-                results.append(r)
-                _print_result(r, args.runs, use_stream)
-    else:
-        # ── Sequential execution (accurate TTFT) ────────────────────
-        for i in range(1, args.runs + 1):
-            r = run_one({"index": i, **shared})
-            results.append(r)
-            _print_result(r, args.runs, use_stream)
+    # Sequential execution only — parallel mode removed (caused WSL2 crashes)
+    for i in range(1, args.runs + 1):
+        r = run_one({"index": i, **shared})
+        results.append(r)
+        _print_result(r, args.runs, use_stream)
 
     total_elapsed = time.perf_counter() - t_start
     results.sort(key=lambda x: x["index"])
