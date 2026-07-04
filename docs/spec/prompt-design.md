@@ -369,7 +369,10 @@ if approach == 2 -> route ch3_wait
 > `{MIN}=30` `{MAX}=50` `{BRIDGE_AT}=30` `{RATIO}=75%`。
 >
 > 保证时限：`MIN × (1 − RATIO) × AUTO_ADVANCE_DELAY_MS / 1000` = 3.8s
-> 当前时限：`BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000` = 15s
+> （最小尾部段数 × 段延迟 = LLM 响应保底时间。MIN=30 时尾部至少 7.5 段 → 3.75s）
+> 当前时限：`((MIN+MAX)/2 − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000` = 5s
+> （期望尾部段数 × 段延迟 = LLM 响应期望时限。(40−30)=10 段 → 5s。bridge 机制要求下一轮首个可用段落在此时间内到达。）
+> 参考：bridge 触发点 = `BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000` = 15s（本轮开始到 bridge 的播放时间）
 
 ```
 你是文字冒险游戏的叙事引擎。根据大纲和状态生成下一段交互式剧情。

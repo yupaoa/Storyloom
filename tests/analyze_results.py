@@ -15,33 +15,49 @@ Two limits are calculated from the prompt's segment parameters:
 
   guaranteed (保证时限)
     = MIN × (1 − RATIO) × AUTO_ADVANCE_DELAY_MS / 1000
-    The absolute minimum time the next round's LLM has to generate,
-    assuming the player skips through the shortest possible pre-bridge
-    content at maximum auto-advance speed.
+    The absolute minimum tail display time.  Even if the LLM generates
+    only MIN segments, the tail (the portion after bridge) provides at
+    least this much reading time for the player.  This is the floor:
+    the next round's LLM MUST deliver its first usable segment within
+    this window for seamless playback.
 
   expected (当前时限)
-    = BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000
+    = ((MIN + MAX) / 2 − BRIDGE_AT) × AUTO_ADVANCE_DELAY_MS / 1000
     where BRIDGE_AT = floor((MIN + MAX) / 2 × RATIO)
-    The typical time before the player reaches the bridge marker,
-    assuming auto-advance at the configured delay per segment.
-    This is the LLM's generation deadline for seamless playback.
+    The expected tail display time at the design-segment count (avg of
+    MIN and MAX).  This is the typical LLM generation deadline for the
+    bridge mechanism to deliver seamless transitions.
+
+  reference: bridge trigger point
+    = BRIDGE_AT × AUTO_ADVANCE_DELAY_MS / 1000
+    Time from round start until the bridge marker triggers the next
+    prompt submission.  Informational only — not a deadline.
+
+The bridge mechanism:
+  1. Program reaches bridge marker during display → submits next prompt
+  2. Continues displaying tail segments while LLM generates
+  3. LLM must return first usable segment before tail display completes
+  4. With streaming: only TTFT + first-segment matters, not total time
 
 Parameters are extracted from the prompt text:
   - MIN, MAX  → "本轮生成 30-50 个叙事段"
   - RATIO      → "约 75% 处" or "× 0.75"
   - AUTO_ADVANCE_DELAY_MS → from data-model.md §A.5 (default 500)
 
-The bridge_text (User Message content) is NOT a time parameter — it is
-the previous round's tail text fed as input to the LLM.  Only MIN, MAX,
-and RATIO affect the time budget.
-
 ─── Output columns ──────────────────────────────────────────────────
 
   File      → test output filename
-  Time      → actual LLM generation time (from file header)
-  Segments  → count of numbered narrative segments in the output
-  vs Limit  → actual_time − expected_limit (negative = within budget)
-  Status    → ✓ within limit  /  ✗ OVER limit
+  Time      → total LLM generation time (from file header)
+  Segs      → total narrative segments in the output
+  Tail      → segments after bridge marker (the display buffer)
+  尾时       → tail × delay = actual time budget for next round
+  时限       → expected time limit (当前时限) for comparison
+  Status    → ✓ tail ≥ guaranteed  /  ⚠ tail < guaranteed
+
+  Note: total generation time (Time column) is measured with
+  stream=False.  With streaming, only TTFT + first-segment latency
+  matters — total time is irrelevant to bridge timing.  Run streaming
+  tests to measure the true deadline metric.
 
 ─── Reference ───────────────────────────────────────────────────────
 
@@ -77,11 +93,8 @@ def parse_prompt(path: Path) -> dict:
     """Extract MIN, MAX, RATIO from a prompt file."""
     text = path.read_text(encoding="utf-8")
 
-    # Pattern: "本轮生成 30-50 个叙事段。bridge 放在总段数的约 75% 处"
-    # Also match: "bridge 放在约第 30 段之后（约 75% 位置）"
     m = re.search(r"本轮生成\s*(\d+)\s*-\s*(\d+)\s*个叙事段", text)
     if not m:
-        # Fallback: try placeholder format {MIN}-{MAX}
         m = re.search(r"生成\s*\{MIN\}\s*-\s*\{MAX\}\s*个叙事段", text)
         if m:
             raise RuntimeError(
@@ -93,7 +106,6 @@ def parse_prompt(path: Path) -> dict:
     lo = int(m.group(1))
     hi = int(m.group(2))
 
-    # Extract RATIO: "约 75%", "约 75% 处", "× 0.75"
     m = re.search(r"[约×]\s*(\d+)%", text)
     if not m:
         m = re.search(r"×\s*(0\.\d+)", text)
@@ -101,7 +113,7 @@ def parse_prompt(path: Path) -> dict:
         ratio_pct = float(m.group(1))
         ratio = ratio_pct / 100.0 if ratio_pct > 1 else ratio_pct
     else:
-        ratio = 0.75  # default
+        ratio = 0.75
 
     bridge_at = floor((lo + hi) / 2 * ratio)
 
@@ -114,29 +126,41 @@ def parse_prompt(path: Path) -> dict:
 
 
 def calc_limits(params: dict, delay_ms: int) -> dict:
-    """Calculate time limits from prompt parameters."""
+    """Calculate time limits from prompt parameters.
+
+    guaranteed (保证时限): minimum tail display time (at MIN segments).
+    expected (当前时限):   expected tail display time (at avg segments).
+                           This is the LLM's generation deadline.
+    pre_bridge:            time from round start to bridge trigger
+                           (informational, not a deadline).
+    """
     lo = params["min"]
+    hi = params["max"]
     ratio = params["ratio"]
     bridge_at = params["bridge_at"]
 
+    avg_total = (lo + hi) / 2
+    expected_tail = avg_total - bridge_at
+
     guaranteed = lo * (1 - ratio) * delay_ms / 1000
-    expected = bridge_at * delay_ms / 1000
+    expected = expected_tail * delay_ms / 1000
+    pre_bridge = bridge_at * delay_ms / 1000
 
     return {
         "guaranteed_s": round(guaranteed, 1),
         "expected_s": round(expected, 1),
+        "pre_bridge_s": round(pre_bridge, 1),
     }
 
 
 # ── Output file parsing ─────────────────────────────────────────────
 def parse_output_file(path: Path) -> dict | None:
-    """Extract metadata from a test output file. Returns None on error."""
+    """Extract metadata and tail segments from a test output file."""
     if not path.exists():
         return None
 
     text = path.read_text(encoding="utf-8")
 
-    # Parse header
     time_s = None
     m = re.search(r"\*\*Time\*\*:\s*([\d.]+)s", text)
     if m:
@@ -145,33 +169,27 @@ def parse_output_file(path: Path) -> dict | None:
     if time_s is None:
         return None
 
-    # Count narrative segments (numbered lines in narrative blocks)
-    # Find all narrative blocks and count numbered lines
-    segments = 0
-    in_narrative = False
-    seen_numbers = set()
+    # Split off the metadata header to isolate LLM output
+    parts = text.split('\n---\n', 1)
+    llm_out = parts[1] if len(parts) > 1 else text
 
-    for line in text.splitlines():
-        line = line.strip()
-        # Track block boundaries
-        if re.match(r"^---\s*narrative:", line):
-            in_narrative = True
-            continue
-        elif re.match(r"^---\s*(options|state|checkpoint|bridge)\b", line):
-            in_narrative = False
-            continue
+    # Find bridge marker
+    bridge_m = re.search(r'^--- bridge ---$', llm_out, re.MULTILINE)
+    bridge_pos = bridge_m.start() if bridge_m else len(llm_out)
 
-        if in_narrative:
-            m = re.match(r"^(\d+)\.\s", line)
-            if m:
-                num = int(m.group(1))
-                if num not in seen_numbers:
-                    seen_numbers.add(num)
-                    segments += 1
+    # Count segments before and after bridge
+    pre_text = llm_out[:bridge_pos]
+    post_text = llm_out[bridge_pos:] if bridge_m else ""
+
+    pre_segs = len(re.findall(r'^\d+\.', pre_text, re.MULTILINE))
+    post_segs = len(re.findall(r'^\d+\.', post_text, re.MULTILINE)) if bridge_m else 0
+
+    total_segs = pre_segs + post_segs
 
     return {
         "time_s": time_s,
-        "segments": segments,
+        "segments": total_segs,
+        "tail_segs": post_segs,
     }
 
 
@@ -200,13 +218,20 @@ def main():
     params = parse_prompt(args.prompt)
     limits = calc_limits(params, delay_ms)
 
-    print("═" * 58)
+    print("═" * 72)
     print(f"Prompt:  {args.prompt.name}")
     print(f"Params:  MIN={params['min']}  MAX={params['max']}  "
           f"RATIO={int(params['ratio']*100)}%  BRIDGE_AT={params['bridge_at']}")
     print(f"Delay:   {delay_ms}ms/segment")
-    print(f"Limits:  guaranteed ≥ {limits['guaranteed_s']}s  "
-          f"expected ≈ {limits['expected_s']}s")
+    print()
+    print("Time budget (bridge mechanism):")
+    print(f"  保证时限 (min tail time):   {limits['guaranteed_s']:5.1f}s  "
+          f"(MIN × (1−RATIO) × delay)")
+    print(f"  当前时限 (exp tail time):   {limits['expected_s']:5.1f}s  "
+          f"((avg_total − BRIDGE_AT) × delay)")
+    print(f"  bridge 触发点 (pre-bridge): {limits['pre_bridge_s']:5.1f}s  "
+          f"(BRIDGE_AT × delay, informational)")
+    print(f"  ↑ LLM 必须在当前时限内返回首个可用段落，bridge 机制才能无缝衔接。")
     print()
 
     # ── No output files ──────────────────────────────────────────
@@ -225,40 +250,64 @@ def main():
         print(f"[WARN] No prompt-test-*.md files found in {args.output_dir}")
         return
 
-    print(f"{'File':<20s} {'Time':>7s}  {'Segments':>8s}  {'vs Limit':>12s}  "
-          f"{'Status':>6s}")
-    print("-" * 58)
+    print(f"{'File':<20s} {'Time':>7s}  {'Segs':>5s}  {'Tail':>5s}  "
+          f"{'尾时':>6s}  {'时限':>6s}  {'Status':>6s}")
+    print("-" * 72)
 
     times = []
     segs = []
+    tail_segs_list = []
     for f in files:
         result = parse_output_file(f)
         if result is None:
-            print(f"{f.name:<20s}  {'(parse error)':>33s}")
+            print(f"{f.name:<20s}  {'(parse error)':>40s}")
             continue
 
         t = result["time_s"]
         s = result["segments"]
+        tail = result["tail_segs"]
+        tail_time = tail * delay_ms / 1000
+
         times.append(t)
         segs.append(s)
+        tail_segs_list.append(tail)
 
-        diff = t - limits["expected_s"]
-        diff_str = f"{diff:+.1f}s" if diff >= 0 else f"{diff:.1f}s"
-        status = "✓" if t <= limits["expected_s"] else "✗ OVER"
+        # Status: is the actual tail time enough to meet the guaranteed minimum?
+        if tail_time >= limits["guaranteed_s"]:
+            status = "✓"
+        else:
+            status = "⚠ SHORT"
 
-        print(f"{f.name:<20s}  {t:6.1f}s  {s:8d}  {diff_str:>12s}  {status:>6s}")
+        print(f"{f.name:<20s}  {t:5.1f}s  {s:5d}  {tail:5d}  "
+              f"{tail_time:5.1f}s  {limits['expected_s']:5.1f}s  {status:>6s}")
 
-    print("-" * 58)
+    print("-" * 72)
     if times:
         avg_t = sum(times) / len(times)
         avg_s = sum(segs) / len(segs)
-        over_count = sum(1 for t in times if t > limits["expected_s"])
+        avg_tail = sum(tail_segs_list) / len(tail_segs_list)
+        avg_tail_time = avg_tail * delay_ms / 1000
+        short_count = sum(
+            1 for tl in tail_segs_list
+            if tl * delay_ms / 1000 < limits["guaranteed_s"]
+        )
         print(f"{len(times)} files  "
               f"time: {min(times):.1f}s ~ {max(times):.1f}s (avg {avg_t:.1f}s)  "
               f"segments: {min(segs)} ~ {max(segs)} (avg {avg_s:.0f})")
-        if over_count:
-            print(f"{over_count}/{len(times)} exceeded expected limit "
-                  f"({limits['expected_s']}s)")
+        print(f"Tail time: {min(tail_segs_list)*delay_ms/1000:.1f}s ~ "
+              f"{max(tail_segs_list)*delay_ms/1000:.1f}s "
+              f"(avg {avg_tail_time:.1f}s)  "
+              f"vs guaranteed {limits['guaranteed_s']}s")
+        if short_count:
+            print(f"⚠ {short_count}/{len(times)} tests have tail time below "
+                  f"guaranteed minimum ({limits['guaranteed_s']}s)")
+        print()
+        print("Note: total generation time (Time column) is measured with "
+              "stream=False.")
+        print("With streaming, only TTFT + first-segment latency matters — "
+              "total time is")
+        print("irrelevant to bridge timing. Run streaming tests to measure "
+              "the true deadline.")
 
 
 if __name__ == "__main__":
