@@ -113,7 +113,7 @@ Below is a format example (content is a short fictional fantasy story in English
 **Line Count & Bridge Position**
 - **Output 150-300 total lines.** The format example is deliberately short (35 lines) to show structure only — your output MUST reach 150-300.
 - Place `<bridge/>` roughly 75% through — about 3/4 of lines before, 1/4 after.
-- Each post-bridge `<branch>` must span at least 20 lines.
+- Each post-bridge `<branch>` must span at least 25 lines.
 - Post-bridge content is selected by `current_branch`: use `<branch>` containers for multiple possible paths, bare `<seg>` for a single path.
 
 **Choice → current_branch**
