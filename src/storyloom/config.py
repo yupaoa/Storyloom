@@ -11,7 +11,10 @@ LINES_PER_ROUND_MAX = 300
 # ── Language-specific segment limits ───────────────────────────
 LANGUAGE_SEG_LIMITS = {
     "zh-CN": {"narration": 40, "dialogue": 50},
+    "en":    {"narration": 120, "dialogue": 160},
 }
+SUPPORTED_LANGUAGES = {"zh-CN", "en"}
+DEFAULT_LANGUAGE = "zh-CN"
 
 # ── Bridge ─────────────────────────────────────────────────────
 BRIDGE_POSITION_RATIO = 0.75  # target bridge position (fraction of total, pre-bridge)

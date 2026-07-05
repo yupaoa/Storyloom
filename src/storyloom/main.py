@@ -5,12 +5,14 @@ CLI entry point. Loads .env, shows main menu, routes to game loop.
 """
 
 import argparse
+import os
 import sys
 
 from src.storyloom.api_client import ApiClient, ApiError
 from src.storyloom.display import Display
 from src.storyloom.co_create import CoCreateFlow, CoCreationAborted
 from src.storyloom.game_loop import GameLoop, GameState
+from src.storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
 
 # ── Default story config (used until co-creation UI is built) ─────
 
@@ -69,6 +71,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Skip co-creation, use default story",
     )
+    parser.add_argument(
+        "--lang",
+        choices=sorted(SUPPORTED_LANGUAGES),
+        default=None,
+        help="Language for UI and story (zh-CN / en)",
+    )
     return parser.parse_args(argv)
 
 
@@ -78,10 +86,19 @@ def main(output=None) -> None:
     Args:
         output: Output stream for testing (defaults to sys.stdout).
     """
-    display = Display(output=output)
+    # Resolve language early (needed for Display init)
+    if output is None:
+        args = parse_args()
+    else:
+        args = parse_args([])
+    language = args.lang or os.environ.get("STORYLOOM_LANG") or DEFAULT_LANGUAGE
+    if language not in SUPPORTED_LANGUAGES:
+        language = DEFAULT_LANGUAGE
+
+    display = Display(output=output, language=language)
 
     display.output.write("\n")
-    display.output.write("Storyloom — 文字冒险\n")
+    display.output.write(display.t("banner") + "\n")
     display.output.write("=" * 40 + "\n\n")
 
     # Load API client
@@ -94,16 +111,10 @@ def main(output=None) -> None:
         )
         return
 
-    # Parse args (skip in test mode to avoid consuming pytest args)
-    if output is None:
-        args = parse_args()
-    else:
-        args = parse_args([])
-
     if args.quick:
-        run_game(display, api_client)
+        run_game(display, api_client, language=language)
     else:
-        show_main_menu(display, api_client)
+        show_main_menu(display, api_client, language=language)
 
 
 def _extract_first_node(outline_text: str) -> str:
@@ -126,37 +137,42 @@ def _extract_first_goal(outline_text: str) -> str:
     return ""
 
 
-def show_main_menu(display: Display, api_client: ApiClient) -> None:
+def show_main_menu(display: Display, api_client: ApiClient,
+                   language: str = "zh-CN") -> None:
     """Show main menu and route user choices.
 
     Args:
         display: Display instance for output.
         api_client: API client for game calls.
+        language: UI and story language.
     """
     while True:
         display.show_main_menu(save_count=0)
-        choice = display.get_input("请选择: ")
+        choice = display.get_input(display.t("menu_prompt"))
 
         if choice == "1":
             try:
-                flow = CoCreateFlow(api_client, display)
+                flow = CoCreateFlow(api_client, display, language=language)
                 result = flow.run()
                 run_game(display, api_client,
                          story_config=result.story_config,
-                         outline_text=result.outline_text)
+                         outline_text=result.outline_text,
+                         language=language)
             except CoCreationAborted:
-                display.output.write("已返回主菜单。\n")
+                display.output.write(display.t("return_to_menu") + "\n")
             except ApiError as e:
-                display.show_error(f"API 错误: {e}")
+                display.show_error(display.t("api_error", str(e)))
         elif choice == "2":
-            display.show_wait_message("继续游戏（加载存档）—— 功能开发中")
+            display.show_wait_message(
+                display.t("loading", "继续游戏（加载存档）"))
         elif choice == "3":
-            display.show_wait_message("管理存档 —— 功能开发中")
+            display.show_wait_message(
+                display.t("loading", "管理存档"))
         elif choice == "4":
-            display.output.write("再会。\n")
+            display.output.write(display.t("menu_goodbye") + "\n")
             break
         else:
-            display.output.write("无效选择，请重试。\n")
+            display.output.write(display.t("menu_invalid") + "\n")
 
 
 def run_game(
@@ -164,6 +180,7 @@ def run_game(
     api_client: ApiClient,
     story_config: dict | None = None,
     outline_text: str | None = None,
+    language: str = "zh-CN",
 ) -> None:
     """Run the narrative game loop.
 
@@ -172,6 +189,7 @@ def run_game(
         api_client: API client for LLM calls.
         story_config: Story config (from co-creation or default).
         outline_text: Outline text (from co-creation or default).
+        language: UI and story language.
     """
     if story_config is None:
         story_config = DEFAULT_STORY_CONFIG
@@ -196,44 +214,45 @@ def run_game(
     try:
         result = game_loop.start_round1()
     except ApiError as e:
-        display.show_error(f"API 错误: {e}")
+        display.show_error(display.t("api_error", str(e)))
         return
+
+    n_opts = 0  # will be updated when options are available
 
     # Main narrative loop
     while True:
         options = game_loop.get_available_options()
 
         if not options:
-            # No choice - continue automatically
             try:
                 result = game_loop.continue_round(choice_key=None)
             except ApiError as e:
-                display.show_error(f"API 错误: {e}")
+                display.show_error(display.t("api_error", str(e)))
                 break
             continue
 
-        # Player choice
-        choice = display.get_input("\n输入选择 (输入 quit 返回菜单): ")
+        n_opts = len(options)
+        choice = display.get_input("\n" + display.t("choose_option") + " ")
 
         if choice and choice.strip().lower() in ("quit", "exit", "q"):
-            display.output.write("返回主菜单。\n")
+            display.output.write(display.t("return_to_menu") + "\n")
             return
 
         if choice and choice.strip().isdigit():
             idx = int(choice.strip())
-            if 1 <= idx <= len(options):
+            if 1 <= idx <= n_opts:
                 try:
                     result = game_loop.continue_round(choice_key=choice.strip())
                 except ApiError as e:
-                    display.show_error(f"API 错误: {e}")
+                    display.show_error(display.t("api_error", str(e)))
                     break
             else:
-                display.output.write(f"无效选择，请输入 1-{len(options)}。\n")
+                display.output.write(
+                    display.t("invalid_choice", n_opts) + "\n")
         elif choice == "0":
-            # Show state
             display.show_state(game_loop.game_state.state_vars)
         else:
-            display.output.write("请输入数字或 quit。\n")
+            display.output.write(display.t("enter_digit_or_quit") + "\n")
 
 
 if __name__ == "__main__":

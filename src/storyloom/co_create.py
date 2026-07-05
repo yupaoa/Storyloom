@@ -403,21 +403,29 @@ class CoCreateParser:
 
 # ── Prompt Templates ────────────────────────────────────────────────
 
-CO_CREATE_SYSTEM_PROMPT = """You are a story co-creation assistant. Help the user define their story world through questions, then generate structured story setup.
+CO_CREATE_SYSTEM_PROMPT = """You are a warm and perceptive story co-creation partner. Your goal is to help the user discover the story they truly want to experience — by asking thoughtful questions, listening carefully, and guiding gently.
 
 # Questioning Phase
 
-Ask questions focused on five dimensions. Do NOT ask about specific plot events or reveal story content:
+Ask one question at a time, focused on these five dimensions. Do NOT reveal specific plot events or spoil story content:
 - World setting (era, location, tech/magic level, society)
 - Protagonist (name, identity, personality traits, background)
 - Story tone (dark/light, epic/personal, serious/humorous)
-- Conflict direction (core tension — do not describe specific events)
+- Conflict direction (core tension — describe it as a question the story explores)
 - Story length (short ~10 rounds / medium ~20 rounds / long ~40 rounds)
 
-Do not reveal plot details, suggest story direction, or use leading wording.
+**After each question, offer 2-3 example answers as numbered suggestions** — these help the user express themselves, but they are free to write their own answer. Format:
+```
+[1] example answer one
+[2] example answer two
+[3] example answer three
+（或输入你自己的答案）
+```
+
+Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.
 
 When you have enough information (usually 3-5 questions), end your reply with:
-"Is there enough information to start generating the story?"
+"This should be enough — shall I start generating the story?"
 
 When the user indicates they are ready, I will ask you to generate the full setup.
 
@@ -548,11 +556,22 @@ class CoCreateFlow:
         Step 3: Single LLM call generates story_config + variables + outline.
     """
 
-    def __init__(self, api_client: ApiClient, display: Display):
+    def __init__(self, api_client: ApiClient, display: Display,
+                 language: str = "zh-CN"):
         self._api = api_client
         self._display = display
+        self._language = language
+
+        # Inject language instruction into system prompt
+        lang_names = {"zh-CN": "Chinese (Simplified)", "en": "English"}
+        lang_name = lang_names.get(language, "Chinese (Simplified)")
+        lang_prompt = CO_CREATE_SYSTEM_PROMPT + (
+            f"\n\nCommunicate with the user in {lang_name}. "
+            f"All questions, suggestions, and story content must be in {lang_name}."
+        )
+
         self._messages: list[dict] = [
-            {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
+            {"role": "system", "content": lang_prompt}
         ]
 
     def run(self) -> CoCreationResult:
@@ -573,19 +592,17 @@ class CoCreateFlow:
 
     def _step1_get_idea(self) -> None:
         """Collect user's initial story idea."""
-        self._display.output.write("\n")
-        self._display.output.write("━" * 50 + "\n")
-        self._display.output.write("【共创阶段 — 故事设定】\n\n")
-        self._display.output.write(
-            "请描述你想玩的故事。\n"
-            "例如：'赛博朋克背景下的爱情故事'、'古代仙侠世界的冒险'\n\n"
-        )
+        d = self._display
+        d.output.write("\n")
+        d.output.write("━" * 50 + "\n")
+        d.output.write(d.t("cc_header") + "\n\n")
+        d.output.write(d.t("cc_idea_prompt") + "\n")
 
         for _ in range(20):
-            raw_idea = self._display.get_input("> ")
+            raw_idea = d.get_input("> ")
             if raw_idea and raw_idea.strip():
                 break
-            self._display.output.write("请输入一些想法来开始。\n")
+            d.output.write(d.t("cc_idea_empty") + "\n")
         else:
             raise CoCreationAborted()
 
@@ -597,50 +614,49 @@ class CoCreateFlow:
         """Multi-turn Q&A loop with LLM.
 
         LLM asks questions about 5 dimensions. User responds.
-        Loop exits when user types '开始' or equivalent.
+        Loop exits when user types '开始'/'go' or equivalent.
         """
-        self._display.output.write("\n")
-        self._display.output.write("━" * 50 + "\n")
-        self._display.output.write(
-            "【追问阶段】\n"
-            "AI 会提出几个问题来了解你想玩的故事。\n"
-            "回答完毕后输入 '开始' 即可生成故事设定。\n"
-            "输入 '不玩了' 返回主菜单。\n\n"
-        )
+        d = self._display
+        d.output.write("\n")
+        d.output.write("━" * 50 + "\n")
+        d.output.write(d.t("cc_qna_header") + "\n")
+        d.output.write(d.t("cc_qna_desc") + "\n")
 
-        START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes", "go"}
-        QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q"}
+        if self._language == "zh-CN":
+            START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes"}
+            QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q"}
+        else:
+            START_KEYWORDS = {"go", "start", "begin", "yes", "ok", "OK", "ready", "开始"}
+            QUIT_KEYWORDS = {"quit", "exit", "q", "stop", "abort", "不玩了", "退出"}
         MAX_QNA_ROUNDS = 15
 
         for _round in range(MAX_QNA_ROUNDS):
-            self._display.show_wait_message("思考中...")
+            d.show_wait_message(d.t("cc_think"))
             try:
                 response = self._api.chat(self._messages)
             except Exception as e:
-                self._display.show_error(f"API 调用失败: {e}")
-                choice = self._display.get_input("[R]重试 / [M]返回主菜单: ")
+                d.show_error(d.t("cc_api_fail", str(e)))
+                choice = d.get_input(d.t("cc_retry_prompt"))
                 if choice.upper() == 'M':
                     raise CoCreationAborted()
                 continue
 
             self._messages.append({"role": "assistant", "content": response})
-            self._display.output.write(f"\n{response}\n\n")
+            d.output.write(f"\n{response}\n\n")
 
-            user_input = self._display.get_input(
-                "你的回答（或输入 '开始'/'不玩了'）> "
+            user_input = d.get_input(
+                d.t("cc_qna_prompt")
             ).strip()
 
             if not user_input:
                 continue
 
             if user_input in START_KEYWORDS:
-                self._display.output.write("\n")
+                d.output.write("\n")
                 break
 
             if user_input in QUIT_KEYWORDS:
-                confirm = self._display.get_input(
-                    "确定退出共创，返回主菜单？(y/n): "
-                )
+                confirm = d.get_input(d.t("cc_confirm_quit"))
                 if confirm.lower() in ("y", "yes", "是"):
                     raise CoCreationAborted()
                 continue
@@ -664,7 +680,7 @@ class CoCreateFlow:
         gen_prompt = GENERATE_ALL_PROMPT.format(variable_names=var_names)
         self._messages.append({"role": "user", "content": gen_prompt})
 
-        self._display.show_wait_message("正在编织故事世界...")
+        self._display.show_wait_message(self._display.t("cc_gen_wait"))
         response = self._generate_with_retry()
         self._messages.append({"role": "assistant", "content": response})
 
@@ -700,14 +716,13 @@ class CoCreateFlow:
 
     def _generate_with_retry(self) -> str:
         """Call LLM for generation. Handle API errors."""
+        d = self._display
         for _ in range(10):
             try:
                 return self._api.chat(self._messages)
             except Exception as e:
-                self._display.show_error(f"生成失败: {e}")
-                choice = self._display.get_input(
-                    "[R]重试 / [M]返回主菜单: "
-                )
+                d.show_error(d.t("cc_gen_fail", str(e)))
+                choice = d.get_input(d.t("cc_retry_prompt"))
                 if choice.upper() == 'M':
                     raise CoCreationAborted()
         raise CoCreationAborted()
@@ -759,7 +774,7 @@ class CoCreateFlow:
                                f"Please fix and regenerate the outline block."}
                 )
                 self._display.show_wait_message(
-                    f"修正大纲中...（第{attempt + 1}次重试）"
+                    self._display.t("cc_fix_block", "大纲", attempt + 1)
                 )
                 response = self._generate_with_retry()
                 self._messages.append({"role": "assistant", "content": response})
@@ -776,8 +791,8 @@ class CoCreateFlow:
                     return nodes
 
             choice = self._display.get_input(
-                f"大纲校验失败（{'; '.join(errors)}）。"
-                f"[R]重试 / [M]返回主菜单: "
+                self._display.t("cc_outline_fail", "; ".join(errors))
+                + " " + self._display.t("cc_retry_prompt")
             )
             if choice.upper() != 'R':
                 raise CoCreationAborted()
@@ -813,7 +828,7 @@ class CoCreateFlow:
                                    f"Please fix and regenerate all three sections."}
                     )
                     self._display.show_wait_message(
-                        f"修正{block_name}中...（第{attempt + 1}次重试）"
+                        self._display.t("cc_fix_block", block_name, attempt + 1)
                     )
                     response = self._generate_with_retry()
                     self._messages.append(
@@ -824,8 +839,8 @@ class CoCreateFlow:
                     continue
 
             choice = self._display.get_input(
-                f"{block_name} 解析失败（{'; '.join(errors)}）。"
-                f"[R]重试 / [M]返回主菜单: "
+                self._display.t("cc_block_fail", block_name, "; ".join(errors))
+                + " " + self._display.t("cc_retry_prompt")
             )
             if choice.upper() != 'R':
                 raise CoCreationAborted()
