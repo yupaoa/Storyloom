@@ -24,7 +24,6 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
     <opt key="1" branch="outcome_a">option text</opt>
     <opt key="2" branch="outcome_b">option text</opt>
   </choice>
-  <set var="variable" op="operation" val="value"/>
   <set var="variable" op="operation" val="value" if="condition"/>
   <checkpoint node="node_id" summary="summary text">
     <route if="condition" target="target_node"/>
@@ -49,7 +48,7 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 
 **<set>** — State change. Modifies a state variable. `var`, `op`, `val` required. `if` (optional): conditional execution.
 
-**<checkpoint>** — Key story node. Appears 0 or 1 times. Always a direct child of `<story>`. Records outline progress with a `summary`. May contain `<route>` elements for outline branching.
+**<checkpoint>** — Key story node and save point. Appears 0 or 1 times. Always a direct child of `<story>`. Records outline progress with a `summary`. May contain `<route>` elements for outline branching.
 
 **<bridge/>** — Self-closing. Always a direct child of `<story>`. Exactly ONCE per output. The signal point where the program triggers the next API call. Divides output into interactive zone (before) and narrative zone (after).
 
@@ -79,7 +78,6 @@ Below is a format example (content is a short fictional fantasy story in English
   <opt key="3" branch="demand" if="reputation>=20">Demand answers</opt>
 </choice>
 <set var="reputation" op="+" val="5" if="approach==1"/>
-<set var="caution" op="+" val="10" if="approach==2"/>
 <checkpoint node="ch2_meeting" summary="Met the scarred stranger at the inn. Chose how to approach.">
   <route if="approach==1" target="ch3_lead"/>
   <route if="approach==2" target="ch3_wait"/>
