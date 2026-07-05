@@ -350,6 +350,7 @@ class GameLoop:
         self.game_state = game_state or GameState(story_config)
         self.current_node = current_node
         self.goal = goal
+        self._node_goals: dict[str, str] = self._parse_outline_goals(outline_text)
         self._completed_nodes: list[str] = []
         self.last_parsed: ParsedOutput | None = None
         self._last_bridge_text: str = ""
@@ -462,12 +463,14 @@ class GameLoop:
             old_node = self.current_node
             route = self._evaluate_routes(choice_dict)
             if route:
-                if old_node:
+                if old_node and old_node not in self._completed_nodes:
                     self._completed_nodes.append(old_node)
                 self.current_node = route
+                # Update goal for the new node
+                self.goal = self._node_goals.get(route, self.goal or "")
             elif not self.last_parsed.routes:
                 # Final node reached (no routes in parsed output)
-                if old_node:
+                if old_node and old_node not in self._completed_nodes:
                     self._completed_nodes.append(old_node)
 
         # Get compressed checkpoint summaries from context manager
@@ -526,9 +529,10 @@ class GameLoop:
         self.display.show_segments(parsed.segments)
 
         # Display options
-        if parsed.choice_id and parsed.opt_branches:
-            labels = [f"选项{branch}" for branch in parsed.opt_branches]
-            self.display.show_options(parsed.choice_id, parsed.opt_branches, labels)
+        if parsed.choices:
+            last = parsed.choices[-1]
+            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
+            self.display.show_options(last["id"], last["branches"], labels)
 
         return RoundResult(
             parsed=parsed,
@@ -550,6 +554,31 @@ class GameLoop:
             {"branch": branch, "index": i + 1}
             for i, branch in enumerate(self.last_parsed.opt_branches)
         ]
+
+    # ── Outline ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _parse_outline_goals(outline_text: str) -> dict[str, str]:
+        """Extract {node_id: goal_description} from outline text."""
+        goals: dict[str, str] = {}
+        for line in outline_text.strip().split("\n"):
+            stripped = line.strip()
+            if not stripped or stripped[0] in ("├", "└", "→"):
+                continue
+            # Format: ch1_bar [active] — title：goal
+            node_id = stripped.split()[0] if stripped else ""
+            if not node_id:
+                continue
+            for sep in ("：", "—"):
+                if sep in stripped:
+                    goal_text = stripped.split(sep, 1)[1].strip()
+                    # Remove status markers and route hints
+                    goal_text = goal_text.split("（")[0].strip()
+                    goal_text = goal_text.replace("[active]", "").replace("[pending]", "").replace("[completed]", "").strip()
+                    if goal_text:
+                        goals[node_id] = goal_text
+                    break
+        return goals
 
     # ── Routes ────────────────────────────────────────────────────
 
