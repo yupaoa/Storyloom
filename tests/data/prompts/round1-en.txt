@@ -131,7 +131,7 @@ Below is a format example (content is a short fictional fantasy story in English
 
 **Set — State Changes**
 - `var` MUST use the exact names from "Current State" below. Do NOT invent, translate, or substitute them.
-- number: `op="+"` / `op="-"` / `op="="` with `val` as the number; string: `op="="`; list: `op="+"` / `op="-"`.
+- number: `op="+"` / `op="-"` / `op="="` with `val` as the number; string: `op="="`.
 - Condition syntax: same as Choice above.
 
 **Checkpoint**
