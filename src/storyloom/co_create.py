@@ -581,11 +581,13 @@ class CoCreateFlow:
             "例如：'赛博朋克背景下的爱情故事'、'古代仙侠世界的冒险'\n\n"
         )
 
-        while True:
+        for _ in range(20):
             raw_idea = self._display.get_input("> ")
             if raw_idea and raw_idea.strip():
                 break
             self._display.output.write("请输入一些想法来开始。\n")
+        else:
+            raise CoCreationAborted()
 
         self._messages.append({"role": "user", "content": raw_idea.strip()})
 
@@ -698,7 +700,7 @@ class CoCreateFlow:
 
     def _generate_with_retry(self) -> str:
         """Call LLM for generation. Handle API errors."""
-        while True:
+        for _ in range(10):
             try:
                 return self._api.chat(self._messages)
             except Exception as e:
@@ -708,6 +710,7 @@ class CoCreateFlow:
                 )
                 if choice.upper() == 'M':
                     raise CoCreationAborted()
+        raise CoCreationAborted()
 
     def _parse_story_config_with_retry(self, text: str) -> dict:
         return self._retry_block(
@@ -741,87 +744,90 @@ class CoCreateFlow:
     def _retry_outline_validation(
         self, errors: list[str], var_names: list[str]
     ) -> list[dict]:
-        """Handle outline validation errors with retry."""
-        for attempt in range(MAX_RETRIES + 1):
-            error_msg = "Outline errors: " + "; ".join(errors)
-            self._messages.append(
-                {"role": "user",
-                 "content": f"Outline has errors. {error_msg}\n"
-                           f"Please fix and regenerate the outline block."}
+        """Handle outline validation errors with retry.
+
+        Uses a 2-level loop: inner loop auto-retries (MAX_RETRIES times),
+        outer loop handles user-requested retry cycles (max 3 cycles).
+        No recursion.
+        """
+        for _cycle in range(3):
+            for attempt in range(MAX_RETRIES + 1):
+                error_msg = "Outline errors: " + "; ".join(errors)
+                self._messages.append(
+                    {"role": "user",
+                     "content": f"Outline has errors. {error_msg}\n"
+                               f"Please fix and regenerate the outline block."}
+                )
+                self._display.show_wait_message(
+                    f"修正大纲中...（第{attempt + 1}次重试）"
+                )
+                response = self._generate_with_retry()
+                self._messages.append({"role": "assistant", "content": response})
+
+                blocks = CoCreateParser.split_blocks(response)
+                try:
+                    nodes = CoCreateParser.parse_outline(blocks["outline"])
+                except ValueError as e:
+                    errors = [str(e)]
+                    continue
+
+                errors = CoCreateParser.validate_outline(nodes, var_names)
+                if not errors:
+                    return nodes
+
+            choice = self._display.get_input(
+                f"大纲校验失败（{'; '.join(errors)}）。"
+                f"[R]重试 / [M]返回主菜单: "
             )
-            self._display.show_wait_message(
-                f"修正大纲中...（第{attempt + 1}次重试）"
-            )
-            response = self._generate_with_retry()
-            self._messages.append({"role": "assistant", "content": response})
-
-            blocks = CoCreateParser.split_blocks(response)
-            try:
-                nodes = CoCreateParser.parse_outline(blocks["outline"])
-            except ValueError as e:
-                errors = [str(e)]
-                continue
-
-            errors = CoCreateParser.validate_outline(nodes, var_names)
-            if not errors:
-                return nodes
-
-        choice = self._display.get_input(
-            f"大纲校验失败（{'; '.join(errors)}）。"
-            f"[R]重试 / [M]返回主菜单: "
-        )
-        if choice.upper() == 'R':
+            if choice.upper() != 'R':
+                raise CoCreationAborted()
             self._messages = self._messages[:-2]
-            return self._retry_outline_validation(errors, var_names)
         raise CoCreationAborted()
 
     def _retry_block(self, text, block_name, parse_fn, validate_fn):
         """Parse a block with retry on failure.
 
-        On parse/validation failure, appends error to messages and
-        regenerates the FULL response. Previously-valid blocks serve
-        as in-context anchors.
+        Uses a 2-level loop: inner loop auto-retries (MAX_RETRIES times),
+        outer loop handles user-requested retry cycles (max 3 cycles).
+        No recursion.
 
         Raises:
             CoCreationAborted: If user aborts after retries.
         """
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                parsed = parse_fn(text)
-                errors = validate_fn(parsed)
-                if not errors:
-                    return parsed
-            except ValueError as e:
-                errors = [str(e)]
+        for _cycle in range(3):
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    parsed = parse_fn(text)
+                    errors = validate_fn(parsed)
+                    if not errors:
+                        return parsed
+                except ValueError as e:
+                    errors = [str(e)]
 
-            if attempt < MAX_RETRIES:
-                error_msg = f"{block_name} errors: {'; '.join(errors)}"
-                self._messages.append(
-                    {"role": "user",
-                     "content": f"Previous {block_name} had errors. "
-                               f"{error_msg}\n"
-                               f"Please fix and regenerate all three sections."}
-                )
-                self._display.show_wait_message(
-                    f"修正{block_name}中...（第{attempt + 1}次重试）"
-                )
-                response = self._generate_with_retry()
-                self._messages.append(
-                    {"role": "assistant", "content": response}
-                )
-                blocks = CoCreateParser.split_blocks(response)
-                text = blocks.get(block_name, "")
-                continue
+                if attempt < MAX_RETRIES:
+                    error_msg = f"{block_name} errors: {'; '.join(errors)}"
+                    self._messages.append(
+                        {"role": "user",
+                         "content": f"Previous {block_name} had errors. "
+                                   f"{error_msg}\n"
+                                   f"Please fix and regenerate all three sections."}
+                    )
+                    self._display.show_wait_message(
+                        f"修正{block_name}中...（第{attempt + 1}次重试）"
+                    )
+                    response = self._generate_with_retry()
+                    self._messages.append(
+                        {"role": "assistant", "content": response}
+                    )
+                    blocks = CoCreateParser.split_blocks(response)
+                    text = blocks.get(block_name, "")
+                    continue
 
-        # Retries exhausted
-        choice = self._display.get_input(
-            f"{block_name} 解析失败（{'; '.join(errors)}）。"
-            f"[R]重试 / [M]返回主菜单: "
-        )
-        if choice.upper() == 'R':
-            self._messages = self._messages[:-2]
-            return self._retry_block(
-                text=text, block_name=block_name,
-                parse_fn=parse_fn, validate_fn=validate_fn,
+            choice = self._display.get_input(
+                f"{block_name} 解析失败（{'; '.join(errors)}）。"
+                f"[R]重试 / [M]返回主菜单: "
             )
+            if choice.upper() != 'R':
+                raise CoCreationAborted()
+            self._messages = self._messages[:-2]
         raise CoCreationAborted()
