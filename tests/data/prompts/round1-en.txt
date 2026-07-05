@@ -59,45 +59,38 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 Below is a format example (content is a short fictional fantasy story in English):
 
 <story>
-<seg n="1">The fire crackled in the stone hearth, filling the inn with the scent of ale and pine.</seg>
-<seg n="2">You pushed open the heavy oak door. Cold wind and snow swept into the room.</seg>
-<seg n="3">Innkeeper: Traveling at this hour? Room for the night, or just a drink?</seg>
+<seg n="1">Snow fell on the empty road.</seg>
+<seg n="2">Kael stamped the snow from his boots.</seg>
+<seg n="3">He pushed through the heavy oak door.</seg>
+<seg n="4">Innkeeper: Room for the night?</seg>
 <choice id="inn_choice">
   <opt key="1" branch="take_room">Take a room</opt>
   <opt key="2">Just a drink</opt>
 </choice>
 <branch name="take_room">
-<seg n="4">The innkeeper handed you a heavy iron key. The stairs creaked as you stowed your pack.</seg>
+<seg n="5">A key slid across the counter.</seg>
 </branch>
-<seg n="5">Back in the common room, a cloaked figure in the corner stirred, watching from the shadows.</seg>
-<seg n="6">The stranger lowered his hood, revealing a scarred face and calm, steady eyes.</seg>
-<seg n="7">Scarred Man: Sit. I hear you're looking for something.</seg>
+<seg n="6">A stranger sat alone at the corner table.</seg>
+<seg n="7">Stranger: You're the one I've been waiting for.</seg>
+<seg n="8">Stranger: Word is you handle things quietly.</seg>
 <choice id="approach">
-  <opt key="1" branch="speak_first">Speak first</opt>
-  <opt key="2" branch="stay_silent">Stay silent</opt>
-  <opt key="3" branch="demand" if="reputation>=20">Demand answers</opt>
+  <opt key="1" branch="accept">I'm listening</opt>
+  <opt key="2" branch="decline">Not interested</opt>
 </choice>
 <set var="reputation" op="+" val="5" if="approach==1"/>
-<checkpoint node="ch2_meeting" summary="Met the scarred stranger at the inn. Chose how to approach.">
-  <route if="approach==1" target="ch3_lead"/>
-  <route if="approach==2" target="ch3_wait"/>
-  <route if="approach==3" target="ch3_force"/>
+<checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
+  <route if="approach==1" target="ch3_job"/>
+  <route if="approach==2" target="ch3_alone"/>
 </checkpoint>
 <bridge/>
-<branch name="speak_first">
-<seg n="8">You sat down across from him and tapped the table twice.</seg>
-<seg n="9">Kael: I heard you have information I need.</seg>
-<seg n="10">The scarred man smiled faintly and pulled a sealed parchment from his cloak.</seg>
+<branch name="accept">
+<seg n="9">The stranger leaned closer.</seg>
+<seg n="10">Stranger: There's a shipment. Tomorrow night. Old pass.</seg>
+<seg n="11">Stranger: Payment on delivery. Half up front.</seg>
 </branch>
-<branch name="stay_silent">
-<seg n="11">You stayed on your feet, taking a slow sip of ale.</seg>
-<seg n="12">The silence stretched like a taut string. The scarred man shifted first.</seg>
-<seg n="13">He slid a sealed parchment across the table.</seg>
-</branch>
-<branch name="demand">
-<seg n="14">You slammed your fist on the table, rattling the tankards.</seg>
-<seg n="15">Kael: No more games. What do you know about the missing shipment?</seg>
-<seg n="16">The scarred man's eyes narrowed, but a flicker of respect crossed his face.</seg>
+<branch name="decline">
+<seg n="12">The stranger shrugged.</seg>
+<seg n="13">Stranger: Suit yourself. But you'll be back.</seg>
 </branch>
 </story>
 (This is a format example ONLY. Your output is an entirely new story segment — start numbering from 1 and meet the segment count requirements above.)
@@ -117,7 +110,7 @@ Below is a format example (content is a short fictional fantasy story in English
 - Branches: each branch continues from the LAST number used before it. Example: speak_first (8-10) → stay_silent (11-13) → demand (14-16).
 
 **Segment Count & Bridge Position**
-- **Output 120-200 total `<seg>` elements. The format example is deliberately short (16 segments) to show structure only — your output MUST reach 120-200.**
+- **Output 120-200 total `<seg>` elements. The format example is deliberately short (13 segments) to show structure only — your output MUST reach 120-200.**
 - Place `<bridge/>` between segment 90 and 150 (~75% of total, leaving ~25% as tail buffer).
 - Each post-bridge `<branch>` must have at least 20 `<seg>` elements.
 - Post-bridge content is selected by `current_branch`: use `<branch>` containers for multiple possible paths, bare `<seg>` for a single path.
