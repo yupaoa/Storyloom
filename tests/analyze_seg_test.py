@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 def parse_header(file_path: Path) -> dict:
     """Extract metrics from a result file's header."""
     text = file_path.read_text(encoding="utf-8")
-    data = {"file": str(file_path.relative_to(PROJECT_ROOT))}
+    data = {"file": str(file_path.resolve().relative_to(PROJECT_ROOT))}
 
     patterns = {
         "time": r"\*\*Time\*\*:\s*([\d.]+)s",

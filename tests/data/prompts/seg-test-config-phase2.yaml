@@ -1,0 +1,22 @@
+template: tests/data/prompts/round1-en.tmpl
+output_dir: tests/data/prompts
+manifest: tests/data/prompts/seg-test-manifest-phase2.json
+tiers:
+  - label: t2-rate60
+    min_seg: 120
+    max_seg: 200
+    bridge_min: 72
+    bridge_max: 120
+    ref_total: 160
+    ref_single: 80
+    ref_half: 40
+    rate: 0.6
+  - label: t2-rate75
+    min_seg: 120
+    max_seg: 200
+    bridge_min: 90
+    bridge_max: 150
+    ref_total: 160
+    ref_single: 80
+    ref_half: 40
+    rate: 0.75
