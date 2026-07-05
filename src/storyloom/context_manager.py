@@ -114,6 +114,10 @@ class ContextManager:
         """Return bridge_text from the most recent round."""
         return self._last_bridge_text
 
+    def get_compressed_summaries(self) -> list[str]:
+        """Return compressed checkpoint summary strings."""
+        return list(self._compressed_summaries)
+
     def _maybe_compress(self) -> None:
         """Compress rounds that have fallen out of the window."""
         total_rounds = len(self._rounds) + 1

@@ -239,7 +239,14 @@ class XmlParser:
                 branches = [
                     opt_el.get("branch", "") for opt_el in el.findall("opt")
                 ]
-                result.choices.append({"id": cid, "branches": branches})
+                labels = [
+                    (opt_el.text or "").strip() for opt_el in el.findall("opt")
+                ]
+                result.choices.append({
+                    "id": cid,
+                    "branches": branches,
+                    "labels": labels,
+                })
         # Backwards compat
         if result.choices:
             result.choice_id = result.choices[-1]["id"]

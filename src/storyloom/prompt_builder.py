@@ -177,6 +177,8 @@ Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single pa
 {outline_text}
 [completed]=已完成 [active]=当前 [pending]=待推进
 
+**Active Node:** {active_node} — {node_goal}
+
 **Current State:**
 {state_vars_text}
 
@@ -259,6 +261,8 @@ class PromptBuilder:
             characters=story_config.get("characters", ""),
             outline_text=outline_text,
             state_vars_text=state_vars_text,
+            active_node=current_node or "(start)",
+            node_goal=goal or "Begin the story from the active node.",
         )
 
     @staticmethod

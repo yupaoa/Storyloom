@@ -416,10 +416,10 @@ class GameLoop:
         self.display.show_segments(parsed.segments)
 
         # Display options if available
-        if parsed.choice_id and parsed.opt_branches:
-            # We still show it even though labels are not in ParsedOutput
-            labels = [f"选项{branch}" for branch in parsed.opt_branches]
-            self.display.show_options(parsed.choice_id, parsed.opt_branches, labels)
+        if parsed.choices:
+            last = parsed.choices[-1]
+            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
+            self.display.show_options(last["id"], last["branches"], labels)
 
         return RoundResult(parsed=parsed, round_number=1)
 
@@ -459,15 +459,19 @@ class GameLoop:
 
         # Evaluate routes
         if choice_dict:
+            old_node = self.current_node
             route = self._evaluate_routes(choice_dict)
             if route:
+                if old_node:
+                    self._completed_nodes.append(old_node)
                 self.current_node = route
+            elif not self.last_parsed.routes:
+                # Final node reached (no routes in parsed output)
+                if old_node:
+                    self._completed_nodes.append(old_node)
 
-        # Get compressed summaries info from context manager
-        compressed_rounds = self._context_mgr.get_compressed_rounds()
-        compressed_summaries = (
-            [str(r) for r in compressed_rounds] if compressed_rounds else None
-        )
+        # Get compressed checkpoint summaries from context manager
+        compressed_summaries = self._context_mgr.get_compressed_summaries() or None
 
         # Get bridge text from context manager
         bridge_text = self._context_mgr.get_last_bridge_text()
