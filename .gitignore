@@ -19,3 +19,10 @@ venv/
 
 # Runtime data (generated at runtime, not source)
 saves/
+
+# Test outputs (LLM-generated, reproducible via toolchain)
+tests/data/output/
+
+# Generated prompt files (from generate_prompt.py)
+tests/data/prompts/seg-t*.txt
+tests/data/prompts/seg-test-manifest*.json
