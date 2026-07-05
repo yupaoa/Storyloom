@@ -608,8 +608,9 @@ class CoCreateFlow:
 
         START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes", "go"}
         QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q"}
+        MAX_QNA_ROUNDS = 15
 
-        while True:
+        for _round in range(MAX_QNA_ROUNDS):
             self._display.show_wait_message("思考中...")
             try:
                 response = self._api.chat(self._messages)
@@ -643,6 +644,8 @@ class CoCreateFlow:
                 continue
 
             self._messages.append({"role": "user", "content": user_input})
+        else:
+            raise CoCreationAborted()
 
     # ── Step 3 ──────────────────────────────────────────────────
 
@@ -666,7 +669,11 @@ class CoCreateFlow:
         blocks = CoCreateParser.split_blocks(response)
 
         story_config = self._parse_story_config_with_retry(blocks["story_config"])
+        # Refresh blocks after potential retry — retry may have generated
+        # a new full response with updated content for all three sections.
+        blocks = CoCreateParser.split_blocks(self._messages[-1]["content"])
         variables = self._parse_variables_with_retry(blocks["variables"])
+        blocks = CoCreateParser.split_blocks(self._messages[-1]["content"])
         outline_nodes = self._parse_outline_with_retry(blocks["outline"])
 
         var_names_list = [v["name"] for v in variables]

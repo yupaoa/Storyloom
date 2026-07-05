@@ -472,3 +472,264 @@ class TestFormatOutline:
         result = CoCreateParser.format_outline(nodes)
         assert "ch1 [active]" in result
         assert "→" not in result
+
+
+# ── Integration Tests ────────────────────────────────────────────────
+
+class MockApiClient:
+    """Mock API client that returns predefined responses."""
+
+    def __init__(self, responses=None):
+        self.responses = responses or []
+        self.call_count = 0
+        self.messages_history = []
+
+    def chat(self, messages):
+        self.messages_history.append(messages)
+        if self.call_count < len(self.responses):
+            resp = self.responses[self.call_count]
+            self.call_count += 1
+            return resp
+        if self.responses:
+            return self.responses[-1]
+        return ""
+
+    def stream_chat(self, messages):
+        return self.chat(messages)
+
+
+class MockDisplay:
+    """Mock display that captures output and returns predefined inputs."""
+
+    def __init__(self, inputs=None):
+        self.inputs = list(inputs or [])
+        self._input_idx = 0
+        self.written = []
+
+    @property
+    def output(self):
+        return self
+
+    def write(self, text):
+        self.written.append(text)
+
+    def flush(self):
+        pass
+
+    def get_input(self, prompt=""):
+        if self._input_idx < len(self.inputs):
+            val = self.inputs[self._input_idx]
+            self._input_idx += 1
+            return val
+        return ""
+
+    def show_wait_message(self, msg):
+        pass
+
+    def show_error(self, msg):
+        pass
+
+
+FULL_GENERATION_RESPONSE = """=== story_config ===
+genre: 赛博朋克冒险
+tier: medium
+setting: 2087年新东京地下城
+protagonist_name: 林焰
+protagonist_identity: 前荒坂安全顾问，现自由佣兵
+protagonist_traits: 冷静、道德灰色
+tone: 黑暗冷峻
+conflict: 一枚神秘芯片正在寻找宿主
+characters:
+  耗子 | 地下情报贩子 | 亦敌亦友
+  美智子 | 荒坂安全主管 | 前上司
+
+=== variables ===
+体力: number, 初始 80
+信任度: number, 初始 10
+所属势力: string, 初始 自由佣兵
+
+=== outline ===
+[node]
+id: ch1_intro
+title: 霓虹深渊
+goal: 在地下城酒吧感受氛围
+routes: → ch2_meeting
+
+[node]
+id: ch2_meeting
+title: 地下交易
+goal: 与耗子会面
+routes:
+  if 信任度 >= 30 → ch3_ally
+  if 信任度 < 30 → ch3_betrayal
+
+[node]
+id: ch3_ally
+title: 盟友之路
+goal: 通过地下网络逃离
+routes: → ch4_safehouse
+
+[node]
+id: ch3_betrayal
+title: 背叛之路
+goal: 杀出重围
+routes: → ch4_safehouse
+
+[node]
+id: ch4_safehouse
+title: 安全屋
+goal: 揭开芯片秘密（结局）
+routes: （结局）"""
+
+
+class TestCoCreateFlow:
+    """Integration tests for full co-creation flow with mock API."""
+
+    def test_full_flow_success(self):
+        """End-to-end: user provides idea, LLM asks one question, generates."""
+        mock_api = MockApiClient(responses=[
+            "这是一个有趣的题材。主角是男性还是女性？",
+            FULL_GENERATION_RESPONSE,
+        ])
+        mock_display = MockDisplay(inputs=[
+            "赛博朋克背景下的冒险故事",
+            "男性，前雇佣兵",
+            "开始",
+        ])
+
+        from src.storyloom.co_create import CoCreateFlow
+        flow = CoCreateFlow(mock_api, mock_display)
+        result = flow.run()
+
+        assert result.story_config["genre"] == "赛博朋克冒险"
+        assert result.story_config["tier"] == "medium"
+        assert len(result.story_config["variables"]) == 3
+        assert result.story_config["variables"][0]["name"] == "体力"
+        assert "ch1_intro [active]" in result.outline_text
+        assert "ch4_safehouse [pending]" in result.outline_text
+
+    def test_qna_loop_user_says_start_immediately(self):
+        """User can say '开始' on first question to skip to generation."""
+        mock_api = MockApiClient(responses=[
+            "你想玩什么题材的故事？",
+            FULL_GENERATION_RESPONSE,
+        ])
+        mock_display = MockDisplay(inputs=[
+            "科幻冒险",
+            "开始",
+        ])
+
+        from src.storyloom.co_create import CoCreateFlow
+        flow = CoCreateFlow(mock_api, mock_display)
+        result = flow.run()
+
+        assert result.story_config["genre"] == "赛博朋克冒险"
+
+    def test_qna_loop_user_aborts(self):
+        """User types '不玩了' → should raise CoCreationAborted."""
+        mock_api = MockApiClient(responses=[
+            "你想玩什么题材的故事？",
+        ])
+        mock_display = MockDisplay(inputs=[
+            "科幻",
+            "不玩了",
+            "y",
+        ])
+
+        from src.storyloom.co_create import CoCreateFlow, CoCreationAborted
+        flow = CoCreateFlow(mock_api, mock_display)
+
+        with pytest.raises(CoCreationAborted):
+            flow.run()
+
+    def test_generation_parse_error_retry_then_success(self):
+        """First generation has bad tier → retry fixes it."""
+        bad_response = """=== story_config ===
+genre: fantasy
+tier: epic
+setting: somewhere
+protagonist_name: Kael
+protagonist_identity: warrior
+protagonist_traits: brave
+tone: dark
+conflict: a war
+characters:
+  Mouse | spy | friend
+
+=== variables ===
+hp: number, 初始 80
+
+=== outline ===
+[node]
+id: ch1
+title: start
+goal: begin
+routes: （结局）"""
+
+        mock_api = MockApiClient(responses=[
+            "你想玩什么题材？",
+            bad_response,
+            FULL_GENERATION_RESPONSE,
+        ])
+        mock_display = MockDisplay(inputs=[
+            "科幻",
+            "开始",
+            "R",
+        ])
+
+        from src.storyloom.co_create import CoCreateFlow
+        flow = CoCreateFlow(mock_api, mock_display)
+        result = flow.run()
+
+        assert result.story_config["tier"] == "medium"
+
+    def test_generation_retry_exhausted_user_aborts(self):
+        """All retries fail → user chooses menu → CoCreationAborted."""
+        bad_response = """=== story_config ===
+genre: fantasy
+
+=== variables ===
+hp: number, 初始 80
+
+=== outline ===
+[node]
+id: ch1
+title: start
+goal: begin
+routes: （结局）"""
+
+        mock_api = MockApiClient(responses=[
+            "Question?",
+            bad_response,
+            bad_response,
+            bad_response,
+        ])
+        mock_display = MockDisplay(inputs=[
+            "sci-fi",
+            "开始",
+            "M",
+        ])
+
+        from src.storyloom.co_create import CoCreateFlow, CoCreationAborted
+        flow = CoCreateFlow(mock_api, mock_display)
+
+        with pytest.raises(CoCreationAborted):
+            flow.run()
+
+    def test_empty_input_in_step1_reprompted(self):
+        """Empty input in step 1 should reprompt."""
+        mock_api = MockApiClient(responses=[
+            "What genre?",
+            FULL_GENERATION_RESPONSE,
+        ])
+        mock_display = MockDisplay(inputs=[
+            "",
+            "   ",
+            "sci-fi",
+            "开始",
+        ])
+
+        from src.storyloom.co_create import CoCreateFlow
+        flow = CoCreateFlow(mock_api, mock_display)
+        result = flow.run()
+        assert result.story_config["genre"] == "赛博朋克冒险"

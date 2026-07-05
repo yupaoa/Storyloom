@@ -61,10 +61,16 @@ class TestMainFunction:
         assert "Storyloom" in output
 
     def test_new_game_starts(self, monkeypatch):
-        """New game should start (choose 1, then quit)."""
+        """New game should start (choose 1, provide co-creation inputs, then quit)."""
         monkeypatch.setattr("time.sleep", lambda x: None)
         buf = io.StringIO()
-        monkeypatch.setattr("sys.stdin", io.StringIO("1\nquit\n"))
+        monkeypatch.setattr("sys.stdin", io.StringIO(
+            "1\n"         # menu → new game
+            "科幻\n"      # step1: raw idea
+            "开始\n"      # step2: trigger generation
+            "quit\n"      # exit game
+            "4\n"         # exit menu
+        ))
         monkeypatch.setattr(
             "src.storyloom.main.ApiClient",
             lambda: MockApiClient(),
@@ -88,7 +94,13 @@ class TestMainFunction:
         """Typing 'quit' during gameplay should return to menu, then exit."""
         monkeypatch.setattr("time.sleep", lambda x: None)
         buf = io.StringIO()
-        monkeypatch.setattr("sys.stdin", io.StringIO("1\nquit\n4\n"))
+        monkeypatch.setattr("sys.stdin", io.StringIO(
+            "1\n"         # menu → new game
+            "科幻\n"      # step1: raw idea
+            "开始\n"      # step2: trigger generation
+            "quit\n"      # exit during gameplay
+            "4\n"         # exit menu
+        ))
         monkeypatch.setattr(
             "src.storyloom.main.ApiClient",
             lambda: MockApiClient(),
@@ -110,10 +122,17 @@ class TestMainFunction:
 
 
 class MockApiClient:
-    """Mock API client for main module tests."""
+    """Mock API client for main module tests.
+
+    Tracks call count to return appropriate responses for co-creation flow:
+    - First chat() → Q&A response triggering "是否开始生成故事"
+    - Subsequent chat() → full generation response with all three blocks
+    - stream_chat() → narrative XML (used by GameLoop)
+    """
 
     def __init__(self):
         self.last_messages = None
+        self._chat_count = 0
 
     def stream_chat(self, messages):
         self.last_messages = messages
@@ -121,7 +140,40 @@ class MockApiClient:
 
     def chat(self, messages):
         self.last_messages = messages
-        return "故事结束。感谢游玩。"
+        self._chat_count += 1
+        if self._chat_count == 1:
+            return "这个想法很有趣。请问主角是男性还是女性？是否开始生成故事？"
+        return CO_CREATE_GENERATION_RESPONSE
+
+
+CO_CREATE_GENERATION_RESPONSE = """=== story_config ===
+genre: 赛博朋克冒险
+tier: medium
+setting: 2087年新东京地下城
+protagonist_name: 林焰
+protagonist_identity: 自由佣兵
+protagonist_traits: 冷静、道德灰色
+tone: 黑暗冷峻
+conflict: 一枚神秘芯片正在寻找宿主
+characters:
+  耗子 | 情报贩子 | 亦敌亦友
+
+=== variables ===
+体力: number, 初始 80
+信任度: number, 初始 10
+
+=== outline ===
+[node]
+id: ch1_intro
+title: 霓虹深渊
+goal: 在地下城酒吧感受氛围
+routes: → ch2_meeting
+
+[node]
+id: ch2_meeting
+title: 地下交易
+goal: 与耗子会面
+routes: （结局）"""
 
 
 SAMPLE_XML = """<story>

@@ -9,6 +9,7 @@ import sys
 
 from src.storyloom.api_client import ApiClient, ApiError
 from src.storyloom.display import Display
+from src.storyloom.co_create import CoCreateFlow, CoCreationAborted
 from src.storyloom.game_loop import GameLoop, GameState
 
 # ── Default story config (used until co-creation UI is built) ─────
@@ -63,6 +64,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Enable debug output",
     )
+    parser.add_argument(
+        "--quick",
+        action="store_true",
+        help="Skip co-creation, use default story",
+    )
     return parser.parse_args(argv)
 
 
@@ -88,8 +94,36 @@ def main(output=None) -> None:
         )
         return
 
-    # Check API availability
-    show_main_menu(display, api_client)
+    # Parse args (skip in test mode to avoid consuming pytest args)
+    if output is None:
+        args = parse_args()
+    else:
+        args = parse_args([])
+
+    if args.quick:
+        run_game(display, api_client)
+    else:
+        show_main_menu(display, api_client)
+
+
+def _extract_first_node(outline_text: str) -> str:
+    """Extract first node ID from outline text."""
+    for line in outline_text.strip().split("\n"):
+        line = line.strip()
+        if line and not line.startswith("├") and not line.startswith("└") and not line.startswith("→"):
+            parts = line.split()
+            if parts:
+                return parts[0]
+    return ""
+
+
+def _extract_first_goal(outline_text: str) -> str:
+    """Extract first node goal from outline text."""
+    for line in outline_text.strip().split("\n"):
+        line = line.strip()
+        if "：" in line:
+            return line.split("：", 1)[1].strip()
+    return ""
 
 
 def show_main_menu(display: Display, api_client: ApiClient) -> None:
@@ -104,7 +138,16 @@ def show_main_menu(display: Display, api_client: ApiClient) -> None:
         choice = display.get_input("请选择: ")
 
         if choice == "1":
-            run_game(display, api_client)
+            try:
+                flow = CoCreateFlow(api_client, display)
+                result = flow.run()
+                run_game(display, api_client,
+                         story_config=result.story_config,
+                         outline_text=result.outline_text)
+            except CoCreationAborted:
+                display.output.write("已返回主菜单。\n")
+            except ApiError as e:
+                display.show_error(f"API 错误: {e}")
         elif choice == "2":
             display.show_wait_message("继续游戏（加载存档）—— 功能开发中")
         elif choice == "3":
@@ -116,23 +159,38 @@ def show_main_menu(display: Display, api_client: ApiClient) -> None:
             display.output.write("无效选择，请重试。\n")
 
 
-def run_game(display: Display, api_client: ApiClient) -> None:
+def run_game(
+    display: Display,
+    api_client: ApiClient,
+    story_config: dict | None = None,
+    outline_text: str | None = None,
+) -> None:
     """Run the narrative game loop.
 
     Args:
         display: Display instance for output.
         api_client: API client for LLM calls.
+        story_config: Story config (from co-creation or default).
+        outline_text: Outline text (from co-creation or default).
     """
-    game_state = GameState(DEFAULT_STORY_CONFIG)
+    if story_config is None:
+        story_config = DEFAULT_STORY_CONFIG
+    if outline_text is None:
+        outline_text = SAMPLE_OUTLINE
+
+    game_state = GameState(story_config)
+
+    first_node = _extract_first_node(outline_text)
+    first_goal = _extract_first_goal(outline_text)
 
     game_loop = GameLoop(
-        story_config=DEFAULT_STORY_CONFIG,
-        outline_text=SAMPLE_OUTLINE,
+        story_config=story_config,
+        outline_text=outline_text,
         api_client=api_client,
         display=display,
         game_state=game_state,
-        current_node="ch1_intro",
-        goal="开场：来到地下城酒吧，感受氛围",
+        current_node=first_node,
+        goal=first_goal,
     )
 
     try:
