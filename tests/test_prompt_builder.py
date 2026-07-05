@@ -38,20 +38,20 @@ class TestBuildRound1:
     def test_round1_contains_role_definition(self):
         pb = PromptBuilder()
         result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
-        assert "叙事引擎" in result
+        assert "narrative engine" in result
 
     def test_round1_contains_xml_format_spec(self):
         pb = PromptBuilder()
         result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
         assert "<story>" in result
-        assert "<seg n=" in result
+        assert "<seg>" in result
         assert "<bridge/>" in result
 
     def test_round1_contains_format_example(self):
         pb = PromptBuilder()
         result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
-        assert "炉火" in result
-        assert "旅店老板" in result
+        assert "Snow fell" in result
+        assert "Innkeeper" in result
 
     def test_round1_contains_story_context(self):
         pb = PromptBuilder()
@@ -69,7 +69,7 @@ class TestBuildRound1:
     def test_round1_ends_with_start_instruction(self):
         pb = PromptBuilder()
         result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
-        assert "请开始故事" in result
+        assert "start of the whole story" in result
 
 
 class TestBuildRoundN:
@@ -83,7 +83,7 @@ class TestBuildRoundN:
             bridge_text="你对耗子点了点头。\n耗子: 跟我来。",
         )
         assert "<story>" not in result
-        assert "<seg n=" not in result
+        assert "<seg>" not in result
 
     def test_round_n_contains_progress(self):
         pb = PromptBuilder()
@@ -120,7 +120,7 @@ class TestBuildRoundN:
             state_vars={"体力": 60},
             bridge_text="你对耗子点了点头。",
         )
-        assert "上一轮结尾" in result
+        assert "Last round ending" in result
         assert "你对耗子点了点头" in result
 
     def test_round_n_contains_compressed_summaries(self):
@@ -146,6 +146,7 @@ class TestBuildRoundN:
             bridge_text="tail...",
             rejected_changes=["体力变更被拒：超出范围[0,100]"],
         )
+        assert "Rejected" in result
         assert "体力变更被拒" in result
 
     def test_round_n_omits_rejected_section_when_empty(self):
@@ -158,7 +159,7 @@ class TestBuildRoundN:
             bridge_text="tail...",
             rejected_changes=[],
         )
-        assert "被拒" not in result
+        assert "Rejected" not in result
 
     def test_round_n_format_error_adds_correction_hint(self):
         pb = PromptBuilder()
@@ -170,4 +171,4 @@ class TestBuildRoundN:
             bridge_text="tail...",
             format_error="checkpoint 的 node 值与大纲不匹配",
         )
-        assert "格式提醒" in result or "checkpoint" in result
+        assert "Format reminder" in result or "checkpoint" in result

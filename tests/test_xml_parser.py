@@ -5,8 +5,8 @@ from src.storyloom.xml_parser import XmlParser, ParsedOutput, ParseError
 
 
 VALID_XML = """<story>
-<seg n="1">炉火在石砌的壁炉里噼啪作响。</seg>
-<seg n="2">旅店老板: 这么晚了还赶路？</seg>
+<seg>炉火在石砌的壁炉里噼啪作响。</seg>
+<seg>旅店老板: 这么晚了还赶路？</seg>
 <choice id="approach">
   <opt key="A" branch="take_lead">先开口</opt>
   <opt key="B" branch="wait">保持沉默</opt>
@@ -17,10 +17,10 @@ VALID_XML = """<story>
 </checkpoint>
 <bridge/>
 <branch name="take_lead">
-<seg n="3">你在他对面坐下。</seg>
+<seg>你在他对面坐下。</seg>
 </branch>
 <branch name="wait">
-<seg n="4">你站着没动。</seg>
+<seg>你站着没动。</seg>
 </branch>
 </story>"""
 
@@ -71,8 +71,9 @@ class TestXmlParser:
 
     def test_parse_preserves_segment_order(self):
         result = XmlParser.parse(VALID_XML)
-        numbers = [s.n for s in result.segments]
-        assert numbers == [1, 2, 3, 4]
+        texts = [s.text for s in result.segments]
+        assert texts[0] == "炉火在石砌的壁炉里噼啪作响。"
+        assert texts[1] == "旅店老板: 这么晚了还赶路？"
 
     def test_parse_rejects_missing_story_tag(self):
         with pytest.raises(ParseError, match="Missing <story>"):
@@ -116,12 +117,29 @@ class TestXmlParser:
         pre_segs = [s for s in result.segments if s.position == "pre"]
         assert len(pre_segs) == 2
 
-    def test_parse_handles_unordered_seg_numbers(self):
-        xml = VALID_XML.replace('n="3"', 'n="5"')
+    def test_parse_handles_missing_seg_number(self):
+        xml = '<story><seg>text</seg><bridge/><seg>ok</seg></story>'
         result = XmlParser.parse(xml)
-        assert result.numbering_issues
+        assert result.total_segments == 2
+        # n defaults to 0 when attribute is missing
+        assert result.segments[0].n == 0
 
     def test_parse_handles_ampersand_escaping(self):
+        xml = '<story><seg>R&amp;D department</seg><bridge/><seg>ok</seg></story>'
+        result = XmlParser.parse(xml)
+        assert result.total_segments == 2
+
+    def test_parse_strips_line_number_prefixes(self):
+        xml = """001| <story>
+002| <seg>first segment</seg>
+003| <seg>second segment</seg>
+004| <bridge/>
+005| <seg>tail segment</seg>
+006| </story>"""
+        result = XmlParser.parse(xml)
+        assert result.total_segments == 3
+        assert result.segments[0].text == "first segment"
+        assert result.bridge_found is True
         xml = '<story><seg n="1">R&amp;D department</seg><bridge/><seg n="2">ok</seg></story>'
         result = XmlParser.parse(xml)
         assert result.total_segments == 2
@@ -131,10 +149,13 @@ class TestXmlParser:
         result = XmlParser.parse(xml)
         assert result.total_segments == 2
 
-    def test_parse_rejects_unparseable_seg_number(self):
+    def test_parse_handles_non_integer_seg_number_gracefully(self):
         xml = '<story><seg n="abc">text</seg><bridge/><seg n="2">ok</seg></story>'
-        with pytest.raises(ParseError):
-            XmlParser.parse(xml)
+        result = XmlParser.parse(xml)
+        # Non-integer n falls back to 0 instead of raising
+        assert result.total_segments == 2
+        assert result.segments[0].n == 0
+        assert result.segments[1].n == 2
 
     def test_parse_handles_markdown_xml_fence(self):
         xml = '```xml\n<story><seg n="1">text</seg><bridge/><seg n="2">ok</seg></story>\n```'

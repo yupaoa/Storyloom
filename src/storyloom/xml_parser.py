@@ -109,18 +109,6 @@ class XmlParser:
             1 for s in result.segments if s.position == "post"
         )
 
-        # Check numbering
-        numbers = [s.n for s in result.segments]
-        if numbers:
-            if numbers[0] != 1:
-                result.numbering_issues.append(f"starts at {numbers[0]}")
-            for i in range(1, len(numbers)):
-                if numbers[i] <= numbers[i - 1]:
-                    result.numbering_issues.append(
-                        f"non-sequential: {numbers[i-1]}->{numbers[i]}"
-                    )
-                    break
-
         # Extract choice
         XmlParser._extract_choice(pre_children, result)
 
@@ -157,6 +145,9 @@ class XmlParser:
         xml_str = llm_out[story_start:story_end].strip()
         if not xml_str:
             return None
+
+        # Strip line number prefixes (NNN| ) — they are not part of the XML
+        xml_str = re.sub(r'^\d{3}\| ', '', xml_str, flags=re.MULTILINE)
 
         xml_str = re.sub(
             r"&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)",
@@ -207,10 +198,8 @@ class XmlParser:
             if el.tag == "seg":
                 try:
                     n = int(el.get("n", 0))
-                except ValueError:
-                    raise ParseError(
-                        f"Non-integer seg n value: {el.get('n')}"
-                    )
+                except (ValueError, TypeError):
+                    n = 0
                 result.segments.append(
                     Segment(
                         n=n, text=(el.text or "").strip(), position=position

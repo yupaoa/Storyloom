@@ -154,6 +154,6 @@ class ContextManager:
     def _build_compression_messages(summaries: list[str]) -> tuple[str, str]:
         """Build user/assistant message pair for compressed rounds."""
         items = "\n".join(f"- {s}" for s in summaries)
-        user_msg = f"已发生的主要事件：\n\n{items}"
-        asst_msg = "（以上为已发生事件的摘要。当前故事继续推进。）"
+        user_msg = f"Key events so far:\n\n{items}"
+        asst_msg = "(Summary of previous events. The story continues.)"
         return user_msg, asst_msg

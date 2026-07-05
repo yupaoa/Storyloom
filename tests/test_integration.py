@@ -31,9 +31,9 @@ ch3_betrayal [pending] — 背叛之路：杀出重围
 ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）"""
 
 ROUND1_OUTPUT = """<story>
-<seg n="1">霓虹灯在潮湿的巷道地面上投下破碎的倒影。</seg>
-<seg n="2">耗子的酒吧藏在第三层地下通道的尽头。</seg>
-<seg n="3">林焰: 芯片在哪儿？</seg>
+<seg>霓虹灯在潮湿的巷道地面上投下破碎的倒影。</seg>
+<seg>耗子的酒吧藏在第三层地下通道的尽头。</seg>
+<seg>林焰: 芯片在哪儿？</seg>
 <choice id="approach">
   <opt key="A" branch="direct">直接问价</opt>
   <opt key="B" branch="careful">先探口风</opt>
@@ -46,19 +46,19 @@ ROUND1_OUTPUT = """<story>
 </checkpoint>
 <bridge/>
 <branch name="direct">
-<seg n="4">你把信用棒拍在吧台上。</seg>
-<seg n="5">耗子: 痛快。不过我得提醒你——荒坂的人在找你。</seg>
+<seg>你把信用棒拍在吧台上。</seg>
+<seg>耗子: 痛快。不过我得提醒你——荒坂的人在找你。</seg>
 </branch>
 <branch name="careful">
-<seg n="6">你先要了杯酒，耗子在你身边坐下。</seg>
-<seg n="7">耗子: 最近生意不好做啊。</seg>
+<seg>你先要了杯酒，耗子在你身边坐下。</seg>
+<seg>耗子: 最近生意不好做啊。</seg>
 </branch>
 </story>"""
 
 ROUND2_OUTPUT = """<story>
-<seg n="1">耗子领着你穿过酒吧后厨，推开一扇标着"员工通道"的门。</seg>
-<seg n="2">门后是一条狭窄的走廊，荧光灯管嗡嗡作响。</seg>
-<seg n="3">耗子: 芯片在安全屋里。不过去之前——我们得谈谈价。</seg>
+<seg>耗子领着你穿过酒吧后厨，推开一扇标着"员工通道"的门。</seg>
+<seg>门后是一条狭窄的走廊，荧光灯管嗡嗡作响。</seg>
+<seg>耗子: 芯片在安全屋里。不过去之前——我们得谈谈价。</seg>
 <choice id="negotiation">
   <opt key="A" branch="pay">按原价支付</opt>
   <opt key="B" branch="haggle">讨价还价</opt>
@@ -69,10 +69,10 @@ ROUND2_OUTPUT = """<story>
 </checkpoint>
 <bridge/>
 <branch name="pay">
-<seg n="4">你点头同意，耗子咧嘴一笑。</seg>
+<seg>你点头同意，耗子咧嘴一笑。</seg>
 </branch>
 <branch name="haggle">
-<seg n="5">你皱起眉头，耗子的义眼红光闪烁了一下。</seg>
+<seg>你皱起眉头，耗子的义眼红光闪烁了一下。</seg>
 </branch>
 </story>"""
 
@@ -141,7 +141,7 @@ class TestIntegration:
 
         msgs = cm.get_messages()
         assert msgs[0]["content"] == r1
-        assert "叙事引擎" in msgs[0]["content"]
+        assert "narrative engine" in msgs[0]["content"]
         assert "<story>" in msgs[0]["content"]
 
     def test_bridge_text_flows_between_rounds(self):
@@ -174,5 +174,5 @@ class TestIntegration:
 
         msgs = cm.get_messages()
         contents = [m["content"] for m in msgs]
-        has_summary = any("已发生的主要事件" in c for c in contents)
+        has_summary = any("Key events so far" in c for c in contents)
         assert has_summary or cm.round_count < 5

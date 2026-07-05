@@ -49,19 +49,24 @@ def parse_header(file_path: Path) -> dict:
 
 
 def count_segments(content: str) -> tuple:
-    """Count total segs, pre-bridge segs, post-bridge segs."""
-    segs = re.findall(r'<seg n="(\d+)"', content)
+    """Count total segs, pre-bridge segs, post-bridge segs.
+
+    Handles both line-numbered format (001| <seg>...) and raw XML (<seg>...).
+    """
+    # Strip line numbers first if present
+    clean = re.sub(r'^\d{3}\| ', '', content, flags=re.MULTILINE)
+    segs = re.findall(r'<seg[^>]*>', clean)
     if not segs:
         return 0, 0, 0
 
     total = len(segs)
 
     # Find bridge position
-    bridge_pos = content.find("<bridge/>")
+    bridge_pos = clean.find("<bridge/>")
     if bridge_pos == -1:
-        bridge_pos = content.find("<bridge />")
-    before_bridge = content[:bridge_pos] if bridge_pos != -1 else content
-    pre_segs = re.findall(r'<seg n="(\d+)"', before_bridge)
+        bridge_pos = clean.find("<bridge />")
+    before_bridge = clean[:bridge_pos] if bridge_pos != -1 else clean
+    pre_segs = re.findall(r'<seg[^>]*>', before_bridge)
     pre_count = len(pre_segs)
     post_count = total - pre_count
 
@@ -100,20 +105,24 @@ def check_correctness(content: str) -> dict:
             and "<checkpoint" not in after
         )
 
-    # Seg numbering
-    seg_nums = [int(n) for n in re.findall(r'<seg n="(\d+)"', content)]
-    if seg_nums:
-        checks["seg_starts_at_1"] = seg_nums[0] == 1
-        checks["seg_continuous"] = seg_nums == list(
-            range(seg_nums[0], seg_nums[-1] + 1)
-        )
-        checks["seg_no_duplicates"] = len(seg_nums) == len(set(seg_nums))
-        checks["seg_count"] = len(seg_nums)
+    # Seg count (strip line numbers first)
+    clean_for_check = re.sub(r'^\d{3}\| ', '', content, flags=re.MULTILINE)
+    seg_count = len(re.findall(r'<seg[^>]*>', clean_for_check))
+    checks["seg_count"] = seg_count
+
+    # Line numbering check: verify NNN| prefix format
+    numbered_lines = re.findall(r'^(\d{3})\| ', content, flags=re.MULTILINE)
+    if numbered_lines:
+        nums = [int(n) for n in numbered_lines]
+        checks["line_numbers_present"] = True
+        checks["line_numbers_start_at_1"] = nums[0] == 1
+        checks["line_numbers_continuous"] = nums == list(range(nums[0], nums[-1] + 1))
+        checks["line_numbers_no_duplicates"] = len(nums) == len(set(nums))
     else:
-        checks["seg_starts_at_1"] = False
-        checks["seg_continuous"] = False
-        checks["seg_no_duplicates"] = False
-        checks["seg_count"] = 0
+        checks["line_numbers_present"] = False
+        checks["line_numbers_start_at_1"] = False
+        checks["line_numbers_continuous"] = False
+        checks["line_numbers_no_duplicates"] = False
 
     # Markdown fence / external text
     stripped = content.strip()
@@ -122,7 +131,7 @@ def check_correctness(content: str) -> dict:
     )
 
     # Prohibited dialogue: quotation marks in seg content
-    dialogue_lines = re.findall(r"<seg n=\"\d+\">(.*?)</seg>", content)
+    dialogue_lines = re.findall(r"<seg[^>]*>(.*?)</seg>", clean_for_check)
     quote_count = sum(
         1 for d in dialogue_lines if '"' in d or "“" in d or "”" in d
     )
@@ -147,9 +156,9 @@ def aggregate(tiers_data: dict) -> str:
         "bridge_count_1",
         "checkpoint_le_1",
         "no_interactive_after_bridge",
-        "seg_starts_at_1",
-        "seg_continuous",
-        "seg_no_duplicates",
+        "line_numbers_start_at_1",
+        "line_numbers_continuous",
+        "line_numbers_no_duplicates",
         "no_markdown_fence",
         "no_quoted_dialogue",
     ]
@@ -310,9 +319,9 @@ def main():
         "bridge_count_1",
         "checkpoint_le_1",
         "no_interactive_after_bridge",
-        "seg_starts_at_1",
-        "seg_continuous",
-        "seg_no_duplicates",
+        "line_numbers_start_at_1",
+        "line_numbers_continuous",
+        "line_numbers_no_duplicates",
         "no_markdown_fence",
         "no_quoted_dialogue",
     ]

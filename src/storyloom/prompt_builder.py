@@ -1,123 +1,189 @@
 """Build Round 1 and Round N prompt content for conversation-based architecture."""
 
-from src.storyloom.config import SEGMENTS_PER_ROUND_MIN, SEGMENTS_PER_ROUND_MAX
+from src.storyloom.config import (
+    LINES_PER_ROUND_MIN,
+    LINES_PER_ROUND_MAX,
+    BRIDGE_POSITION_RATIO,
+    MIN_TAIL_LINES,
+    LANGUAGE_SEG_LIMITS,
+)
 
 
-ROUND1_TEMPLATE = """你是文字冒险游戏的叙事引擎。根据大纲和状态生成下一段交互式剧情。
+ROUND1_TEMPLATE = """You are the narrative engine for a text adventure game. Generate the next interactive story segment based on the outline and current state.
 
-# 输出格式
+# Output Format
 
-你的输出必须是 XML 文档。以 <story> 开头，以 </story> 结尾。
-不要输出 markdown 代码围栏、XML 声明、或 XML 之外的任何文本。
+Prefix every line with a line number: `001| `, `002| `, `003| ` ... incrementing continuously.
+The program strips these prefixes before parsing — they are NOT part of the XML.
+Start at 001 for this round.
 
-## 结构
+Your output MUST be an XML document. Start with `<story>`, end with `</story>`.
+Do NOT output markdown code fences, XML declarations, or any text outside the XML.
 
-<story>
-  <seg n="1">叙事文本</seg>
-  <seg n="2">叙事文本</seg>
-  ...
-  <branch name="分支名">
-    <seg n="N">局部小分支叙事</seg>
-  </branch>
-  <choice id="变量名">
-    <opt key="A" branch="分支名">选项文本</opt>
-    <opt key="B" branch="分支名">选项文本</opt>
-  </choice>
-  <set var="变量" op="操作" val="值"/>
-  <set var="变量" op="操作" val="值" if="条件"/>
-  <checkpoint node="节点ID" summary="摘要">
-    <route if="条件" target="目标节点"/>
-  </checkpoint>
-  <bridge/>
-  <!-- bridge 之后：纯叙事，禁止交互元素 -->
-  <branch name="分支名">
-    <seg n="N">分支叙事</seg>
-    ...
-  </branch>
-</story>
+## Structure
 
-## 元素说明
+001| <story>
+002| <seg>narration text</seg>
+003| <seg>narration text</seg>
+004| ...
+005| <!-- pre-bridge local branch (merges back). opt with no branch stays on main path -->
+006| <choice id="minor">
+007|   <opt key="1" branch="path_a">takes a branch</opt>
+008|   <opt key="2">stays on main</opt>
+009| </choice>
+010| <branch name="path_a">
+011| <seg>local variant — merges back after</seg>
+012| </branch>
+013| <!-- main interaction -->
+014| <choice id="variable_name">
+015|   <opt key="1" branch="outcome_a">option text</opt>
+016|   <opt key="2" branch="outcome_b">option text</opt>
+017| </choice>
+018| <set var="variable" op="operation" val="value" if="condition"/>
+019| <checkpoint node="node_id" summary="summary text">
+020|   <route if="condition" target="target_node"/>
+021| </checkpoint>
+022| <bridge/>
+023| <!-- after bridge: narrative only, selected by current_branch -->
+024| <branch name="outcome_a">
+025| <seg>outcome narration</seg>
+026| ...
+027| </branch>
+028| <branch name="outcome_b">
+029| <seg>outcome narration</seg>
+030| ...
+031| </branch>
+032| </story>
 
-**<seg n="N">** — 叙事段。n 从 1 开始全局连续。旁白（纯叙述，15-40 字）或对话（`角色名: 内容`，英文冒号+空格，无引号，≤50字）。每段只做一件事，禁止混合。
+## Elements
 
-**<choice id="变量名">** — 玩家选项。内含 2-5 个 `<opt>`。opt 的 key 为字母键（A/B/C/D），branch 对应 bridge 之后的 `<branch name="...">`。
+**Line numbers** — `NNN| ` prefix on every line, zero-padded to 3 digits. Increment each line. Not part of the XML.
 
-**<set>** — 状态变更。var/op/val 必填。number 用 +/-/=/=N，string 用 =，list 用 +/-。if 属性可选，格式 `变量名 运算符 值`，用 and/or 组合（最多一个）。
+**<seg>** — A narrative segment. The basic unit of the story — a single beat of narration or dialogue. One thing per segment.
 
-**<checkpoint>** — 关键节点。node 必须原样复制大纲节点 ID，summary 为 1-2 句中文摘要。内含 0-N 个 `<route>` 元素。
+**<choice id="variable_name">** — Player choice. Contains 2-4 `<opt>` elements with `key` (number), `branch` (optional, assigned to `current_branch`), and `if` (optional, availability condition).
 
-**<bridge/>** — 自闭合，恰好一次。前：交互区（可含 seg/branch/choice/set/checkpoint）。后：纯叙事区（只有 seg 或 branch），禁止 choice/set/checkpoint。
+**<set>** — State change. Modifies a state variable. `var`, `op`, `val` required. `if` (optional): conditional execution.
 
-**<branch name>** — 分支叙事容器。bridge 之前用于局部小分支，bridge 之后用于选项后果分支。name 与 `<opt>` 的 branch 属性精确对应。
+**<checkpoint>** — Key story node and save point. Appears 0-1 times. Always a direct child of `<story>`. Records outline progress with a `summary`. May contain `<route>` elements for outline branching.
 
-## 完整格式示例
+**<bridge/>** — Self-closing. Always a direct child of `<story>`. Exactly ONCE per output. The signal point where the program triggers the next API call. Divides output into interactive zone (before) and narrative zone (after).
 
-以下为格式示例（内容为虚构的奇幻故事）：
+**<branch name>** — Branch narrative container. Before bridge: local branches that merge back. After bridge: key branches selected by `current_branch`. `name` is matched against `current_branch`.
 
-<story>
-<seg n="1">炉火在石砌的壁炉里噼啪作响，旅店大堂里弥漫着麦酒和松木的气味。</seg>
-<seg n="2">你推开厚重的橡木门，冷风裹挟着雪花卷入室内。</seg>
-<seg n="3">旅店老板: 这么晚了还赶路？</seg>
-<seg n="4">角落里一个裹着斗篷的身影动了动。</seg>
-<seg n="5">疤脸人摘下兜帽，眼神出奇的平静。</seg>
-<seg n="6">疤脸人: 坐。听说你在找一样东西。</seg>
-<choice id="approach">
-  <opt key="A" branch="take_lead">先开口</opt>
-  <opt key="B" branch="wait">保持沉默</opt>
-</choice>
-<set var="声望" op="+" val="5" if="approach==1"/>
-<set var="谨慎度" op="+" val="10" if="approach==2"/>
-<checkpoint node="ch2_meeting" summary="在旅店与神秘线人接头，选择了接触策略。">
-  <route if="approach==1" target="ch3_lead"/>
-  <route if="approach==2" target="ch3_wait"/>
-</checkpoint>
-<bridge/>
-<branch name="take_lead">
-<seg n="7">你在他对面坐下，指尖在木桌上轻轻敲了两下。</seg>
-<seg n="8">林焰: 听说你手里有我要的情报。</seg>
-<seg n="9">疤脸人微微一笑，从斗篷里掏出蜡封的羊皮纸卷。</seg>
-</branch>
-<branch name="wait">
-<seg n="10">你站着没动，不动声色地啜了一口麦酒。</seg>
-<seg n="11">沉默像一根绷紧的弦，疤脸人先沉不住气了。</seg>
-<seg n="12">他把羊皮纸卷推到桌子中央。</seg>
-</branch>
-</story>
+## Format Example
 
-（以上为格式示例。你的输出是全新的剧情段——从 1 开始编号，不要复制示例内容或编号。）
+Below is a format example (content is a short fictional fantasy story in English):
 
-# 核心规则
+001| <story>
+002| <seg>Snow fell on the empty road.</seg>
+003| <seg>Kael stamped the snow from his boots.</seg>
+004| <seg>He pushed through the heavy oak door.</seg>
+005| <seg>Innkeeper: Room for the night?</seg>
+006| <choice id="inn_choice">
+007|   <opt key="1" branch="take_room">Take a room</opt>
+008|   <opt key="2">Just a drink</opt>
+009| </choice>
+010| <branch name="take_room">
+011| <seg>A key slid across the counter.</seg>
+012| </branch>
+013| <seg>A stranger sat alone at the corner table.</seg>
+014| <seg>Stranger: You're the one I've been waiting for.</seg>
+015| <seg>Stranger: Word is you handle things quietly.</seg>
+016| <choice id="approach">
+017|   <opt key="1" branch="accept">I'm listening</opt>
+018|   <opt key="2" branch="decline">Not interested</opt>
+019| </choice>
+020| <set var="reputation" op="+" val="5" if="approach==1"/>
+021| <checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
+022|   <route if="approach==1" target="ch3_job"/>
+023|   <route if="approach==2" target="ch3_alone"/>
+024| </checkpoint>
+025| <bridge/>
+026| <branch name="accept">
+027| <seg>The stranger leaned closer.</seg>
+028| <seg>Stranger: There's a shipment. Tomorrow night. Old pass.</seg>
+029| <seg>Stranger: Payment on delivery. Half up front.</seg>
+030| </branch>
+031| <branch name="decline">
+032| <seg>The stranger shrugged.</seg>
+033| <seg>Stranger: Suit yourself. But you'll be back.</seg>
+034| </branch>
+035| </story>
+(This is a format example ONLY. Your output is an entirely new story segment.)
 
-- 所有 <seg> 的 n 从 1 开始，全局连续递增，不重复不跳号
-- {MIN}-{MAX} 个叙事段。bridge 放在交互与叙事分界处，约总段数一半
-- bridge 之后只能有 <seg> 或 <branch>，严格禁止 <choice>/<set>/<checkpoint>
-- <checkpoint> 的 node 和 <route> 的 target 必须严格复制大纲节点 ID，禁止修改或拼接后缀
-- 有 <choice> 时，每个 <opt> 的 branch 必须在 bridge 之后有对应 <branch name>
-- 对话不加引号，不用代词做角色名，不断内混动作描写
-- 文本中 & 须转义为 &amp;
+# Core Rules
 
-# 质量要求
+**Segment Format**
+- Each `<seg>` is EITHER narration OR dialogue.
+- Narration: one scene per segment. Short — a single observation, action, or beat.
+- Dialogue: `Name: text` format, no quotation marks. One line per segment.
+- Put character actions, expressions, and tone in separate narration segments.
+- Use actual character names in dialogue.
 
-每段只做一件事——描写一个画面或表达一句对白。对话与旁白交替出现，避免连续 3 段以上纯描写。选项的后果在叙事中铺垫。bridge 之后制造悬念。
+**Line Count & Bridge Position**
+- **Output {MIN_LINES}-{MAX_LINES} total lines.** The format example is deliberately short (35 lines) to show structure only — your output MUST reach {MIN_LINES}-{MAX_LINES}.
+- Place `<bridge/>` roughly {BRIDGE_PCT:.0f}% through — about 3/4 of lines before, 1/4 after.
+- Each post-bridge `<branch>` must span at least {MIN_TAIL} lines.
+- Post-bridge content is selected by `current_branch`: use `<branch>` containers for multiple possible paths, bare `<seg>` for a single path.
 
-# 故事
+**Choice → current_branch**
+- `<opt branch="X">` sets `current_branch = X`. Branch selection is based on `current_branch`: `<branch name="X">` will match.
+- Reference the choice in conditions using its `id` with the `key` number: `variable_name==1`.
+- Conditions support `and` / `or` (max one combinator) and reference variables from "Current State".
 
-**背景：** {genre} · {setting}
-**主角：** {name}，{identity}。{traits}
-**风格：** {tone}
-**冲突：** {conflict}
-**角色：** {characters}
+**Set — State Changes**
+- `var` MUST use the exact names from "Current State" below. Do NOT invent, translate, or substitute them.
+- number: `op="+"` / `op="-"` / `op="="` with `val` as the number; string: `op="="`.
+- Condition syntax: same as Choice above.
 
-**大纲：**
+**Checkpoint**
+- Copy the `node` attribute verbatim from the outline — exact character-for-character match.
+  Outline has `ch2_confrontation` → write `node="ch2_confrontation"`.
+- Copy `<route>` `target` attributes verbatim from outline node IDs.
+
+**XML Rules**
+- Match every opening tag with a closing tag. Use `/>` for self-closing elements.
+- Wrap attribute values in double quotes.
+- Escape `<` `>` `&` in text as `&lt;` `&gt;` `&amp;`. Example: "R&D" → "R&amp;D".
+
+**Prohibited**
+- `<bridge/>` count not equal to 1.
+- `<choice>`, `<set>`, or `<checkpoint>` after bridge.
+- More than one `<checkpoint>`.
+- Outputting anything outside the XML document (markdown fences, comments, explanatory text).
+- `<checkpoint>` `node` or `<route>` `target` not matching an outline node ID exactly.
+- `<set>` `var` referencing a variable not listed in "Current State".
+- Dialogue with quotation marks, pronouns as character names, or inline action descriptions.
+- Addressing the player directly ("You choose...", "What do you do?").
+
+# Quality Requirements
+
+One thing per segment. Alternate dialogue and narration. Make each branch narratively distinct. Create suspense after bridge.
+
+Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single path) or ~{REF_HALF} per branch-tail.
+
+# Story Context
+**Language:** {LANGUAGE}
+**Seg limits:** narration ≤{NARR_LIMIT} characters, dialogue ≤{DIAL_LIMIT} characters
+**Background:** {background}
+**Protagonist:** {protagonist}
+**Tone:** {tone}
+**Conflict:** {conflict}
+**Characters:**
+{characters}
+
+**Outline:**
 {outline_text}
 [completed]=已完成 [active]=当前 [pending]=待推进
 
-**当前状态：**
+**Current State:**
 {state_vars_text}
 
-当前节点目标：{goal}
+Output {MIN_LINES}-{MAX_LINES} total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
+The active node indicates the current direction; decide whether to complete it this round.
 
-请开始故事。"""
+(This is the start of the whole story.)"""
 
 
 class PromptBuilder:
@@ -145,24 +211,54 @@ class PromptBuilder:
         Returns:
             Full Round 1 prompt string.
         """
+        language = story_config.get("language", "zh-CN")
+        limits = LANGUAGE_SEG_LIMITS.get(language, LANGUAGE_SEG_LIMITS["zh-CN"])
+        narr_limit = limits["narration"]
+        dial_limit = limits["dialogue"]
+
         state_vars_text = PromptBuilder._format_state_vars(
             story_config.get("variables", [])
         )
 
+        # Build protagonist line
+        name = story_config.get("protagonist_name", "")
+        identity = story_config.get("protagonist_identity", "")
+        traits = story_config.get("protagonist_traits", "")
+        protagonist = name
+        if identity:
+            protagonist += f"，{identity}"
+        if traits:
+            protagonist += f"。{traits}"
+
+        # Build background line
+        genre = story_config.get("genre", "")
+        setting = story_config.get("setting", "")
+        background = f"{genre} · {setting}" if genre and setting else genre or setting
+
+        # Reference guides for bridge position
+        bridge_pct = BRIDGE_POSITION_RATIO * 100
+        ref_pre = int(LINES_PER_ROUND_MAX * BRIDGE_POSITION_RATIO)
+        ref_single = LINES_PER_ROUND_MAX - ref_pre
+        ref_half = ref_single // 2
+
         return ROUND1_TEMPLATE.format(
-            MIN=SEGMENTS_PER_ROUND_MIN,
-            MAX=SEGMENTS_PER_ROUND_MAX,
-            genre=story_config.get("genre", ""),
-            setting=story_config.get("setting", ""),
-            name=story_config.get("protagonist_name", ""),
-            identity=story_config.get("protagonist_identity", ""),
-            traits=story_config.get("protagonist_traits", ""),
+            MIN_LINES=LINES_PER_ROUND_MIN,
+            MAX_LINES=LINES_PER_ROUND_MAX,
+            BRIDGE_PCT=bridge_pct,
+            MIN_TAIL=MIN_TAIL_LINES,
+            REF_PRE=ref_pre,
+            REF_SINGLE=ref_single,
+            REF_HALF=ref_half,
+            LANGUAGE=language,
+            NARR_LIMIT=narr_limit,
+            DIAL_LIMIT=dial_limit,
+            background=background,
+            protagonist=protagonist,
             tone=story_config.get("tone", ""),
             conflict=story_config.get("conflict", ""),
             characters=story_config.get("characters", ""),
             outline_text=outline_text,
             state_vars_text=state_vars_text,
-            goal=goal,
         )
 
     @staticmethod
@@ -170,7 +266,7 @@ class PromptBuilder:
         current_node: str,
         goal: str,
         completed_nodes: list[str],
-        state_vars: dict[str, int | str | list],
+        state_vars: dict[str, int | str],
         bridge_text: str,
         compressed_summaries: list[str] | None = None,
         rejected_changes: list[str] | None = None,
@@ -194,36 +290,36 @@ class PromptBuilder:
         parts = []
 
         # Progress
-        parts.append(f"当前节点：{current_node} — {goal}")
+        parts.append(f"Current node: {current_node} — {goal}")
         if completed_nodes:
-            parts.append(f"已完成节点：{', '.join(completed_nodes)}")
+            parts.append(f"Completed nodes: {', '.join(completed_nodes)}")
 
         # Compressed summaries
         if compressed_summaries:
-            parts.append("\n已完成的章节摘要：")
+            parts.append("\nCompleted chapter summaries:")
             for s in compressed_summaries:
                 parts.append(f"- {s}")
 
         # State snapshot
-        parts.append("\n当前状态：")
+        parts.append("\nCurrent state:")
         for name, value in state_vars.items():
-            parts.append(f"  {name}：{value}")
+            parts.append(f"  {name}: {value}")
 
         # Rejected changes feedback
         if rejected_changes:
-            parts.append("\n上一轮状态变更被拒：")
+            parts.append("\nRejected state changes from last round:")
             for rc in rejected_changes:
                 parts.append(f"  - {rc}")
 
         # Format error correction
         if format_error:
             parts.append(
-                f"\n格式提醒：上一轮输出存在格式问题——{format_error}。"
-                f"请严格遵循 XML 格式规范。"
+                f"\nFormat reminder: last round had format issues — {format_error}. "
+                f"Please strictly follow the XML format specification."
             )
 
         # Bridge text
-        parts.append(f"\n上一轮结尾：\n{bridge_text}")
+        parts.append(f"\nLast round ending:\n{bridge_text}")
 
         return "\n".join(parts)
 
@@ -235,12 +331,7 @@ class PromptBuilder:
             name = v["name"]
             initial = v["initial"]
             if v["type"] == "number":
-                lines.append(f"{name}：{initial} / 100")
-            elif v["type"] == "list":
-                if initial:
-                    lines.append(f"{name}：{', '.join(initial)}")
-                else:
-                    lines.append(f"{name}：（无）")
+                lines.append(f"{name}: {initial} / 100")
             else:
-                lines.append(f"{name}：{initial}")
+                lines.append(f"{name}: {initial}")
         return "\n".join(lines)

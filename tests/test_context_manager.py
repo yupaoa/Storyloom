@@ -125,10 +125,10 @@ class TestCompressionFormat:
         cm = ContextManager()
         summaries = ["在旅店接头", "完成芯片交易", "选择信任耗子"]
         user_msg, asst_msg = cm._build_compression_messages(summaries)
-        assert "已发生的主要事件" in user_msg
+        assert "Key events so far" in user_msg
         assert "在旅店接头" in user_msg
         assert "完成芯片交易" in user_msg
-        assert asst_msg == "（以上为已发生事件的摘要。当前故事继续推进。）"
+        assert asst_msg == "(Summary of previous events. The story continues.)"
 
 
 class TestGetMessagesForRound:
