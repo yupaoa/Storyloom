@@ -20,6 +20,21 @@ MIN_TAIL_LINES = 25           # minimum lines per branch after bridge
 # ── Context budget ────────────────────────────────────────────
 MAX_CONTEXT_TOKENS = 50_000   # target ceiling
 
+# ── Co-creation ──────────────────────────────────────────────────
+MAX_RETRIES = 2
+
+# Variable caps (per 2026-07-05 variable-cap spec)
+VARIABLE_CAP = 3            # max total variables
+VARIABLE_NUMERIC_CAP = 2    # max numeric (number) variables
+VARIABLE_LABEL_CAP = 1      # max label (string/list) variables
+
+# Outline node ranges by tier
+OUTLINE_NODE_RANGES = {
+    "short":  (3, 5),
+    "medium": (5, 8),
+    "long":   (8, 15),
+}
+
 # ── API defaults ──────────────────────────────────────────────
 DEFAULT_MODEL = "deepseek-chat"
 STREAM_STALL_TIMEOUT_SEC = 180
