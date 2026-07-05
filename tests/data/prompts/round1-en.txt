@@ -178,6 +178,8 @@ ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 芯片同步率：0 / 100
 所属势力：自由佣兵
 
-The active node indicates the narrative direction — decide whether to complete it this round based on the content below. Numbering starts at 1 for this round.
+Numbering starts at 1 for this round — global sequence across ALL branches. Do NOT restart within any `<branch>`.
+Output 120-200 total segments. Place `<bridge/>` between seg 90-150. Less is fine — do not pad to hit the upper bound.
+The active node indicates the current direction; decide whether to complete it this round.
 
 (This is the start of the whole story.)
