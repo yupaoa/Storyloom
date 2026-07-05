@@ -126,7 +126,7 @@ def run_one(args: dict) -> dict:
                     {"role": "user", "content": args["user_message"]},
                 ],
                 temperature=0.8,
-                max_tokens=8192,
+                max_tokens=12288,
                 stream=True,
                 stream_options={"include_usage": True},
             )
@@ -156,7 +156,7 @@ def run_one(args: dict) -> dict:
                     {"role": "user", "content": args["user_message"]},
                 ],
                 temperature=0.8,
-                max_tokens=8192,
+                max_tokens=12288,
                 stream=False,
             )
             content = response.choices[0].message.content

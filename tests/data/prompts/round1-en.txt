@@ -119,8 +119,8 @@ Below is a format example (content is a short fictional fantasy story in English
 - Branches: each branch continues from the LAST number used before it. Example: speak_first (8-10) → stay_silent (11-13) → demand (14-16).
 
 **Segment Count & Bridge Position**
-- **Output 60-120 total `<seg>` elements. The format example is deliberately short (16 segments) to show structure only — your output MUST reach 60-120.**
-- Place `<bridge/>` between segment 30 and 60.
+- **Output 120-200 total `<seg>` elements. The format example is deliberately short (16 segments) to show structure only — your output MUST reach 120-200.**
+- Place `<bridge/>` between segment 90 and 150.
 - Each post-bridge `<branch>` must have at least 15 `<seg>` elements.
 - Post-bridge content is selected by `current_branch`: use `<branch>` containers for multiple possible paths, bare `<seg>` for a single path.
 
@@ -160,7 +160,7 @@ Below is a format example (content is a short fictional fantasy story in English
 
 One thing per segment. Alternate dialogue and narration. Foreshadow choice consequences. Make each branch narratively distinct. Create suspense after bridge.
 
-Segment count reference: single-branch — 40 interaction + 40 tail = 80 ✓; dual-branch — 40 interaction + 20 per branch = 80 ✓
+Segment count reference: single-branch — 80 interaction + 80 tail = 160 ✓; dual-branch — 80 interaction + 40 per branch = 160 ✓
 
 # Story (language: zh — all story content below is in Chinese)
 **Background:** 2087年，新东京。超级企业掌控着从数据流到呼吸权的每一寸生存空间，巨型建筑的地下深处盘踞着层层叠叠的黑市网络与废弃设施。在这个世界里，芯片不仅是技术，更是权力的终极载体——谁能控制信息，谁就能决定他人的命运。

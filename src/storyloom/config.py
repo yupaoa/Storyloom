@@ -5,12 +5,12 @@ WINDOW_SIZE = 3          # full rounds to keep in window
 FIRST_COMPRESSION_AT = 5  # round number to trigger first compression
 
 # ── Segment ranges ────────────────────────────────────────────
-SEGMENTS_PER_ROUND_MIN = 60
-SEGMENTS_PER_ROUND_MAX = 120
-SEGMENTS_HARD_CAP = 120
+SEGMENTS_PER_ROUND_MIN = 120
+SEGMENTS_PER_ROUND_MAX = 200
+SEGMENTS_HARD_CAP = 200
 
 # ── Bridge ─────────────────────────────────────────────────────
-BRIDGE_POSITION_RATIO = 0.5  # target bridge position (fraction of total)
+BRIDGE_POSITION_RATIO = 0.75  # target bridge position (fraction of total, pre-bridge)
 MIN_TAIL_SEGMENTS = 15       # minimum segments per branch after bridge
 
 # ── Context budget ────────────────────────────────────────────
