@@ -119,8 +119,8 @@ Below is a format example (content is a short fictional fantasy story in English
 - Branches: each branch continues from the LAST number used before it. Example: speak_first (8-10) → stay_silent (11-13) → demand (14-16).
 
 **Segment Count & Bridge Position**
-- **Output {{MIN_SEG}}-{{MAX_SEG}} total `<seg>` elements. The format example is deliberately short (16 segments) to show structure only — your output MUST reach {{MIN_SEG}}-{{MAX_SEG}}.**
-- Place `<bridge/>` between segment {{BRIDGE_MIN}} and {{BRIDGE_MAX}}.
+- **Output 60-120 total `<seg>` elements. The format example is deliberately short (16 segments) to show structure only — your output MUST reach 60-120.**
+- Place `<bridge/>` between segment 30 and 60.
 - Each post-bridge `<branch>` must have at least 15 `<seg>` elements.
 - Post-bridge content is selected by `current_branch`: use `<branch>` containers for multiple possible paths, bare `<seg>` for a single path.
 
@@ -160,7 +160,7 @@ Below is a format example (content is a short fictional fantasy story in English
 
 One thing per segment. Alternate dialogue and narration. Foreshadow choice consequences. Make each branch narratively distinct. Create suspense after bridge.
 
-Segment count reference: single-branch — {{REF_SINGLE}} interaction + {{REF_SINGLE}} tail = {{REF_TOTAL}} ✓; dual-branch — {{REF_SINGLE}} interaction + {{REF_HALF}} per branch = {{REF_TOTAL}} ✓
+Segment count reference: single-branch — 50 interaction + 50 tail = 100 ✓; dual-branch — 50 interaction + 25 per branch = 100 ✓
 
 当前节点目标：
 # Story (language: zh — all story content below is in Chinese)
