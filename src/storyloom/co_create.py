@@ -519,3 +519,302 @@ Output ALL THREE sections: story_config, variables, and outline.
 Follow the format exactly as specified in the system instructions.
 
 Available variables for the outline: {variable_names}"""
+
+
+# ── Exceptions ──────────────────────────────────────────────────────
+
+class CoCreationAborted(Exception):
+    """Raised when user chooses to abort co-creation and return to menu."""
+    pass
+
+
+# ── Result ───────────────────────────────────────────────────────────
+
+@dataclass
+class CoCreationResult:
+    """Output of the co-creation phase, ready for GameLoop."""
+    story_config: dict
+    outline_text: str
+
+
+# ── Flow ─────────────────────────────────────────────────────────────
+
+class CoCreateFlow:
+    """Orchestrates the full co-creation phase.
+
+    Flow:
+        Step 1: User inputs raw story idea.
+        Step 2: Multi-turn Q&A loop with LLM.
+        Step 3: Single LLM call generates story_config + variables + outline.
+    """
+
+    def __init__(self, api_client: ApiClient, display: Display):
+        self._api = api_client
+        self._display = display
+        self._messages: list[dict] = [
+            {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
+        ]
+
+    def run(self) -> CoCreationResult:
+        """Run the full co-creation flow.
+
+        Returns:
+            CoCreationResult with story_config (including variables)
+            and formatted outline_text.
+
+        Raises:
+            CoCreationAborted: If user chooses to abort.
+        """
+        self._step1_get_idea()
+        self._step2_questioning()
+        return self._step3_generate_all()
+
+    # ── Step 1 ──────────────────────────────────────────────────
+
+    def _step1_get_idea(self) -> None:
+        """Collect user's initial story idea."""
+        self._display.output.write("\n")
+        self._display.output.write("━" * 50 + "\n")
+        self._display.output.write("【共创阶段 — 故事设定】\n\n")
+        self._display.output.write(
+            "请描述你想玩的故事。\n"
+            "例如：'赛博朋克背景下的爱情故事'、'古代仙侠世界的冒险'\n\n"
+        )
+
+        while True:
+            raw_idea = self._display.get_input("> ")
+            if raw_idea and raw_idea.strip():
+                break
+            self._display.output.write("请输入一些想法来开始。\n")
+
+        self._messages.append({"role": "user", "content": raw_idea.strip()})
+
+    # ── Step 2 ──────────────────────────────────────────────────
+
+    def _step2_questioning(self) -> None:
+        """Multi-turn Q&A loop with LLM.
+
+        LLM asks questions about 5 dimensions. User responds.
+        Loop exits when user types '开始' or equivalent.
+        """
+        self._display.output.write("\n")
+        self._display.output.write("━" * 50 + "\n")
+        self._display.output.write(
+            "【追问阶段】\n"
+            "AI 会提出几个问题来了解你想玩的故事。\n"
+            "回答完毕后输入 '开始' 即可生成故事设定。\n"
+            "输入 '不玩了' 返回主菜单。\n\n"
+        )
+
+        START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes", "go"}
+        QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q"}
+
+        while True:
+            self._display.show_wait_message("思考中...")
+            try:
+                response = self._api.chat(self._messages)
+            except Exception as e:
+                self._display.show_error(f"API 调用失败: {e}")
+                choice = self._display.get_input("[R]重试 / [M]返回主菜单: ")
+                if choice.upper() == 'M':
+                    raise CoCreationAborted()
+                continue
+
+            self._messages.append({"role": "assistant", "content": response})
+            self._display.output.write(f"\n{response}\n\n")
+
+            user_input = self._display.get_input(
+                "你的回答（或输入 '开始'/'不玩了'）> "
+            ).strip()
+
+            if not user_input:
+                continue
+
+            if user_input in START_KEYWORDS:
+                self._display.output.write("\n")
+                break
+
+            if user_input in QUIT_KEYWORDS:
+                confirm = self._display.get_input(
+                    "确定退出共创，返回主菜单？(y/n): "
+                )
+                if confirm.lower() in ("y", "yes", "是"):
+                    raise CoCreationAborted()
+                continue
+
+            self._messages.append({"role": "user", "content": user_input})
+
+    # ── Step 3 ──────────────────────────────────────────────────
+
+    def _step3_generate_all(self) -> CoCreationResult:
+        """Single LLM call → parse all three blocks → validate.
+
+        Returns:
+            CoCreationResult ready for GameLoop.
+
+        Raises:
+            CoCreationAborted: If user aborts after retry exhaustion.
+        """
+        var_names = self._build_var_names_hint()
+        gen_prompt = GENERATE_ALL_PROMPT.format(variable_names=var_names)
+        self._messages.append({"role": "user", "content": gen_prompt})
+
+        self._display.show_wait_message("正在编织故事世界...")
+        response = self._generate_with_retry()
+        self._messages.append({"role": "assistant", "content": response})
+
+        blocks = CoCreateParser.split_blocks(response)
+
+        story_config = self._parse_story_config_with_retry(blocks["story_config"])
+        variables = self._parse_variables_with_retry(blocks["variables"])
+        outline_nodes = self._parse_outline_with_retry(blocks["outline"])
+
+        var_names_list = [v["name"] for v in variables]
+        outline_errors = CoCreateParser.validate_outline(
+            outline_nodes, var_names_list
+        )
+        if outline_errors:
+            outline_nodes = self._retry_outline_validation(
+                outline_errors, var_names_list
+            )
+
+        story_config["variables"] = variables
+        outline_text = CoCreateParser.format_outline(outline_nodes)
+
+        return CoCreationResult(
+            story_config=story_config,
+            outline_text=outline_text,
+        )
+
+    def _build_var_names_hint(self) -> str:
+        return "由你根据故事设计（≤3个，≤2 numeric + ≤1 string/list）"
+
+    def _generate_with_retry(self) -> str:
+        """Call LLM for generation. Handle API errors."""
+        while True:
+            try:
+                return self._api.chat(self._messages)
+            except Exception as e:
+                self._display.show_error(f"生成失败: {e}")
+                choice = self._display.get_input(
+                    "[R]重试 / [M]返回主菜单: "
+                )
+                if choice.upper() == 'M':
+                    raise CoCreationAborted()
+
+    def _parse_story_config_with_retry(self, text: str) -> dict:
+        return self._retry_block(
+            text=text,
+            block_name="story_config",
+            parse_fn=CoCreateParser.parse_story_config,
+            validate_fn=lambda d: (
+                [] if d.get("tier") in {"short", "medium", "long"}
+                else ["tier must be short/medium/long"]
+            ),
+        )
+
+    def _parse_variables_with_retry(self, text: str) -> list[dict]:
+        return self._retry_block(
+            text=text,
+            block_name="variables",
+            parse_fn=CoCreateParser.parse_variables,
+            validate_fn=CoCreateParser.validate_variables,
+        )
+
+    def _parse_outline_with_retry(self, text: str) -> list[dict]:
+        return self._retry_block(
+            text=text,
+            block_name="outline",
+            parse_fn=CoCreateParser.parse_outline,
+            validate_fn=lambda nodes: (
+                [] if nodes else ["No nodes found"]
+            ),
+        )
+
+    def _retry_outline_validation(
+        self, errors: list[str], var_names: list[str]
+    ) -> list[dict]:
+        """Handle outline validation errors with retry."""
+        for attempt in range(MAX_RETRIES + 1):
+            error_msg = "Outline errors: " + "; ".join(errors)
+            self._messages.append(
+                {"role": "user",
+                 "content": f"Outline has errors. {error_msg}\n"
+                           f"Please fix and regenerate the outline block."}
+            )
+            self._display.show_wait_message(
+                f"修正大纲中...（第{attempt + 1}次重试）"
+            )
+            response = self._generate_with_retry()
+            self._messages.append({"role": "assistant", "content": response})
+
+            blocks = CoCreateParser.split_blocks(response)
+            try:
+                nodes = CoCreateParser.parse_outline(blocks["outline"])
+            except ValueError as e:
+                errors = [str(e)]
+                continue
+
+            errors = CoCreateParser.validate_outline(nodes, var_names)
+            if not errors:
+                return nodes
+
+        choice = self._display.get_input(
+            f"大纲校验失败（{'; '.join(errors)}）。"
+            f"[R]重试 / [M]返回主菜单: "
+        )
+        if choice.upper() == 'R':
+            self._messages = self._messages[:-2]
+            return self._retry_outline_validation(errors, var_names)
+        raise CoCreationAborted()
+
+    def _retry_block(self, text, block_name, parse_fn, validate_fn):
+        """Parse a block with retry on failure.
+
+        On parse/validation failure, appends error to messages and
+        regenerates the FULL response. Previously-valid blocks serve
+        as in-context anchors.
+
+        Raises:
+            CoCreationAborted: If user aborts after retries.
+        """
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                parsed = parse_fn(text)
+                errors = validate_fn(parsed)
+                if not errors:
+                    return parsed
+            except ValueError as e:
+                errors = [str(e)]
+
+            if attempt < MAX_RETRIES:
+                error_msg = f"{block_name} errors: {'; '.join(errors)}"
+                self._messages.append(
+                    {"role": "user",
+                     "content": f"Previous {block_name} had errors. "
+                               f"{error_msg}\n"
+                               f"Please fix and regenerate all three sections."}
+                )
+                self._display.show_wait_message(
+                    f"修正{block_name}中...（第{attempt + 1}次重试）"
+                )
+                response = self._generate_with_retry()
+                self._messages.append(
+                    {"role": "assistant", "content": response}
+                )
+                blocks = CoCreateParser.split_blocks(response)
+                text = blocks.get(block_name, "")
+                continue
+
+        # Retries exhausted
+        choice = self._display.get_input(
+            f"{block_name} 解析失败（{'; '.join(errors)}）。"
+            f"[R]重试 / [M]返回主菜单: "
+        )
+        if choice.upper() == 'R':
+            self._messages = self._messages[:-2]
+            return self._retry_block(
+                text=text, block_name=block_name,
+                parse_fn=parse_fn, validate_fn=validate_fn,
+            )
+        raise CoCreationAborted()
