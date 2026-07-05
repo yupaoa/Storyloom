@@ -18,4 +18,4 @@ MAX_CONTEXT_TOKENS = 50_000   # target ceiling
 
 # ── API defaults ──────────────────────────────────────────────
 DEFAULT_MODEL = "deepseek-chat"
-STREAM_STALL_TIMEOUT_SEC = 60
+STREAM_STALL_TIMEOUT_SEC = 180

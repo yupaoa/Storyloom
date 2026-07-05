@@ -95,10 +95,12 @@ def check_correctness(parsed: ParsedOutput | None,
 
     if not parsed.bridge_found:
         issues.append("no-bridge")
-    if not parsed.choice_id:
+    if not parsed.choices:
         issues.append("no-choice")
-    elif len(parsed.opt_branches) < 2:
-        issues.append(f"opts={len(parsed.opt_branches)}")
+    else:
+        for c in parsed.choices:
+            if len(c["branches"]) < 2:
+                issues.append(f"few-opts({c['id']}={len(c['branches'])})")
     if not parsed.checkpoint_node:
         issues.append("no-checkpoint")
     elif parsed.checkpoint_node not in VALID_NODES:
@@ -106,13 +108,17 @@ def check_correctness(parsed: ParsedOutput | None,
     for rt in parsed.routes:
         if rt.target and rt.target not in VALID_NODES:
             issues.append(f"bad-route({rt.target})")
-    opt_set = set(parsed.opt_branches)
+    all_opt_branches = set()
+    for c in parsed.choices:
+        for b in c["branches"]:
+            if b:
+                all_opt_branches.add(b)
     post_set = set(parsed.post_branches)
-    if opt_set:
-        if opt_set - post_set:
-            issues.append(f"miss-branch({','.join(sorted(opt_set - post_set))})")
-        if post_set - opt_set:
-            issues.append(f"extra-branch({','.join(sorted(post_set - opt_set))})")
+    if all_opt_branches:
+        if all_opt_branches - post_set:
+            issues.append(f"miss-branch({','.join(sorted(all_opt_branches - post_set))})")
+        if post_set - all_opt_branches:
+            issues.append(f"extra-branch({','.join(sorted(post_set - all_opt_branches))})")
     if parsed.numbering_issues:
         issues.append(f"num({';'.join(parsed.numbering_issues)})")
     if parsed.total_segments < 60:
@@ -128,9 +134,10 @@ def check_correctness(parsed: ParsedOutput | None,
     for s in parsed.sets:
         if s.var and s.var not in VALID_VARS:
             issues.append(f"bad-var({s.var})")
-    if parsed.choice_id:
+    for c in parsed.choices:
+        cid = c["id"]
         for s in parsed.sets:
-            if s.condition and parsed.choice_id in s.condition:
+            if s.condition and cid in s.condition:
                 if re.search(r'==[A-E]', s.condition):
                     issues.append(f"choice-letter({s.condition})")
         for rt in parsed.routes:
@@ -276,8 +283,9 @@ def run_round_n(client: ApiClient, choice_key: int = 1) -> dict:
 
     # Build choice_dict from player input
     choice_dict = {}
-    if last_parsed.choice_id:
-        choice_dict[last_parsed.choice_id] = choice_key
+    if last_parsed.choices:
+        main_choice = last_parsed.choices[-1]
+        choice_dict[main_choice["id"]] = choice_key
 
     # Apply state changes from last round
     for set_op in last_parsed.sets:

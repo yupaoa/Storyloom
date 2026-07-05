@@ -42,8 +42,9 @@ class ParsedOutput:
     total_segments: int = 0
     pre_segments: int = 0
     post_segments: int = 0
-    choice_id: str | None = None
-    opt_branches: list[str] = field(default_factory=list)
+    choice_id: str | None = None        # deprecated: use choices[-1]["id"]
+    opt_branches: list[str] = field(default_factory=list)  # deprecated
+    choices: list[dict] = field(default_factory=list)  # [{"id": str, "branches": [str]}]
     sets: list[SetOperation] = field(default_factory=list)
     checkpoint_node: str | None = None
     checkpoint_summary: str | None = None
@@ -242,16 +243,18 @@ class XmlParser:
         pre_children: list[ET.Element],
         result: ParsedOutput,
     ) -> None:
-        """Extract <choice> from pre-bridge children."""
+        """Extract all <choice> elements from pre-bridge children."""
         for el in pre_children:
             if el.tag == "choice":
-                if result.choice_id is not None:
-                    raise ParseError("Multiple <choice> elements")
-                result.choice_id = el.get("id")
-                for opt_el in el.findall("opt"):
-                    result.opt_branches.append(
-                        opt_el.get("branch", "")
-                    )
+                cid = el.get("id")
+                branches = [
+                    opt_el.get("branch", "") for opt_el in el.findall("opt")
+                ]
+                result.choices.append({"id": cid, "branches": branches})
+        # Backwards compat
+        if result.choices:
+            result.choice_id = result.choices[-1]["id"]
+            result.opt_branches = result.choices[-1]["branches"]
 
     @staticmethod
     def _extract_sets(root: ET.Element, result: ParsedOutput) -> None:

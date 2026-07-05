@@ -80,11 +80,13 @@ def check_correctness(parsed: "ParsedOutput | None", parse_error: str | None) ->
     if not parsed.bridge_found:
         issues.append("no-bridge")
 
-    # 2. Choice
-    if not parsed.choice_id:
+    # 2. Choices
+    if not parsed.choices:
         issues.append("no-choice")
-    elif len(parsed.opt_branches) < 2:
-        issues.append(f"opts={len(parsed.opt_branches)}")
+    else:
+        for c in parsed.choices:
+            if len(c["branches"]) < 2:
+                issues.append(f"few-opts({c['id']}={len(c['branches'])})")
 
     # 3. Checkpoint node
     if not parsed.checkpoint_node:
@@ -97,14 +99,21 @@ def check_correctness(parsed: "ParsedOutput | None", parse_error: str | None) ->
         if rt.target and rt.target not in VALID_NODES:
             issues.append(f"bad-route({rt.target})")
 
-    # 5. opt ↔ branch match
-    opt_set = set(parsed.opt_branches)
+    # 5. opt ↔ branch match (last choice maps to post-bridge; earlier choices → pre-bridge)
+    pre_set = set(parsed.pre_branches)
     post_set = set(parsed.post_branches)
-    if opt_set:
-        missing = opt_set - post_set
-        extra = post_set - opt_set
-        if missing:
-            issues.append(f"miss-branch({','.join(sorted(missing))})")
+    for c in parsed.choices[:-1]:  # all but last: pre-bridge local branches
+        for b in c["branches"]:
+            if b and b not in pre_set:
+                issues.append(f"miss-pre-branch({c['id']}:{b})")
+    if parsed.choices:  # last choice: post-bridge key branches
+        last = parsed.choices[-1]
+        last_branches = {b for b in last["branches"] if b}
+        if last_branches:
+            missing = last_branches - post_set
+            if missing:
+                issues.append(f"miss-branch({','.join(sorted(missing))})")
+        extra = post_set - last_branches
         if extra:
             issues.append(f"extra-branch({','.join(sorted(extra))})")
 
