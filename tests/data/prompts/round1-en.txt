@@ -155,6 +155,7 @@ Segment count reference: single-branch — 150 interaction + 50 tail = 200 ✓; 
 
 # Story Context
 **Language:** Chinese Simplified (zh-CN)
+**Seg limits:** narration ≤30 characters, dialogue ≤40 characters
 **Background:** 2087年，新东京。超级企业掌控着从数据流到呼吸权的每一寸生存空间，巨型建筑的地下深处盘踞着层层叠叠的黑市网络与废弃设施。在这个世界里，芯片不仅是技术，更是权力的终极载体——谁能控制信息，谁就能决定他人的命运。
 **Protagonist:** 林焰，曾经是荒坂企业最年轻的安全顾问，专门负责敏感数据的保护与销毁。在一次内部清洗中他选择背叛公司，伪造了自己的死亡记录，如今以自由佣兵的身份游走在灰色地带。他冷静、果断、道德模糊，但内心深处仍有无法磨灭的原则底线。颈部植入的军用级神经接口让他在战斗中拥有超乎常人的反应速度。
 **Tone:** 黑暗冷峻，高压、不信任、每个人都在隐藏秘密。
