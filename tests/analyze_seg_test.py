@@ -32,11 +32,18 @@ def parse_header(file_path: Path) -> dict:
         "total_tokens": r"total=(\d+)",
     }
 
+    string_keys = {"finish", "file"}
     for key, pat in patterns.items():
         m = re.search(pat, text)
         if m:
             val = m.group(1)
-            data[key] = float(val) if "." in val else int(val)
+            if key in string_keys:
+                data[key] = val
+            else:
+                try:
+                    data[key] = float(val) if "." in val else int(val)
+                except ValueError:
+                    data[key] = val
 
     return data
 

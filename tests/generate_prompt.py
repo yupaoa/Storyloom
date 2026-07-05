@@ -20,10 +20,15 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def render(template: str, params: dict) -> str:
-    """Replace {{PLACEHOLDER}} with values from params dict."""
+    """Replace {{PLACEHOLDER}} with values from params dict (case-insensitive)."""
+    import re as _re
     result = template
-    for key, value in params.items():
-        result = result.replace(f"{{{{{key}}}}}", str(value))
+    keys_lower = {k.lower(): v for k, v in params.items()}
+    for match in _re.finditer(r"\{\{(\w+)\}\}", result):
+        placeholder = match.group(0)
+        key = match.group(1).lower()
+        if key in keys_lower:
+            result = result.replace(placeholder, str(keys_lower[key]))
     return result
 
 
