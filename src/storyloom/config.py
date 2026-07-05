@@ -39,5 +39,5 @@ OUTLINE_NODE_RANGES = {
 }
 
 # ── API defaults ──────────────────────────────────────────────
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-pro"
 STREAM_STALL_TIMEOUT_SEC = 180
