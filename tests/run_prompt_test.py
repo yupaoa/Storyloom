@@ -80,14 +80,19 @@ if "your-api-key" in API_KEY or not API_KEY:
 
 
 # ── Prompt loading ───────────────────────────────────────────────────
-def load_prompt(path: Path) -> tuple[str, str]:
+def load_prompt(path: Path, structured: bool = False) -> tuple[str, str]:
     """Return (system_prompt, user_message) from a prompt text file.
 
     The file contains the full LLM prompt (system + user combined).
     Split point: first occurrence of '当前节点目标：'.
     Everything before → system, from there → user.
+
+    If structured=True, the entire file is returned as a single user message
+    (no system prompt), matching the ContextManager Round 1 behavior.
     """
     text = path.read_text(encoding="utf-8").strip()
+    if structured:
+        return ("", text)
     split_marker = "当前节点目标："
     split_pos = text.find(split_marker)
     if split_pos == -1:
@@ -109,6 +114,12 @@ def run_one(args: dict) -> dict:
     client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
     use_stream = args.get("stream", True)
 
+    # Build messages: structured mode = single user message (matching ContextManager)
+    messages = []
+    if args.get("system_prompt"):
+        messages.append({"role": "system", "content": args["system_prompt"]})
+    messages.append({"role": "user", "content": args["user_message"]})
+
     t0 = time.perf_counter()
     ttft = None        # Time To First Token
     first_seg = None   # Time to first numbered segment
@@ -121,11 +132,7 @@ def run_one(args: dict) -> dict:
             # ── Streaming mode: measure TTFT + FirstSegment ──────────
             stream = client.chat.completions.create(
                 model=MODEL,
-                messages=[
-                    {"role": "system", "content": args["system_prompt"]},
-                    {"role": "user", "content": args["user_message"]},
-                ],
-                temperature=0.8,
+                messages=messages,
                 max_tokens=12288,
                 stream=True,
                 stream_options={"include_usage": True},
@@ -151,10 +158,7 @@ def run_one(args: dict) -> dict:
             # ── Non-streaming mode ────────────────────────────────────
             response = client.chat.completions.create(
                 model=MODEL,
-                messages=[
-                    {"role": "system", "content": args["system_prompt"]},
-                    {"role": "user", "content": args["user_message"]},
-                ],
+                messages=messages,
                 temperature=0.8,
                 max_tokens=12288,
                 stream=False,
@@ -237,13 +241,18 @@ def main():
         "--no-stream", action="store_true",
         help="Use non-streaming mode (default: streaming for TTFT measurement)",
     )
+    parser.add_argument(
+        "--structured", action="store_true",
+        help="Send entire prompt as single user message (no system prompt). "
+             "Matches ContextManager Round 1 behavior.",
+    )
     args = parser.parse_args()
 
     if not args.prompt.exists():
         print(f"[ERROR] Prompt file not found: {args.prompt}")
         sys.exit(1)
 
-    system_prompt, user_message = load_prompt(args.prompt)
+    system_prompt, user_message = load_prompt(args.prompt, structured=args.structured)
 
     use_stream = not args.no_stream
 
