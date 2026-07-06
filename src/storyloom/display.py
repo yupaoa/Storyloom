@@ -4,8 +4,15 @@ Handles all user-facing output: narrative segments, options, state display,
 main menu, and user input. Uses gettext for i18n.
 """
 
-import readline  # enables line editing, cursor movement, CJK-aware deletion
 import sys
+
+try:
+    import readline  # Unix: GNU readline for line editing & CJK-aware deletion
+except ImportError:
+    try:
+        import pyreadline3 as readline  # Windows: pure-Python readline replacement
+    except ImportError:
+        pass  # Bare input() — Windows console natively handles CJK input correctly
 import time
 
 from src.storyloom.i18n import _
