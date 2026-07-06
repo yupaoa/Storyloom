@@ -1,6 +1,6 @@
 """Tests for co-create parser and flow."""
 import pytest
-from storyloom.co_create import CoCreateParser
+from storyloom.core.co_create import CoCreateParser
 from storyloom.i18n import init_i18n
 init_i18n("en")  # Use English for deterministic test output
 
@@ -598,7 +598,7 @@ class TestCoCreateFlow:
             "开始",
         ])
 
-        from storyloom.co_create import CoCreateFlow
+        from storyloom.core.co_create import CoCreateFlow
         flow = CoCreateFlow(mock_api, mock_display)
         result = flow.run()
 
@@ -620,7 +620,7 @@ class TestCoCreateFlow:
             "开始",
         ])
 
-        from storyloom.co_create import CoCreateFlow
+        from storyloom.core.co_create import CoCreateFlow
         flow = CoCreateFlow(mock_api, mock_display)
         result = flow.run()
 
@@ -637,7 +637,7 @@ class TestCoCreateFlow:
             "y",
         ])
 
-        from storyloom.co_create import CoCreateFlow, CoCreationAborted
+        from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
         flow = CoCreateFlow(mock_api, mock_display)
 
         with pytest.raises(CoCreationAborted):
@@ -678,7 +678,7 @@ routes: （结局）"""
             "R",
         ])
 
-        from storyloom.co_create import CoCreateFlow
+        from storyloom.core.co_create import CoCreateFlow
         flow = CoCreateFlow(mock_api, mock_display)
         result = flow.run()
 
@@ -711,7 +711,7 @@ routes: （结局）"""
             "M",
         ])
 
-        from storyloom.co_create import CoCreateFlow, CoCreationAborted
+        from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
         flow = CoCreateFlow(mock_api, mock_display)
 
         with pytest.raises(CoCreationAborted):
@@ -730,7 +730,7 @@ routes: （结局）"""
             "开始",
         ])
 
-        from storyloom.co_create import CoCreateFlow
+        from storyloom.core.co_create import CoCreateFlow
         flow = CoCreateFlow(mock_api, mock_display)
         result = flow.run()
         assert result.story_config["genre"] == "赛博朋克冒险"

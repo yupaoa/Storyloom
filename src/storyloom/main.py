@@ -8,10 +8,10 @@ import argparse
 import os
 import sys
 
-from storyloom.api_client import ApiClient, ApiError
-from storyloom.display import Display
-from storyloom.co_create import CoCreateFlow, CoCreationAborted
-from storyloom.game_loop import GameLoop, GameState
+from storyloom.io.api_client import ApiClient, ApiError
+from storyloom.io.display import Display
+from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
+from storyloom.core.game_loop import GameLoop, GameState
 from storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
 from storyloom.i18n import init_i18n, _
 

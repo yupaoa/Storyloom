@@ -2,7 +2,7 @@
 
 import json
 import pytest
-from storyloom.api_client import ApiClient, ApiError
+from storyloom.io.api_client import ApiClient, ApiError
 
 
 class MockHTTPResponse:

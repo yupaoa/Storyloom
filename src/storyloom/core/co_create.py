@@ -2,8 +2,8 @@
 import re
 from dataclasses import dataclass
 
-from storyloom.api_client import ApiClient
-from storyloom.display import Display
+from storyloom.io.api_client import ApiClient
+from storyloom.io.display import Display
 from storyloom.i18n import _, get_current_lang
 from storyloom.config import (
     MAX_RETRIES,

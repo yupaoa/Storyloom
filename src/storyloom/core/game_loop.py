@@ -10,11 +10,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Callable
 
-from storyloom.api_client import ApiClient
-from storyloom.context_manager import ContextManager
-from storyloom.display import Display
-from storyloom.prompt_builder import PromptBuilder
-from storyloom.xml_parser import (
+from storyloom.io.api_client import ApiClient
+from storyloom.core.context_manager import ContextManager
+from storyloom.io.display import Display
+from storyloom.core.prompt_builder import PromptBuilder
+from storyloom.parser.xml_parser import (
     ParsedOutput,
     SetOperation,
     XmlParser,
@@ -466,11 +466,26 @@ class GameLoop:
         self._last_bridge_text = parsed.bridge_text
 
         # Apply unconditional sets from Round 1
+        state_changes: list[dict] = []
         for set_op in parsed.sets:
             if not set_op.condition:
                 result = self.game_state.apply_set(set_op, {})
+                state_changes.append({
+                    "var": set_op.var,
+                    "op": set_op.op,
+                    "val": set_op.val,
+                    "accepted": result.accepted,
+                    "reason": result.reason,
+                })
                 if not result.accepted and result.reason:
                     self._rejected_changes.append(result.reason)
+
+        if state_changes:
+            yield {
+                "type": "state",
+                "vars": self.game_state.state_vars,
+                "changes": state_changes,
+            }
 
         # Yield structured events from parsed output
         yield from self._emit_parsed(parsed)
@@ -512,13 +527,13 @@ class GameLoop:
 
         for event in self.start_round1_stream():
             if event["type"] == "error":
-                from storyloom.xml_parser import ParseError
+                from storyloom.parser.xml_parser import ParseError
                 raise ParseError(
                     f"Round 1 parse failed: {event['message']}"
                 )
 
         if self.last_parsed is None:
-            from storyloom.xml_parser import ParseError
+            from storyloom.parser.xml_parser import ParseError
             raise ParseError("Round 1 parse failed: unknown error")
 
         self.display.show_segments(self.last_parsed.segments)
@@ -565,12 +580,27 @@ class GameLoop:
         selected_branch = self._get_selected_branch(choice_key)
 
         # ── Step 2: Apply last round's sets (with choice_dict) ──────
+        step2_changes: list[dict] = []
         new_rejected: list[str] = []
         for set_op in self.last_parsed.sets:
             result = self.game_state.apply_set(set_op, choice_dict)
+            step2_changes.append({
+                "var": set_op.var,
+                "op": set_op.op,
+                "val": set_op.val,
+                "accepted": result.accepted,
+                "reason": result.reason,
+            })
             if not result.accepted and result.reason:
                 new_rejected.append(result.reason)
         self._rejected_changes = new_rejected
+
+        if step2_changes:
+            yield {
+                "type": "state",
+                "vars": self.game_state.state_vars,
+                "changes": step2_changes,
+            }
 
         # ── Step 3: Evaluate routes → advance node ──────────────────
         if choice_dict:
@@ -654,11 +684,26 @@ class GameLoop:
         self._context_mgr.add_round(rn_context, response, selected_branch)
 
         # ── Step 9: Apply this round's unconditional sets ───────────
+        step9_changes: list[dict] = []
         for set_op in parsed.sets:
             if not set_op.condition:
                 result = self.game_state.apply_set(set_op, {})
+                step9_changes.append({
+                    "var": set_op.var,
+                    "op": set_op.op,
+                    "val": set_op.val,
+                    "accepted": result.accepted,
+                    "reason": result.reason,
+                })
                 if not result.accepted and result.reason:
                     self._rejected_changes.append(result.reason)
+
+        if step9_changes:
+            yield {
+                "type": "state",
+                "vars": self.game_state.state_vars,
+                "changes": step9_changes,
+            }
 
         # Update stored state
         self.last_parsed = parsed
@@ -708,14 +753,14 @@ class GameLoop:
 
         for event in self.continue_round_stream(choice_key):
             if event["type"] == "error":
-                from storyloom.xml_parser import ParseError
+                from storyloom.parser.xml_parser import ParseError
                 raise ParseError(
                     f"Round {self._context_mgr.round_count + 1} parse "
                     f"failed: {event['message']}"
                 )
 
         if self.last_parsed is None:
-            from storyloom.xml_parser import ParseError
+            from storyloom.parser.xml_parser import ParseError
             raise ParseError(
                 f"Round {self._context_mgr.round_count + 1} parse "
                 f"failed: unknown error"

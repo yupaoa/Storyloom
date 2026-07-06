@@ -1,7 +1,7 @@
 """Tests for prompt_builder module."""
 
 import pytest
-from storyloom.prompt_builder import PromptBuilder
+from storyloom.core.prompt_builder import PromptBuilder
 
 
 SAMPLE_STORY_CONFIG = {

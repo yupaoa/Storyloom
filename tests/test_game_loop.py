@@ -3,8 +3,8 @@
 from pathlib import Path
 
 import pytest
-from storyloom.game_loop import GameLoop, GameState, SetResult, RoundResult
-from storyloom.xml_parser import SetOperation
+from storyloom.core.game_loop import GameLoop, GameState, SetResult, RoundResult
+from storyloom.parser.xml_parser import SetOperation
 
 
 # ── Fixtures ───────────────────────────────────────────────────────
@@ -353,7 +353,7 @@ class TestGameLoopInit:
     def test_initializes_with_display(self):
         """GameLoop should initialize with a display."""
         import io
-        from storyloom.display import Display
+        from storyloom.io.display import Display
         d = Display(output=io.StringIO())
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,

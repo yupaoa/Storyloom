@@ -1,7 +1,7 @@
 """Manages conversation messages array with sliding window + compression."""
 
 from storyloom.config import WINDOW_SIZE, FIRST_COMPRESSION_AT
-from storyloom.xml_parser import XmlParser
+from storyloom.parser.xml_parser import XmlParser
 import re
 
 

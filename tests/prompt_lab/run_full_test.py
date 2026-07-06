@@ -37,9 +37,9 @@ if "your-api-key" in API_KEY or not API_KEY:
     sys.exit(1)
 
 sys.path.insert(0, str(PROJECT_ROOT))
-from storyloom.api_client import ApiClient
-from storyloom.game_loop import GameLoop, GameState, RoundRecord
-from storyloom.display import Display
+from storyloom.io.api_client import ApiClient
+from storyloom.core.game_loop import GameLoop, GameState, RoundRecord
+from storyloom.io.display import Display
 
 # ── Config ────────────────────────────────────────────────────────
 STORY_CONFIG = {

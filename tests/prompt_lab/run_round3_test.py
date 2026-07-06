@@ -39,8 +39,8 @@ if "your-api-key" in API_KEY or not API_KEY:
 
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from storyloom.prompt_builder import PromptBuilder
-from storyloom.xml_parser import XmlParser
+from storyloom.core.prompt_builder import PromptBuilder
+from storyloom.parser.xml_parser import XmlParser
 import xml.etree.ElementTree as ET
 
 # ── Load previous round data ─────────────────────────────────────

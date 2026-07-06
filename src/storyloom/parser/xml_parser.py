@@ -236,16 +236,18 @@ class XmlParser:
         for el in pre_children:
             if el.tag == "choice":
                 cid = el.get("id")
-                branches = [
-                    opt_el.get("branch", "") for opt_el in el.findall("opt")
-                ]
-                labels = [
-                    (opt_el.text or "").strip() for opt_el in el.findall("opt")
-                ]
+                opts = list(el.findall("opt"))
+                branches = [o.get("branch", "") for o in opts]
+                labels = [(o.text or "").strip() for o in opts]
+                conditions = {
+                    o.get("branch", ""): o.get("if")
+                    for o in opts if o.get("if")
+                }
                 result.choices.append({
                     "id": cid,
                     "branches": branches,
                     "labels": labels,
+                    "conditions": conditions,
                 })
         # Backwards compat
         if result.choices:

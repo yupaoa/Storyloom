@@ -19,7 +19,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-from storyloom.xml_parser import (
+from storyloom.parser.xml_parser import (
     ParsedOutput,
     Segment,
     SetOperation,
