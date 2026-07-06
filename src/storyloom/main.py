@@ -327,7 +327,7 @@ def run_game(
                 try:
                     result = game_loop.continue_round(choice_key=choice.strip())
                 except ApiError as e:
-                    display.show_error(_("API error: {msg}").format(msg=e))
+                    display.show_error(_("API error: {msg}").format(msg=e)) 
                     break
             else:
                 display.output.write(
