@@ -165,6 +165,7 @@ class MockApiClient:
 CO_CREATE_GENERATION_RESPONSE = """=== story_config ===
 genre: 赛博朋克冒险
 tier: medium
+label: test-story
 setting: 2087年新东京地下城
 protagonist_name: 林焰
 protagonist_identity: 自由佣兵
