@@ -147,7 +147,7 @@ def show_main_menu(display: Display, api_client: ApiClient,
     Args:
         display: Display instance for output.
         api_client: API client for game calls.
-        language: UI and story language.
+        debug: If True, save per-round data to disk.
     """
     while True:
         display.show_main_menu(save_count=0)
@@ -159,13 +159,8 @@ def show_main_menu(display: Display, api_client: ApiClient,
                 result = flow.run()
                 run_game(display, api_client,
                          story_config=result.story_config,
-<<<<<<< HEAD
                          outline_text=result.outline_text,
-                         language=language,
                          debug=debug)
-=======
-                         outline_text=result.outline_text)
->>>>>>> worktree-i18n-gettext
             except CoCreationAborted:
                 display.output.write(_("Returning to menu.") + "\n")
             except ApiError as e:
@@ -257,11 +252,7 @@ def run_game(
     api_client: ApiClient,
     story_config: dict | None = None,
     outline_text: str | None = None,
-<<<<<<< HEAD
-    language: str = "zh-CN",
     debug: bool = False,
-=======
->>>>>>> worktree-i18n-gettext
 ) -> None:
     """Run the narrative game loop.
 
@@ -270,12 +261,8 @@ def run_game(
         api_client: API client for LLM calls.
         story_config: Story config (from co-creation or default).
         outline_text: Outline text (from co-creation or default).
-<<<<<<< HEAD
-        language: UI and story language.
         debug: If True, save per-round prompt/response/metrics to disk
                under tests/data/output/debug-{timestamp}/.
-=======
->>>>>>> worktree-i18n-gettext
     """
     if story_config is None:
         story_config = DEFAULT_STORY_CONFIG
