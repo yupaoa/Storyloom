@@ -14,13 +14,9 @@ except ImportError:
     except ImportError:
         pass  # Bare input() — Windows console natively handles CJK input correctly
 import time
-from typing import TYPE_CHECKING
 
 from storyloom.i18n import _
 from storyloom.parser.xml_parser import Segment
-
-if TYPE_CHECKING:
-    from storyloom.core.ui_interface import UiInterface
 
 
 class Display:

@@ -531,7 +531,7 @@ class MockDisplay:
     def show_error(self, msg):
         pass
 
-    def ask(self, prompt=""):
+    def ask(self, prompt: str) -> str:
         return self.get_input(prompt)
 
 FULL_GENERATION_RESPONSE = """=== story_config ===
