@@ -183,6 +183,10 @@ class StreamingXmlParser:
         m = _RE_CHOICE_OPEN.match(clean)
         if m:
             self._in_choice = m.group(1)
+            if self._post_bridge:
+                self._format_errors.append(
+                    f"<choice> found after <bridge/> (line {self._line_count})"
+                )
             return [ParseEvent(
                 type=EventType.CHOICE_BEGIN,
                 choice_id=m.group(1),
@@ -204,6 +208,10 @@ class StreamingXmlParser:
             self._in_checkpoint = True
             self._checkpoint_node = m.group(1)
             self._checkpoint_summary = m.group(2)
+            if self._post_bridge:
+                self._format_errors.append(
+                    f"<checkpoint> found after <bridge/> (line {self._line_count})"
+                )
             return [ParseEvent(
                 type=EventType.CHECKPOINT,
                 cp_node=m.group(1),

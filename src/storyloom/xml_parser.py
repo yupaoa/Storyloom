@@ -292,17 +292,20 @@ class XmlParser:
     ) -> str:
         """Extract plain text from post-bridge elements.
 
-        When current_branch is provided, only extracts text from the
-        matching <branch> (or bare <seg> elements when current_branch
-        is empty/None for the default single-path case).
-
-        When current_branch is None, extracts all text (backwards
-        compatible — used by parse() to populate ParsedOutput.bridge_text).
+        Extraction logic:
+        - current_branch=None: extract all text (backwards compat).
+        - current_branch=\"\": extract bare <seg> only (explicit main).
+        - current_branch=\"name\": extract from matching <branch> AND
+          bare <seg> elements.  Bare segs are the implicit \"main\"
+          branch, which matches regardless of current_branch per the
+          default-branch rule (see block-separators.md).
         """
         texts = []
         for el in post_children:
             if el.tag == "seg":
-                if current_branch is None or current_branch == "":
+                # Bare segs: include when (a) no filter, (b) explicit
+                # main, or (c) named branch — main always matches.
+                if current_branch is None or current_branch == "" or current_branch:
                     if el.text:
                         texts.append(el.text.strip())
             elif el.tag == "branch":
