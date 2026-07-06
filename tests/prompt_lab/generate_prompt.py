@@ -2,7 +2,7 @@
 """Generate prompt files from template + YAML parameter matrix.
 
 Usage:
-  python3 tests/generate_prompt.py [--config tests/data/prompts/seg-test-config.yaml]
+  python3 tests/generate_prompt.py [--config tests/prompt_lab/data/prompts/seg-test-config.yaml]
 """
 
 import argparse

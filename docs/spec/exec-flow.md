@@ -5,9 +5,6 @@
 > - [`block-spec.md`](./block-spec.md) — XML 元素语法、分支路由、状态校验规则
 > - [`data-model.md`](./data-model.md) — GameState 结构、存档系统、可配置常量、全局约定
 > - [`prompt-design.md`](./prompt-design.md) — Prompt 模板与对话式消息数组设计
-> - [`design.md`](../design.md) — 设计理念与阶段规划（非规范性参考）
->
-> **权威性**：本文档与 design.md 如有冲突，以本文档为准。
 
 ---
 
@@ -593,7 +590,7 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
   → 全部以 enabled 样式展示，移除条件标注（兜底防卡死）
 ```
 
-**无选项时的自动推进**：`--- options ---` 缺失 → 正文展示完毕后自动进入下一轮，不等待输入。
+**无选项时的自动推进**：`<choice>` 元素缺失 → 正文展示完毕后自动进入下一轮，不等待输入。
 
 ### 4.7 下一轮准备与结局检测
 
@@ -631,13 +628,12 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
 
 ```
 倒数第二轮（Round N-1）：
-  --- narrative:main ---
-  （结局叙事段落……）
-  --- checkpoint ---
-  end
-  summary: 所有线索在此交汇……
-  --- bridge ---
-  （最后的衔接文本——缓冲用，保持与正常剧情段一致的结构）
+  <story>
+  <seg n="1">（结局叙事段落……）</seg>
+  <checkpoint node="end" summary="所有线索在此交汇……"/>
+  <bridge/>
+  <seg n="2">（最后的衔接文本——缓冲用，保持与正常剧情段一致的结构）</seg>
+  </story>
 
 程序处理：
 

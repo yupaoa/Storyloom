@@ -44,15 +44,15 @@ from src.storyloom.xml_parser import XmlParser
 import xml.etree.ElementTree as ET
 
 # ── Load previous round data ─────────────────────────────────────
-r1_prompt = (PROJECT_ROOT / "tests/data/prompts/round1-linenum.txt").read_text(encoding="utf-8")
+r1_prompt = (PROJECT_ROOT / "tests/prompt_lab/data/prompts/round1-linenum.txt").read_text(encoding="utf-8")
 
 def load_output(path: Path) -> str:
     md = path.read_text(encoding="utf-8")
     parts = md.split("---\n", 1)
     return parts[1] if len(parts) > 1 else md
 
-r1_output = load_output(PROJECT_ROOT / "tests/data/output/round1-linenum/prompt-test-01.md")
-r2_output = load_output(PROJECT_ROOT / "tests/data/output/round2-nested/prompt-test-01.md")
+r1_output = load_output(PROJECT_ROOT / "tests/prompt_lab/data/output/round1-linenum/prompt-test-01.md")
+r2_output = load_output(PROJECT_ROOT / "tests/prompt_lab/data/output/round2-nested/prompt-test-01.md")
 
 # ── Parse outputs ────────────────────────────────────────────────
 r1_parsed = XmlParser.parse(r1_output)
@@ -196,7 +196,7 @@ except Exception as e:
     sys.exit(1)
 
 # ── Save output ──────────────────────────────────────────────────
-output_dir = PROJECT_ROOT / "tests/data/output/round3-nested"
+output_dir = PROJECT_ROOT / "tests/prompt_lab/data/output/round3-nested"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 out_path = output_dir / "prompt-test-01.md"

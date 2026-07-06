@@ -3,15 +3,15 @@ r"""Analyze XML-format (Frame) prompt test results: timing + correctness.
 
 Usage:
   # Full analysis
-  python3 tests/analyze_frame.py --prompt tests/data/prompts/frame-v1.txt \
-      --output-dir tests/data/output/frame-v1/
+  python3 tests/analyze_frame.py --prompt tests/prompt_lab/data/prompts/frame-v1.txt \
+      --output-dir tests/prompt_lab/data/output/frame-v1/
 
   # Timing only (skip correctness)
-  python3 tests/analyze_frame.py --prompt tests/data/prompts/frame-v1.txt \
-      --output-dir tests/data/output/frame-v1/ --no-correctness
+  python3 tests/analyze_frame.py --prompt tests/prompt_lab/data/prompts/frame-v1.txt \
+      --output-dir tests/prompt_lab/data/output/frame-v1/ --no-correctness
 
   # Prompt analysis only (no test data yet)
-  python3 tests/analyze_frame.py --prompt tests/data/prompts/frame-v1.txt
+  python3 tests/analyze_frame.py --prompt tests/prompt_lab/data/prompts/frame-v1.txt
 
 Format: XML-based narrative engine output ("Frame" format).
 

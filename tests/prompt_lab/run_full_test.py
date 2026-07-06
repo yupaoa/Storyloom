@@ -70,7 +70,7 @@ ch3_ally [pending] — 盟友之路：通过地下网络逃离
 ch3_betrayal [pending] — 背叛之路：杀出重围
 ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）"""
 
-OUT_DIR = PROJECT_ROOT / "tests/data/output/full-test"
+OUT_DIR = PROJECT_ROOT / "tests/prompt_lab/data/output/full-test"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 

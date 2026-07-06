@@ -2,7 +2,7 @@
 
 import pytest
 from src.storyloom.context_manager import ContextManager
-from src.storyloom.config import WINDOW_SIZE
+from src.storyloom.config import WINDOW_SIZE, FIRST_COMPRESSION_AT
 
 
 class TestContextManagerInit:

@@ -519,7 +519,7 @@ class TestGameLoopWithSimpleXml:
             api_client=mock,
         )
         result = loop.start_round1()
-        assert result.parsed.choice_id is None
+        assert result.parsed.choices == []
         assert result.parsed.bridge_found
 
     def test_simple_xml_no_options(self):

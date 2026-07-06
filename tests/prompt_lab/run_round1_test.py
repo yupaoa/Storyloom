@@ -233,7 +233,7 @@ def main():
     p.add_argument("--runs", type=int, default=1)
     p.add_argument(
         "--prompt", type=str, default=None,
-        help="Path to prompt text file (relative to tests/data/prompts/). "
+        help="Path to prompt text file (relative to tests/prompt_lab/data/prompts/). "
              "If not set, uses PromptBuilder auto-generate.",
     )
     args = p.parse_args()

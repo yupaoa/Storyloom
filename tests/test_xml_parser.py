@@ -32,11 +32,11 @@ class TestXmlParser:
 
     def test_parse_extracts_choice_id(self):
         result = XmlParser.parse(VALID_XML)
-        assert result.choice_id == "approach"
+        assert result.choices[-1]["id"] == "approach"
 
     def test_parse_extracts_opt_branches(self):
         result = XmlParser.parse(VALID_XML)
-        assert result.opt_branches == ["take_lead", "wait"]
+        assert result.choices[-1]["branches"] == ["take_lead", "wait"]
 
     def test_parse_extracts_set_operations(self):
         result = XmlParser.parse(VALID_XML)
@@ -109,8 +109,7 @@ class TestXmlParser:
             ""
         )
         result = XmlParser.parse(xml)
-        assert result.choice_id is None
-        assert result.opt_branches == []
+        assert result.choices == []
 
     def test_parse_extracts_pre_bridge_segments(self):
         result = XmlParser.parse(VALID_XML)

@@ -51,10 +51,10 @@ def extract_branch_bridge_text(raw_xml, branch_name):
     return "\n".join(s.strip() for s in segs)
 
 # ── Load all prior rounds ────────────────────────────────────────
-r1_prompt = (PROJECT_ROOT / "tests/data/prompts/round1-linenum.txt").read_text(encoding="utf-8")
-r1_out = load_output(PROJECT_ROOT / "tests/data/output/round1-linenum/prompt-test-01.md")
-r2_out = load_output(PROJECT_ROOT / "tests/data/output/round2-nested/prompt-test-01.md")
-r3_out = load_output(PROJECT_ROOT / "tests/data/output/round3-nested/prompt-test-01.md")
+r1_prompt = (PROJECT_ROOT / "tests/prompt_lab/data/prompts/round1-linenum.txt").read_text(encoding="utf-8")
+r1_out = load_output(PROJECT_ROOT / "tests/prompt_lab/data/output/round1-linenum/prompt-test-01.md")
+r2_out = load_output(PROJECT_ROOT / "tests/prompt_lab/data/output/round2-nested/prompt-test-01.md")
+r3_out = load_output(PROJECT_ROOT / "tests/prompt_lab/data/output/round3-nested/prompt-test-01.md")
 
 r1_parsed = XmlParser.parse(r1_out)
 r2_parsed = XmlParser.parse(r2_out)
@@ -156,7 +156,7 @@ except Exception as e:
     print(f"ERROR: {e}"); sys.exit(1)
 
 # ── Save ─────────────────────────────────────────────────────────
-output_dir = PROJECT_ROOT / "tests/data/output/round4-nested"
+output_dir = PROJECT_ROOT / "tests/prompt_lab/data/output/round4-nested"
 output_dir.mkdir(parents=True, exist_ok=True)
 out_path = output_dir / "prompt-test-01.md"
 out_path.write_text(

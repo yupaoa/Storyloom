@@ -3,22 +3,22 @@
 
 Usage:
   # Test a single prompt version (5 runs, sequential, streaming by default)
-  python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt
+  python3 tests/run_prompt_test.py --prompt tests/prompt_lab/data/prompts/default.txt
 
   # Specify output directory and run count
   python3 tests/run_prompt_test.py --prompt my-prompt.txt --output results/ --runs 3
 
   # Non-streaming mode (for comparison)
-  python3 tests/run_prompt_test.py --prompt tests/data/prompts/default.txt --no-stream
+  python3 tests/run_prompt_test.py --prompt tests/prompt_lab/data/prompts/default.txt --no-stream
 
   # Test multiple prompt versions
-  python3 tests/run_prompt_test.py --prompt tests/data/prompts/v1.txt
-  python3 tests/run_prompt_test.py --prompt tests/data/prompts/v2.txt
+  python3 tests/run_prompt_test.py --prompt tests/prompt_lab/data/prompts/v1.txt
+  python3 tests/run_prompt_test.py --prompt tests/prompt_lab/data/prompts/v2.txt
 
 Setup:
   1. Copy .env.example to .env and fill in your DEEPSEEK_API_KEY
-  2. Put prompt files in tests/data/prompts/ (or anywhere)
-  3. Results auto-saved to tests/data/output/<prompt_name>/
+  2. Put prompt files in tests/prompt_lab/data/prompts/ (or anywhere)
+  3. Results auto-saved to tests/prompt_lab/data/output/<prompt_name>/
 
 Prompt file format:
   A plain text file containing the full LLM prompt (system + user combined).
@@ -226,7 +226,7 @@ def main():
     parser.add_argument(
         "--prompt", type=Path, required=True,
         help="Path to prompt text file (required). "
-             "See tests/data/prompts/ for examples.",
+             "See tests/prompt_lab/data/prompts/ for examples.",
     )
     parser.add_argument(
         "--output", type=Path, default=DEFAULT_OUTPUT,

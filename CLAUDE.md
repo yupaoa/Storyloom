@@ -57,12 +57,10 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `tests/test_xml_parser.py` | XmlParser unit tests | Test |
 | `tests/test_context_manager.py` | ContextManager unit tests | Test |
 | `tests/test_integration.py` | Multi-round conversation flow integration tests | Test |
-| `tests/data/prompts/frame-v1.txt` | XML-format test prompt | Test |
-| `tests/analyze_frame.py` | XML output correctness analyzer | Test |
-| `tests/run_prompt_test.py` | LLM API test harness | Test |
-| `tests/analyze_results.py` | Text-format output analyzer (legacy) | Test |
+| `tests/prompt_lab/` | Prompt design tools and LLM test harnesses (real API) | Tool |
+| `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
 
-**Authority rule:** `docs/spec/exec-flow.md` wins over `docs/design.md` on any conflict.
+**Test structure:** `tests/test_*.py` = pytest unit tests (mock, no API). `tests/prompt_lab/` = ad-hoc prompt design tools (require API key).
 
 ## Tech Stack
 

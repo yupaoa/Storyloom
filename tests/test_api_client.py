@@ -30,6 +30,9 @@ class MockHTTPResponse:
     def __exit__(self, *args):
         pass
 
+    def close(self):
+        pass
+
 
 class TestApiClientInit:
     def test_loads_config_from_env(self):

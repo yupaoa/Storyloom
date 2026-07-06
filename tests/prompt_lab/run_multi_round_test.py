@@ -33,8 +33,8 @@ from src.storyloom.xml_parser import XmlParser, ParseError, ParsedOutput
 
 # ── Paths ──────────────────────────────────────────────────────────────
 
-OUTPUT_DIR = PROJECT_ROOT / "tests" / "data" / "output" / "multi-round"
-PROMPT_DIR = PROJECT_ROOT / "tests" / "data" / "prompts"
+OUTPUT_DIR = PROJECT_ROOT / "tests" / "prompt_lab" / "data" / "output" / "multi-round"
+PROMPT_DIR = PROJECT_ROOT / "tests" / "prompt_lab" / "data" / "prompts"
 STATE_PATH = OUTPUT_DIR / "state.json"
 
 # ── Test fixture (for auto-generated prompts) ──────────────────────────
@@ -397,7 +397,7 @@ def main():
     )
     p.add_argument(
         "--prompt", type=str, default=None,
-        help="Prompt file for Round 1 (relative to tests/data/prompts/).",
+        help="Prompt file for Round 1 (relative to tests/prompt_lab/data/prompts/).",
     )
     p.add_argument(
         "--continue", dest="continue_mode", action="store_true",

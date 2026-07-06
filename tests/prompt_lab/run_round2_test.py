@@ -40,8 +40,8 @@ from src.storyloom.prompt_builder import PromptBuilder
 from src.storyloom.xml_parser import XmlParser
 
 # ── Load Round 1 data ────────────────────────────────────────────
-r1_prompt_file = PROJECT_ROOT / "tests/data/prompts/round1-linenum.txt"
-r1_output_file = PROJECT_ROOT / "tests/data/output/round1-linenum/prompt-test-01.md"
+r1_prompt_file = PROJECT_ROOT / "tests/prompt_lab/data/prompts/round1-linenum.txt"
+r1_output_file = PROJECT_ROOT / "tests/prompt_lab/data/output/round1-linenum/prompt-test-01.md"
 
 r1_prompt = r1_prompt_file.read_text(encoding="utf-8").strip()
 
@@ -137,7 +137,7 @@ except Exception as e:
     sys.exit(1)
 
 # ── Save output ──────────────────────────────────────────────────
-output_dir = PROJECT_ROOT / "tests/data/output/round2-nested"
+output_dir = PROJECT_ROOT / "tests/prompt_lab/data/output/round2-nested"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 out_path = output_dir / "prompt-test-01.md"

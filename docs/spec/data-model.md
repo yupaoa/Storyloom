@@ -3,7 +3,7 @@
 > **定位**：GameState 结构、存档系统、可配置常量、全局约定。  
 > **配套文档**：
 > - [`exec-flow.md`](./exec-flow.md) — 程序执行管线
-> - [`block-spec.md`](./block-spec.md) — 区块分隔符与状态校验
+> - [`block-spec.md`](./block-spec.md) — XML 元素与状态校验
 >
 >
 
@@ -36,13 +36,13 @@ game_state.rejected_changes = []
 
 ## §2 节点推进与存档触发
 
-`--- checkpoint ---` 区块触发（由 exec-flow.md §4.4 响应解析分发至此）。
+`<checkpoint>` 元素触发（由 exec-flow.md §4.4 响应解析分发至此）。
 
 **流程**：
 
 ```
-1. 提取第一行：
-   ├── "node <node_id>" → 标记关键节点
+1. 提取 node 属性值：
+   ├── node_id → 标记关键节点
    └── "end" → 结局节点：设置 ending_flag = true，其余推进逻辑相同
       （标记 completed、存入摘要和快照、触发存档）。
       后续 bridge 处检测到此标志时走结局路径（见 exec-flow.md §4.7）
@@ -110,7 +110,7 @@ game_state.rejected_changes = []
 
 | 触发条件 | 行为 |
 |----------|------|
-| `--- checkpoint ---` 中 `node <id>` 或 `end` 被成功处理 | 覆盖 `saves/{label}.json` |
+| `<checkpoint>` 的 `node` 属性被成功处理 | 覆盖 `saves/{label}.json` |
 | 其他时机 | 不存档 |
 
 ### 3.3 原子写入
@@ -222,9 +222,9 @@ load_save(filepath):
 | # | 约定 | 说明 |
 |---|------|------|
 | 1 | **Prompt 语言** | 所有 LLM Prompt 使用中文 |
-| 2 | **区块分隔符** | 全部英文（`--- narrative ---`、`--- checkpoint ---` 等） |
+| 2 | **XML 元素名** | 全部英文（`<seg>`、`<checkpoint>` 等） |
 | 3 | **变量命名** | 状态变量名、choice 名使用中文 |
-| 4 | **正文限制** | `---` 不得在 narrative 正文中单独成行，避免解析歧义 |
+| 4 | **XML 转义** | narrative 正文中的 `<` `>` `&` 必须转义为 `&lt;` `&gt;` `&amp;` |
 | 5 | **重试策略** | 格式/校验错误最多 `MAX_RETRIES` 次，附带纠正提示重试；API 调用失败**不**自动重试——告知用户，用户决定 |
 | 6 | **用户决策** | 重试耗尽、API 失败、内容过短等异常——告知用户具体信息，由用户选择（重试 / 继续 / 返回主菜单） |
 | 7 | **错误隔离** | state 逐条校验、options 逐行解析——单条失败不影响同轮其余有效条目 |

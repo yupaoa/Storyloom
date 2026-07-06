@@ -79,7 +79,7 @@ class TestDisplayOptions:
         d = Display(output=buf, auto_advance=False)
         d.show_options("approach", ["direct", "careful"], ["直接问价", "先探口风"])
         output = buf.getvalue()
-        assert "[1]" in output or "1." in output
+        assert "[1]" in output
         assert "直接问价" in output
         assert "先探口风" in output
 
@@ -91,14 +91,17 @@ class TestDisplayOptions:
         output = buf.getvalue()
         assert "离开" in output
 
-    def test_option_includes_choice_id_label(self):
-        """Options should show the choice context label."""
+    def test_option_shows_title_and_labels(self):
+        """Options panel should show title and option labels."""
         buf = io.StringIO()
         d = Display(output=buf, auto_advance=False)
         d.show_options("approach", ["direct", "careful"], ["直接问价", "先探口风"])
         output = buf.getvalue()
-        # Should show something like the choice variable name or label
-        assert "approach" in output or "选择" in output
+        assert "选择" in output
+        assert "直接问价" in output
+        assert "先探口风" in output
+        assert "[1]" in output
+        assert "[2]" in output
 
 
 class TestDisplayState:
@@ -144,8 +147,8 @@ class TestDisplayMainMenu:
         d = Display(output=buf)
         d.show_main_menu(save_count=3)
         output = buf.getvalue()
-        assert "新游戏" in output or "New Game" in output
-        assert "继续" in output or "Continue" in output
+        assert "New Game" in output
+        assert "Continue" in output
 
     def test_shows_save_count(self):
         """Main menu should show number of saves available."""
@@ -215,4 +218,4 @@ class TestDisplaySeparators:
         d = Display(output=buf, auto_advance=False)
         d.show_section_break()
         output = buf.getvalue()
-        assert "━" in output or "=" in output or output.strip()
+        assert "─" in output
