@@ -13,6 +13,7 @@ from src.storyloom.display import Display
 from src.storyloom.co_create import CoCreateFlow, CoCreationAborted
 from src.storyloom.game_loop import GameLoop, GameState
 from src.storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
+from src.storyloom.i18n import init_i18n, _
 
 # ── Default story config (used until co-creation UI is built) ─────
 
@@ -95,10 +96,12 @@ def main(output=None) -> None:
     if language not in SUPPORTED_LANGUAGES:
         language = DEFAULT_LANGUAGE
 
-    display = Display(output=output, language=language)
+    init_i18n(language)
+
+    display = Display(output=output)
 
     display.output.write("\n")
-    display.output.write(display.t("banner") + "\n")
+    display.output.write(_("Storyloom — Interactive Fiction") + "\n")
     display.output.write("=" * 40 + "\n\n")
 
     # Load API client
@@ -112,9 +115,9 @@ def main(output=None) -> None:
         return
 
     if args.quick:
-        run_game(display, api_client, language=language, debug=args.debug)
+        run_game(display, api_client, debug=args.debug)
     else:
-        show_main_menu(display, api_client, language=language, debug=args.debug)
+        show_main_menu(display, api_client, debug=args.debug)
 
 
 def _extract_first_node(outline_text: str) -> str:
@@ -138,43 +141,46 @@ def _extract_first_goal(outline_text: str) -> str:
 
 
 def show_main_menu(display: Display, api_client: ApiClient,
-                   language: str = "zh-CN", debug: bool = False) -> None:
+                   debug: bool = False) -> None:
     """Show main menu and route user choices.
 
     Args:
         display: Display instance for output.
         api_client: API client for game calls.
         language: UI and story language.
-        debug: If True, save per-round data to disk.
     """
     while True:
         display.show_main_menu(save_count=0)
-        choice = display.get_input(display.t("menu_prompt"))
+        choice = display.get_input(_("Choose: "))
 
         if choice == "1":
             try:
-                flow = CoCreateFlow(api_client, display, language=language)
+                flow = CoCreateFlow(api_client, display)
                 result = flow.run()
                 run_game(display, api_client,
                          story_config=result.story_config,
+<<<<<<< HEAD
                          outline_text=result.outline_text,
                          language=language,
                          debug=debug)
+=======
+                         outline_text=result.outline_text)
+>>>>>>> worktree-i18n-gettext
             except CoCreationAborted:
-                display.output.write(display.t("return_to_menu") + "\n")
+                display.output.write(_("Returning to menu.") + "\n")
             except ApiError as e:
-                display.show_error(display.t("api_error", str(e)))
+                display.show_error(_("API error: {msg}").format(msg=e))
         elif choice == "2":
             display.show_wait_message(
-                display.t("loading", "继续游戏（加载存档）"))
+                _("Loading: {feature}").format(feature="继续游戏（加载存档）"))
         elif choice == "3":
             display.show_wait_message(
-                display.t("loading", "管理存档"))
+                _("Loading: {feature}").format(feature="管理存档"))
         elif choice == "4":
-            display.output.write(display.t("menu_goodbye") + "\n")
+            display.output.write(_("Goodbye.") + "\n")
             break
         else:
-            display.output.write(display.t("menu_invalid") + "\n")
+            display.output.write(_("Invalid choice, try again.") + "\n")
 
 
 def _make_debug_observer(output_dir: str):
@@ -251,8 +257,11 @@ def run_game(
     api_client: ApiClient,
     story_config: dict | None = None,
     outline_text: str | None = None,
+<<<<<<< HEAD
     language: str = "zh-CN",
     debug: bool = False,
+=======
+>>>>>>> worktree-i18n-gettext
 ) -> None:
     """Run the narrative game loop.
 
@@ -261,9 +270,12 @@ def run_game(
         api_client: API client for LLM calls.
         story_config: Story config (from co-creation or default).
         outline_text: Outline text (from co-creation or default).
+<<<<<<< HEAD
         language: UI and story language.
         debug: If True, save per-round prompt/response/metrics to disk
                under tests/data/output/debug-{timestamp}/.
+=======
+>>>>>>> worktree-i18n-gettext
     """
     if story_config is None:
         story_config = DEFAULT_STORY_CONFIG
@@ -298,7 +310,7 @@ def run_game(
     try:
         result = game_loop.start_round1()
     except ApiError as e:
-        display.show_error(display.t("api_error", str(e)))
+        display.show_error(_("API error: {msg}").format(msg=e))
         return
 
     n_opts = 0  # will be updated when options are available
@@ -311,15 +323,15 @@ def run_game(
             try:
                 result = game_loop.continue_round(choice_key=None)
             except ApiError as e:
-                display.show_error(display.t("api_error", str(e)))
+                display.show_error(_("API error: {msg}").format(msg=e))
                 break
             continue
 
         n_opts = len(options)
-        choice = display.get_input("\n" + display.t("choose_option") + " ")
+        choice = display.get_input("\n" + _("Choose an option (type quit to return to menu): ") + " ")
 
         if choice and choice.strip().lower() in ("quit", "exit", "q"):
-            display.output.write(display.t("return_to_menu") + "\n")
+            display.output.write(_("Returning to menu.") + "\n")
             return
 
         if choice and choice.strip().isdigit():
@@ -328,15 +340,15 @@ def run_game(
                 try:
                     result = game_loop.continue_round(choice_key=choice.strip())
                 except ApiError as e:
-                    display.show_error(display.t("api_error", str(e)))
+                    display.show_error(_("API error: {msg}").format(msg=e))
                     break
             else:
                 display.output.write(
-                    display.t("invalid_choice", n_opts) + "\n")
+                    _("Invalid choice, please enter 1-{n}.").format(n=n_opts) + "\n")
         elif choice == "0":
             display.show_state(game_loop.game_state.state_vars)
         else:
-            display.output.write(display.t("enter_digit_or_quit") + "\n")
+            display.output.write(_("Enter a number or quit.") + "\n")
 
 
 if __name__ == "__main__":

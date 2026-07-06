@@ -26,3 +26,6 @@ tests/data/output/
 # Generated prompt files (from generate_prompt.py)
 tests/data/prompts/seg-t*.txt
 tests/data/prompts/seg-test-manifest*.json
+
+# Compiled gettext binary catalogs (regenerated from .po sources)
+*.mo
