@@ -59,6 +59,13 @@ msgstr "────────────────────────
 msgid "···"
 msgstr "···"
 
+# ── State display ──
+msgid "State"
+msgstr "状态"
+
+msgid "  (no state variables)"
+msgstr "  （无状态变量）"
+
 # ── Status / errors ──
 msgid "Error: {msg}"
 msgstr "错误: {msg}"

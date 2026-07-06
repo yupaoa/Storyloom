@@ -89,14 +89,14 @@ class Display:
         Args:
             state_vars: Dictionary of variable name to value.
         """
-        self.output.write("═" * 40 + "\n")
-        self.output.write("【状态】\n\n")
+        self.output.write(_("────────────────────────────────────\n"))
+        self.output.write(_("State\n\n"))
         if not state_vars:
-            self.output.write("  （无状态变量）\n")
+            self.output.write(_("  (no state variables)\n"))
         else:
             for name, value in state_vars.items():
                 self.output.write(f"  {name}: {value}\n")
-        self.output.write("═" * 40 + "\n")
+        self.output.write(_("────────────────────────────────────\n"))
         self.output.flush()
 
     # ── Main Menu ──────────────────────────────────────────────────
