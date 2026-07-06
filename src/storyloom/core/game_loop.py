@@ -4,6 +4,7 @@ Coordinates all modules: PromptBuilder, ContextManager, ApiClient, XmlParser, Di
 Validates all LLM-suggested state changes (local source of truth).
 """
 
+import copy
 import re
 import time
 from collections.abc import Iterator
@@ -843,6 +844,124 @@ class GameLoop:
                 "type": "options",
                 "choices": parsed.choices,
             }
+
+    # ── Save / Restore ─────────────────────────────────────────────
+
+    def to_save_dict(self) -> dict:
+        """Produce complete save dict per data-model.md §3.1 format."""
+        # Convert outline nodes to save format
+        outline_for_save = []
+        for node in self._outline_nodes:
+            nid = node.get("id", "")
+            status = "active" if nid == self.current_node else (
+                "completed" if nid in self._completed_nodes else "pending"
+            )
+            outline_for_save.append({
+                "node_id": nid,
+                "title": node.get("title", ""),
+                "goal": node.get("goal", ""),
+                "status": status,
+                "branches": [r.get("target", "") for r in node.get("routes", [])],
+            })
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        label = self.story_config.get("label", "untitled")
+
+        return {
+            "version": 1,
+            "metadata": {
+                "label": label,
+                "created_at": now,
+                "updated_at": now,
+                "round_count": self._context_mgr.round_count,
+            },
+            "config": {
+                "temperature": getattr(self, "_temperature", None),
+            },
+            "story_config": copy.deepcopy(self.story_config),
+            "state_vars": self.game_state.state_vars,
+            "outline": outline_for_save,
+            "progress": {
+                "current_node": self.current_node or "",
+                "round_count": self._context_mgr.round_count,
+                "checkpoint_history": list(self._checkpoint_history),
+                "checkpoint_summaries": list(self._checkpoint_summaries),
+                "checkpoint_snapshots": copy.deepcopy(self._checkpoint_snapshots),
+            },
+            "bridge_text": self._last_bridge_text,
+        }
+
+    @classmethod
+    def from_save_dict(
+        cls,
+        data: dict,
+        api_client: "ApiClient",
+        display: "Display | None" = None,
+    ) -> "GameLoop":
+        """Restore GameLoop from save data."""
+        story_config = data["story_config"]
+        state_vars_data = {"state_vars": data["state_vars"]}
+
+        # Reconstruct outline text from nodes
+        outline_nodes = data["outline"]
+        outline_lines = []
+        for node in outline_nodes:
+            nid = node.get("node_id", node.get("id", ""))
+            status = node.get("status", "pending")
+            title = node.get("title", "")
+            goal = node.get("goal", "")
+            outline_lines.append(f"{nid} [{status}] — {title}：{goal}")
+        outline_text = "\n".join(outline_lines)
+
+        # Restore GameState
+        game_state = GameState.from_dict(state_vars_data, story_config)
+
+        progress = data["progress"]
+        current_node = progress.get("current_node", "")
+
+        # Parse goal from outline
+        goal = ""
+        for node in outline_nodes:
+            nid = node.get("node_id", node.get("id", ""))
+            if nid == current_node:
+                goal = node.get("goal", "")
+                break
+
+        gl = cls(
+            story_config=story_config,
+            outline_text=outline_text,
+            api_client=api_client,
+            display=display,
+            game_state=game_state,
+            current_node=current_node or None,
+            goal=goal or None,
+            outline_nodes=outline_nodes,
+        )
+
+        # Restore bridge text
+        gl._last_bridge_text = data.get("bridge_text", "")
+
+        # Restore checkpoint accumulations
+        gl._checkpoint_summaries = list(progress.get("checkpoint_summaries", []))
+        gl._checkpoint_history = list(progress.get("checkpoint_history", []))
+        gl._checkpoint_snapshots = dict(progress.get("checkpoint_snapshots", {}))
+
+        # Restore completed nodes from outline status
+        for node in outline_nodes:
+            nid = node.get("node_id", node.get("id", ""))
+            if node.get("status") == "completed" and nid not in gl._completed_nodes:
+                gl._completed_nodes.append(nid)
+
+        # Restore temperature
+        config = data.get("config", {})
+        if "temperature" in config:
+            gl._temperature = config["temperature"]
+
+        return gl
+
+    def set_save_manager(self, save_manager) -> None:
+        """Configure auto-save on checkpoint."""
+        self._save_manager = save_manager
 
     # ── Observer ──────────────────────────────────────────────────
 
