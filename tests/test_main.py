@@ -6,6 +6,8 @@ import sys
 import pytest
 from src.storyloom.main import main, parse_args, DEFAULT_STORY_CONFIG
 from src.storyloom.display import Display
+from src.storyloom.i18n import init_i18n
+init_i18n("en")  # Use English for deterministic test output
 
 
 class TestDefaultStoryConfig:

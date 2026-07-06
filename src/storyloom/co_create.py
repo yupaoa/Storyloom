@@ -588,7 +588,7 @@ class CoCreateFlow:
         d.output.write(_("[Co-Creation — Story Setup]") + "\n\n")
         d.output.write(_("Describe the story you'd like to play.\ne.g. 'A cyberpunk love story' or 'A wuxia adventure'\n") + "\n")
 
-        for _ in range(20):
+        for _attempt in range(20):
             raw_idea = d.get_input("> ")
             if raw_idea and raw_idea.strip():
                 break
@@ -707,7 +707,7 @@ class CoCreateFlow:
     def _generate_with_retry(self) -> str:
         """Call LLM for generation. Handle API errors."""
         d = self._display
-        for _ in range(10):
+        for _retry in range(10):
             try:
                 return self._api.chat(self._messages)
             except Exception as e:

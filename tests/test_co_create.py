@@ -1,6 +1,8 @@
 """Tests for co-create parser and flow."""
 import pytest
 from src.storyloom.co_create import CoCreateParser
+from src.storyloom.i18n import init_i18n
+init_i18n("en")  # Use English for deterministic test output
 
 
 class TestSplitBlocks:
@@ -528,16 +530,6 @@ class MockDisplay:
 
     def show_error(self, msg):
         pass
-
-    def t(self, key, *args):
-        """Return zh-CN translation for testing."""
-        from src.storyloom.display import Display
-        strings = Display.UI.get("zh-CN", {})
-        template = strings.get(key, key)
-        if args:
-            return template.format(*args)
-        return template
-
 
 FULL_GENERATION_RESPONSE = """=== story_config ===
 genre: 赛博朋克冒险
