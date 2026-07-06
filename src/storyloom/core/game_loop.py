@@ -681,8 +681,8 @@ class GameLoop:
             if cp_summary:
                 self._checkpoint_summaries.append(cp_summary)
 
-            # Get the node title from _outline_nodes. For the "end"
-            # checkpoint, use the last outline node's title or "结局".
+            # Resolve title from _outline_nodes. For the "end" sentinel,
+            # fall back to the last outline node's title.
             cp_title = cp_node
             if self._outline_nodes:
                 if cp_node == "end":
