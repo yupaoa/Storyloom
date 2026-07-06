@@ -531,6 +531,9 @@ class MockDisplay:
     def show_error(self, msg):
         pass
 
+    def ask(self, prompt=""):
+        return self.get_input(prompt)
+
 FULL_GENERATION_RESPONSE = """=== story_config ===
 genre: 赛博朋克冒险
 tier: medium

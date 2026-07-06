@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass
 
 from storyloom.io.api_client import ApiClient
-from storyloom.io.display import Display
+from storyloom.core.ui_interface import UiInterface
 from storyloom.i18n import _, get_current_lang
 from storyloom.config import (
     MAX_RETRIES,
@@ -557,9 +557,9 @@ class CoCreateFlow:
         Step 3: Single LLM call generates story_config + variables + outline.
     """
 
-    def __init__(self, api_client: ApiClient, display: Display):
+    def __init__(self, api_client: ApiClient, ui: UiInterface):
         self._api = api_client
-        self._display = display
+        self._ui = ui
         self._messages: list[dict] = [
             {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
         ]
@@ -582,17 +582,17 @@ class CoCreateFlow:
 
     def _step1_get_idea(self) -> None:
         """Collect user's initial story idea."""
-        d = self._display
-        d.output.write("\n")
-        d.output.write("━" * 50 + "\n")
-        d.output.write(_("[Co-Creation — Story Setup]") + "\n\n")
-        d.output.write(_("Describe the story you'd like to play.\ne.g. 'A cyberpunk love story' or 'A wuxia adventure'\n") + "\n")
+        d = self._ui
+        d.write("\n")
+        d.write("━" * 50 + "\n")
+        d.write(_("[Co-Creation — Story Setup]") + "\n\n")
+        d.write(_("Describe the story you'd like to play.\ne.g. 'A cyberpunk love story' or 'A wuxia adventure'\n") + "\n")
 
         for _attempt in range(20):
-            raw_idea = d.get_input("> ")
+            raw_idea = d.ask("> ")
             if raw_idea and raw_idea.strip():
                 break
-            d.output.write(_("Please share some thoughts to begin.") + "\n")
+            d.write(_("Please share some thoughts to begin.") + "\n")
         else:
             raise CoCreationAborted()
 
@@ -606,11 +606,11 @@ class CoCreateFlow:
         LLM asks questions about 5 dimensions. User responds.
         Loop exits when user types '开始'/'go' or equivalent.
         """
-        d = self._display
-        d.output.write("\n")
-        d.output.write("━" * 50 + "\n")
-        d.output.write(_("[Q&A Phase]") + "\n")
-        d.output.write(_("I'll ask a few questions to understand the story you want.\nWhen you're ready, type 'go' to generate the story setup.\nType 'quit' to return to the main menu.\n") + "\n")
+        d = self._ui
+        d.write("\n")
+        d.write("━" * 50 + "\n")
+        d.write(_("[Q&A Phase]") + "\n")
+        d.write(_("I'll ask a few questions to understand the story you want.\nWhen you're ready, type 'go' to generate the story setup.\nType 'quit' to return to the main menu.\n") + "\n")
 
         if get_current_lang() == "zh-CN":
             START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes"}
@@ -621,20 +621,20 @@ class CoCreateFlow:
         MAX_QNA_ROUNDS = 15
 
         for _round in range(MAX_QNA_ROUNDS):
-            d.show_wait_message(_("Thinking..."))
+            d.write(_("Thinking..."))
             try:
                 response = self._api.chat(self._messages)
             except Exception as e:
                 d.show_error(_("API call failed: {error}").format(error=e))
-                choice = d.get_input(_("[R]etry / [M]enu: "))
+                choice = d.ask(_("[R]etry / [M]enu: "))
                 if choice.upper() == 'M':
                     raise CoCreationAborted()
                 continue
 
             self._messages.append({"role": "assistant", "content": response})
-            d.output.write(f"\n{response}\n\n")
+            d.write(f"\n{response}\n\n")
 
-            user_input = d.get_input(
+            user_input = d.ask(
                 _("Your answer (or type 'go'/'quit')> ")
             ).strip()
 
@@ -642,11 +642,11 @@ class CoCreateFlow:
                 continue
 
             if user_input in START_KEYWORDS:
-                d.output.write("\n")
+                d.write("\n")
                 break
 
             if user_input in QUIT_KEYWORDS:
-                confirm = d.get_input(_("Abort co-creation and return to menu? (y/n): "))
+                confirm = d.ask(_("Abort co-creation and return to menu? (y/n): "))
                 if confirm.lower() in ("y", "yes", "是"):
                     raise CoCreationAborted()
                 continue
@@ -670,7 +670,7 @@ class CoCreateFlow:
         gen_prompt = GENERATE_ALL_PROMPT.format(variable_names=var_names)
         self._messages.append({"role": "user", "content": gen_prompt})
 
-        self._display.show_wait_message(_("Weaving your story world..."))
+        self._ui.write(_("Weaving your story world..."))
         response = self._generate_with_retry()
         self._messages.append({"role": "assistant", "content": response})
 
@@ -706,13 +706,13 @@ class CoCreateFlow:
 
     def _generate_with_retry(self) -> str:
         """Call LLM for generation. Handle API errors."""
-        d = self._display
+        d = self._ui
         for _retry in range(10):
             try:
                 return self._api.chat(self._messages)
             except Exception as e:
                 d.show_error(_("Generation failed: {error}").format(error=e))
-                choice = d.get_input(_("[R]etry / [M]enu: "))
+                choice = d.ask(_("[R]etry / [M]enu: "))
                 if choice.upper() == 'M':
                     raise CoCreationAborted()
         raise CoCreationAborted()
@@ -763,7 +763,7 @@ class CoCreateFlow:
                      "content": f"Outline has errors. {error_msg}\n"
                                f"Please fix and regenerate the outline block."}
                 )
-                self._display.show_wait_message(
+                self._ui.write(
                     _("Fixing {block}... (attempt {n})").format(block="大纲", n=attempt + 1)
                 )
                 response = self._generate_with_retry()
@@ -780,7 +780,7 @@ class CoCreateFlow:
                 if not errors:
                     return nodes
 
-            choice = self._display.get_input(
+            choice = self._ui.ask(
                 _("Outline validation failed ({errors}).").format(errors="; ".join(errors))
                 + " " + _("[R]etry / [M]enu: ")
             )
@@ -817,7 +817,7 @@ class CoCreateFlow:
                                    f"{error_msg}\n"
                                    f"Please fix and regenerate all three sections."}
                     )
-                    self._display.show_wait_message(
+                    self._ui.write(
                         _("Fixing {block}... (attempt {n})").format(block=block_name, n=attempt + 1)
                     )
                     response = self._generate_with_retry()
@@ -828,7 +828,7 @@ class CoCreateFlow:
                     text = blocks.get(block_name, "")
                     continue
 
-            choice = self._display.get_input(
+            choice = self._ui.ask(
                 _("{block} parsing failed ({errors}).").format(block=block_name, errors="; ".join(errors))
                 + " " + _("[R]etry / [M]enu: ")
             )

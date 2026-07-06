@@ -14,9 +14,13 @@ except ImportError:
     except ImportError:
         pass  # Bare input() — Windows console natively handles CJK input correctly
 import time
+from typing import TYPE_CHECKING
 
 from storyloom.i18n import _
 from storyloom.parser.xml_parser import Segment
+
+if TYPE_CHECKING:
+    from storyloom.core.ui_interface import UiInterface
 
 
 class Display:
@@ -154,6 +158,15 @@ class Display:
             return input().strip()
         except (EOFError, KeyboardInterrupt):
             return ""
+
+    def write(self, text: str) -> None:
+        """Display text. Part of UiInterface protocol."""
+        self.output.write(text)
+        self.output.flush()
+
+    def ask(self, prompt: str) -> str:
+        """Get user input. Part of UiInterface protocol."""
+        return self.get_input(prompt)
 
     # ── Separators ─────────────────────────────────────────────────
 
