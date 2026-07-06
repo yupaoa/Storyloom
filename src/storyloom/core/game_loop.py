@@ -427,6 +427,7 @@ class GameLoop:
         self._checkpoint_snapshots: dict[str, dict] = {}
         self.ending_flag: bool = False
         self._save_manager = None
+        self._created_at: str | None = None
 
     # ── Properties ─────────────────────────────────────────────────
 
@@ -671,9 +672,22 @@ class GameLoop:
             if cp_summary:
                 self._checkpoint_summaries.append(cp_summary)
 
+            # Get the node title from _outline_nodes. For the "end"
+            # checkpoint, use the last outline node's title or "结局".
+            cp_title = cp_node
+            if self._outline_nodes:
+                if cp_node == "end":
+                    last = self._outline_nodes[-1]
+                    cp_title = last.get("title", "结局") or "结局"
+                else:
+                    for node in self._outline_nodes:
+                        if node.get("id") == cp_node:
+                            cp_title = node.get("title", cp_node)
+                            break
+
             self._checkpoint_history.append({
                 "node": cp_node,
-                "title": self._node_goals.get(cp_node, cp_node),
+                "title": cp_title,
                 "summary": cp_summary,
                 "round": self._context_mgr.round_count,
             })
@@ -692,6 +706,8 @@ class GameLoop:
         # ── Step 3.6: Ending detection ──────────────────────────────
         if self.last_parsed.checkpoint_node == "end":
             self.ending_flag = True
+            if "end" not in self._completed_nodes:
+                self._completed_nodes.append("end")
 
         # ── Step 4: Build Round N context ───────────────────────────
         compressed_summaries = self._context_mgr.get_compressed_summaries() or None
@@ -918,11 +934,15 @@ class GameLoop:
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         label = self.story_config.get("label", "untitled")
 
+        # Preserve original created_at; set on first save only.
+        if self._created_at is None:
+            self._created_at = now
+
         return {
             "version": 1,
             "metadata": {
                 "label": label,
-                "created_at": now,
+                "created_at": self._created_at,
                 "updated_at": now,
                 "round_count": self._context_mgr.round_count,
             },
@@ -1007,6 +1027,11 @@ class GameLoop:
         config = data.get("config", {})
         if "temperature" in config:
             gl._temperature = config["temperature"]
+
+        # Restore created_at (preserve original creation timestamp)
+        metadata = data.get("metadata", {})
+        if metadata.get("created_at"):
+            gl._created_at = metadata["created_at"]
 
         return gl
 
