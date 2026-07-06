@@ -689,6 +689,10 @@ class GameLoop:
                 except Exception:
                     pass
 
+        # ── Step 3.6: Ending detection ──────────────────────────────
+        if self.last_parsed.checkpoint_node == "end":
+            self.ending_flag = True
+
         # ── Step 4: Build Round N context ───────────────────────────
         compressed_summaries = self._context_mgr.get_compressed_summaries() or None
         bridge_text = self._context_mgr.get_last_bridge_text()
@@ -777,6 +781,27 @@ class GameLoop:
 
         # ── Yield structured events ─────────────────────────────────
         yield from self._emit_parsed(parsed)
+
+        # ── Check for ending after emitting parsed content ──
+        if self.ending_flag:
+            try:
+                adventure_log = self.run_adventure_log()
+            except Exception:
+                adventure_log = "（冒险日志生成失败）"
+
+            yield {
+                "type": "ending",
+                "adventure_log": adventure_log,
+                "final_state": self.game_state.state_vars,
+                "summary": self.last_parsed.checkpoint_summary,
+            }
+            yield {
+                "type": "done",
+                "round": self._context_mgr.round_count,
+                "node": "end",
+                "state": self.game_state.state_vars,
+            }
+            return  # Game over
 
         # ── Notify observer ─────────────────────────────────────────
         self._notify(RoundRecord(
@@ -1098,18 +1123,17 @@ class GameLoop:
     def run_adventure_log(self) -> str:
         """Generate adventure log / ending summary.
 
-        Uses non-streaming chat to generate a summary of the adventure.
+        Uses non-streaming chat with structured prompt per prompt-design.md §5.2.
 
         Returns:
-            Summary text.
+            Adventure log markdown text.
         """
+        prompt = PromptBuilder.build_adventure_log_prompt(
+            story_config=self.story_config,
+            state_vars=self.game_state.state_vars,
+            checkpoint_summaries=self._checkpoint_summaries,
+            checkpoint_history=self._checkpoint_history,
+        )
         messages = self._context_mgr.get_messages()
-        messages.append({
-            "role": "user",
-            "content": (
-                "请为这段冒险写一段结局总结（200-300字），"
-                "概括主角的旅程、关键抉择和最终命运。"
-            ),
-        })
-        self.display.show_wait_message("生成冒险日志...")
+        messages.append({"role": "user", "content": prompt})
         return self.api_client.chat(messages)
