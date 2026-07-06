@@ -155,6 +155,15 @@ class Display:
         except (EOFError, KeyboardInterrupt):
             return ""
 
+    def write(self, text: str) -> None:
+        """Display text. Part of UiInterface protocol."""
+        self.output.write(text)
+        self.output.flush()
+
+    def ask(self, prompt: str) -> str:
+        """Get user input. Part of UiInterface protocol."""
+        return self.get_input(prompt)
+
     # ── Separators ─────────────────────────────────────────────────
 
     def show_separator(self) -> None:

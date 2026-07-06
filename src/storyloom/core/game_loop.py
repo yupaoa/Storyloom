@@ -4,6 +4,7 @@ Coordinates all modules: PromptBuilder, ContextManager, ApiClient, XmlParser, Di
 Validates all LLM-suggested state changes (local source of truth).
 """
 
+import copy
 import re
 import time
 from collections.abc import Iterator
@@ -109,6 +110,35 @@ class GameState:
     def state_vars(self) -> dict:
         """Return current state variables as a dict copy."""
         return dict(self._state_vars)
+
+    def to_dict(self) -> dict:
+        """Serialize state variables to a plain dict.
+
+        Returns:
+            Dict with 'state_vars' key containing current values.
+        """
+        return {
+            "state_vars": dict(self._state_vars),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, story_config: dict) -> "GameState":
+        """Restore GameState from save data.
+
+        Uses the original story_config for variable type definitions;
+        actual state values come from data['state_vars'].
+
+        Args:
+            data: Dict with 'state_vars' key from save file.
+            story_config: Original story_config from save file
+                          (preserves variable definitions with initial values).
+
+        Returns:
+            New GameState instance with restored values.
+        """
+        gs = cls(story_config)
+        gs._state_vars = dict(data.get("state_vars", {}))
+        return gs
 
     def apply_set(self, set_op: SetOperation, choice_dict: dict[str, int]) -> SetResult:
         """Validate and apply a state change from the LLM.
@@ -349,6 +379,7 @@ class GameLoop:
         current_node: str | None = None,
         goal: str | None = None,
         observer: Callable[[RoundRecord], None] | None = None,
+        outline_nodes: list[dict] | None = None,
     ):
         """Initialize game loop with story config and dependencies.
 
@@ -366,6 +397,7 @@ class GameLoop:
         """
         self.story_config = story_config
         self.outline_text = outline_text
+        self._outline_nodes = outline_nodes or []
         self.api_client = api_client
         self.display = display or Display()
 
@@ -387,6 +419,14 @@ class GameLoop:
         self._rejected_changes: list[str] = []
         self._format_error: str | None = None
         self._round1_started = False
+
+        # Checkpoint and save accumulators
+        self._temperature = getattr(api_client, "temperature", None)
+        self._checkpoint_summaries: list[str] = []
+        self._checkpoint_history: list[dict] = []
+        self._checkpoint_snapshots: dict[str, dict] = {}
+        self.ending_flag: bool = False
+        self._save_manager = None
 
     # ── Properties ─────────────────────────────────────────────────
 
@@ -623,6 +663,36 @@ class GameLoop:
                 self.current_node = cp
                 self.goal = self._node_goals.get(cp, self.goal or "")
 
+        # ── Step 3.5: Accumulate checkpoint data ────────────────────
+        if self.last_parsed.checkpoint_node:
+            cp_node = self.last_parsed.checkpoint_node
+            cp_summary = self.last_parsed.checkpoint_summary or ""
+
+            if cp_summary:
+                self._checkpoint_summaries.append(cp_summary)
+
+            self._checkpoint_history.append({
+                "node": cp_node,
+                "title": self._node_goals.get(cp_node, cp_node),
+                "summary": cp_summary,
+                "round": self._context_mgr.round_count,
+            })
+
+            self._checkpoint_snapshots[cp_node] = copy.deepcopy(
+                self.game_state.state_vars
+            )
+
+            # Trigger auto-save if SaveManager is configured
+            if self._save_manager is not None:
+                try:
+                    self._save_manager.save(self.to_save_dict())
+                except Exception:
+                    pass
+
+        # ── Step 3.6: Ending detection ──────────────────────────────
+        if self.last_parsed.checkpoint_node == "end":
+            self.ending_flag = True
+
         # ── Step 4: Build Round N context ───────────────────────────
         compressed_summaries = self._context_mgr.get_compressed_summaries() or None
         bridge_text = self._context_mgr.get_last_bridge_text()
@@ -711,6 +781,27 @@ class GameLoop:
 
         # ── Yield structured events ─────────────────────────────────
         yield from self._emit_parsed(parsed)
+
+        # ── Check for ending after emitting parsed content ──
+        if self.ending_flag:
+            try:
+                adventure_log = self.run_adventure_log()
+            except Exception:
+                adventure_log = "（冒险日志生成失败）"
+
+            yield {
+                "type": "ending",
+                "adventure_log": adventure_log,
+                "final_state": self.game_state.state_vars,
+                "summary": self.last_parsed.checkpoint_summary,
+            }
+            yield {
+                "type": "done",
+                "round": self._context_mgr.round_count,
+                "node": "end",
+                "state": self.game_state.state_vars,
+            }
+            return  # Game over
 
         # ── Notify observer ─────────────────────────────────────────
         self._notify(RoundRecord(
@@ -804,6 +895,124 @@ class GameLoop:
                 "type": "options",
                 "choices": parsed.choices,
             }
+
+    # ── Save / Restore ─────────────────────────────────────────────
+
+    def to_save_dict(self) -> dict:
+        """Produce complete save dict per data-model.md §3.1 format."""
+        # Convert outline nodes to save format
+        outline_for_save = []
+        for node in self._outline_nodes:
+            nid = node.get("id", "")
+            status = "active" if nid == self.current_node else (
+                "completed" if nid in self._completed_nodes else "pending"
+            )
+            outline_for_save.append({
+                "node_id": nid,
+                "title": node.get("title", ""),
+                "goal": node.get("goal", ""),
+                "status": status,
+                "branches": [r.get("target", "") for r in node.get("routes", [])],
+            })
+
+        now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        label = self.story_config.get("label", "untitled")
+
+        return {
+            "version": 1,
+            "metadata": {
+                "label": label,
+                "created_at": now,
+                "updated_at": now,
+                "round_count": self._context_mgr.round_count,
+            },
+            "config": {
+                "temperature": getattr(self, "_temperature", None),
+            },
+            "story_config": copy.deepcopy(self.story_config),
+            "state_vars": self.game_state.state_vars,
+            "outline": outline_for_save,
+            "progress": {
+                "current_node": self.current_node or "",
+                "round_count": self._context_mgr.round_count,
+                "checkpoint_history": list(self._checkpoint_history),
+                "checkpoint_summaries": list(self._checkpoint_summaries),
+                "checkpoint_snapshots": copy.deepcopy(self._checkpoint_snapshots),
+            },
+            "bridge_text": self._last_bridge_text,
+        }
+
+    @classmethod
+    def from_save_dict(
+        cls,
+        data: dict,
+        api_client: "ApiClient",
+        display: "Display | None" = None,
+    ) -> "GameLoop":
+        """Restore GameLoop from save data."""
+        story_config = data["story_config"]
+        state_vars_data = {"state_vars": data["state_vars"]}
+
+        # Reconstruct outline text from nodes
+        outline_nodes = data["outline"]
+        outline_lines = []
+        for node in outline_nodes:
+            nid = node.get("node_id", node.get("id", ""))
+            status = node.get("status", "pending")
+            title = node.get("title", "")
+            goal = node.get("goal", "")
+            outline_lines.append(f"{nid} [{status}] — {title}：{goal}")
+        outline_text = "\n".join(outline_lines)
+
+        # Restore GameState
+        game_state = GameState.from_dict(state_vars_data, story_config)
+
+        progress = data["progress"]
+        current_node = progress.get("current_node", "")
+
+        # Parse goal from outline
+        goal = ""
+        for node in outline_nodes:
+            nid = node.get("node_id", node.get("id", ""))
+            if nid == current_node:
+                goal = node.get("goal", "")
+                break
+
+        gl = cls(
+            story_config=story_config,
+            outline_text=outline_text,
+            api_client=api_client,
+            display=display,
+            game_state=game_state,
+            current_node=current_node or None,
+            goal=goal or None,
+            outline_nodes=outline_nodes,
+        )
+
+        # Restore bridge text
+        gl._last_bridge_text = data.get("bridge_text", "")
+
+        # Restore checkpoint accumulations
+        gl._checkpoint_summaries = list(progress.get("checkpoint_summaries", []))
+        gl._checkpoint_history = list(progress.get("checkpoint_history", []))
+        gl._checkpoint_snapshots = dict(progress.get("checkpoint_snapshots", {}))
+
+        # Restore completed nodes from outline status
+        for node in outline_nodes:
+            nid = node.get("node_id", node.get("id", ""))
+            if node.get("status") == "completed" and nid not in gl._completed_nodes:
+                gl._completed_nodes.append(nid)
+
+        # Restore temperature
+        config = data.get("config", {})
+        if "temperature" in config:
+            gl._temperature = config["temperature"]
+
+        return gl
+
+    def set_save_manager(self, save_manager) -> None:
+        """Configure auto-save on checkpoint."""
+        self._save_manager = save_manager
 
     # ── Observer ──────────────────────────────────────────────────
 
@@ -914,18 +1123,17 @@ class GameLoop:
     def run_adventure_log(self) -> str:
         """Generate adventure log / ending summary.
 
-        Uses non-streaming chat to generate a summary of the adventure.
+        Uses non-streaming chat with structured prompt per prompt-design.md §5.2.
 
         Returns:
-            Summary text.
+            Adventure log markdown text.
         """
+        prompt = PromptBuilder.build_adventure_log_prompt(
+            story_config=self.story_config,
+            state_vars=self.game_state.state_vars,
+            checkpoint_summaries=self._checkpoint_summaries,
+            checkpoint_history=self._checkpoint_history,
+        )
         messages = self._context_mgr.get_messages()
-        messages.append({
-            "role": "user",
-            "content": (
-                "请为这段冒险写一段结局总结（200-300字），"
-                "概括主角的旅程、关键抉择和最终命运。"
-            ),
-        })
-        self.display.show_wait_message("生成冒险日志...")
+        messages.append({"role": "user", "content": prompt})
         return self.api_client.chat(messages)

@@ -63,6 +63,7 @@ class TestParseStoryConfig:
 
     VALID_CONFIG = """genre: 赛博朋克冒险
 tier: medium
+label: test-story
 setting: 2087年新东京地下城
 protagonist_name: 林焰
 protagonist_identity: 前荒坂安全顾问，现自由佣兵
@@ -89,6 +90,7 @@ characters:
     def test_parse_without_setting_still_works(self):
         text = """genre: fantasy
 tier: short
+label: test-story
 setting:
 protagonist_name: Kael
 protagonist_identity: mercenary
@@ -104,6 +106,7 @@ characters:
     def test_missing_required_field_raises_parse_error(self):
         text = """genre: fantasy
 tier: short
+label: test-story
 protagonist_name: Kael
 protagonist_identity: mercenary
 protagonist_traits: brave
@@ -115,6 +118,7 @@ conflict: a war"""
     def test_invalid_tier_raises_parse_error(self):
         text = """genre: fantasy
 tier: epic
+label: test-story
 setting: somewhere
 protagonist_name: Kael
 protagonist_identity: mercenary
@@ -133,6 +137,7 @@ characters:
     def test_characters_single_entry(self):
         text = """genre: fantasy
 tier: short
+label: test-story
 setting: somewhere
 protagonist_name: Kael
 protagonist_identity: mercenary
@@ -531,9 +536,13 @@ class MockDisplay:
     def show_error(self, msg):
         pass
 
+    def ask(self, prompt: str) -> str:
+        return self.get_input(prompt)
+
 FULL_GENERATION_RESPONSE = """=== story_config ===
 genre: 赛博朋克冒险
 tier: medium
+label: test-story
 setting: 2087年新东京地下城
 protagonist_name: 林焰
 protagonist_identity: 前荒坂安全顾问，现自由佣兵
@@ -648,6 +657,7 @@ class TestCoCreateFlow:
         bad_response = """=== story_config ===
 genre: fantasy
 tier: epic
+label: test-story
 setting: somewhere
 protagonist_name: Kael
 protagonist_identity: warrior
@@ -688,6 +698,7 @@ routes: （结局）"""
         """All retries fail → user chooses menu → CoCreationAborted."""
         bad_response = """=== story_config ===
 genre: fantasy
+label: test-story
 
 === variables ===
 hp: number, 初始 80

@@ -328,6 +328,67 @@ class PromptBuilder:
         return "\n".join(parts)
 
     @staticmethod
+    def build_adventure_log_prompt(
+        story_config: dict,
+        state_vars: dict,
+        checkpoint_summaries: list[str],
+        checkpoint_history: list[dict],
+    ) -> str:
+        """Build adventure log prompt per prompt-design.md section 5.2.
+
+        This is an independent LLM call -- not part of the narrative loop.
+
+        Args:
+            story_config: Story configuration dict.
+            state_vars: Current state variables.
+            checkpoint_summaries: Accumulated checkpoint summary strings.
+            checkpoint_history: Structured checkpoint records
+                                [{node, title, summary, round}].
+
+        Returns:
+            Prompt string for adventure log generation.
+        """
+        story_label = story_config.get("label", "未命名冒险")
+
+        # Build chapter sections from history
+        chapter_sections = []
+        for i, cp in enumerate(checkpoint_history, 1):
+            title = cp.get("title", f"第{i}章")
+            summary = cp.get("summary", "")
+            chapter_sections.append(
+                f"### 第{i}章：{title}\n（根据以下摘要扩写：{summary}）"
+            )
+        chapters_text = "\n\n".join(chapter_sections) if chapter_sections else "（无章节记录）"
+
+        # Format state vars
+        state_lines = []
+        for name, value in state_vars.items():
+            state_lines.append(f"- {name}：{value}")
+        state_text = "\n".join(state_lines) if state_lines else "（无状态变量）"
+
+        prompt = f"""你是冒险回顾作者。为刚完成的文字冒险游戏撰写冒险日志。
+
+用 Markdown 格式：
+
+## 冒险回顾：{story_label}
+
+{chapters_text}
+
+### 结局
+（根据上述章节摘要，为故事写一段温暖的结局收束）
+
+### 最终状态
+{state_text}
+（对每个变量写一句简短评语，如"体力仅剩25——主角一路走来遍体鳞伤"）
+
+要求：
+- 面向玩家口吻（"你选择了……""你最终……"）
+- 纯文本，不加区块分隔符
+- 500-1000 字"""
+
+        return prompt
+
+    @staticmethod
     def _format_state_vars(variables: list[dict]) -> str:
         """Format variable definitions for display in Round 1 prompt."""
         lines = []
