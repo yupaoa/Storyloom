@@ -7,6 +7,8 @@ from storyloom.core.ui_interface import UiInterface
 from storyloom.i18n import _, get_current_lang
 from storyloom.config import (
     MAX_RETRIES,
+    STORY_LABEL_MIN_CHARS,
+    STORY_LABEL_MAX_CHARS,
     VARIABLE_CAP,
     VARIABLE_NUMERIC_CAP,
     VARIABLE_LABEL_CAP,
@@ -50,7 +52,8 @@ class CoCreateParser:
         return result
 
     REQUIRED_CONFIG_FIELDS = [
-        "genre", "tier", "protagonist_name", "protagonist_identity",
+        "genre", "tier", "label",
+        "protagonist_name", "protagonist_identity",
         "protagonist_traits", "tone", "conflict", "characters",
     ]
     VALID_TIERS = {"short", "medium", "long"}
@@ -102,6 +105,17 @@ class CoCreateParser:
             raise ValueError(
                 f"Unknown tier '{tier}'. Must be one of: "
                 f"{', '.join(sorted(CoCreateParser.VALID_TIERS))}"
+            )
+
+        # Validate label length
+        label = result.get("label", "")
+        if len(label) < STORY_LABEL_MIN_CHARS:
+            raise ValueError(
+                f"Label '{label}' too short (min {STORY_LABEL_MIN_CHARS} chars)"
+            )
+        if len(label) > STORY_LABEL_MAX_CHARS:
+            raise ValueError(
+                f"Label '{label}' too long (max {STORY_LABEL_MAX_CHARS} chars)"
             )
 
         # setting defaults to empty string
@@ -440,6 +454,7 @@ When asked to generate the full setup, output ALL THREE sections below in order.
 === story_config ===
 genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
 tier: {short / medium / long}
+label: {5-15 Chinese characters, unique story identifier for save files}
 setting: {one sentence: era, location, key world facts}
 protagonist_name: {name}
 protagonist_identity: {one sentence}
