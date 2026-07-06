@@ -472,6 +472,15 @@ class GameLoop:
             goal=self.goal or "",
         )
 
+        # If resuming from a save, append bridge_text as the first
+        # user message per data-model.md §3.5.
+        if self._last_bridge_text:
+            r1_prompt += (
+                "\n\n---\n"
+                "继续从这里开始：\n"
+                + self._last_bridge_text
+            )
+
         # Build messages array (Round 1 only has user message)
         messages = [{"role": "user", "content": r1_prompt}]
 
