@@ -74,7 +74,7 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 - **Conversation:** Chinese (对话用中文)
 - **Code comments & git commits:** English
 - **Git commits:** Conventional Commits (feat/fix/docs/refactor)
-- **Prompt language:** Chinese (all LLM prompts)
+- **Prompt language:** English for all system/narrative prompts (per authoritative `tests/prompt_lab/data/prompts/round1-linenum.txt`). Adventure log prompt in Chinese per prompt-design.md §5.2.
 - **XML element names:** English (`<seg>`, `<checkpoint>`, `<bridge/>`, etc.)
 - **Variable names in prompts:** Chinese (state variable names, choice names)
 - **Config constants:** Defined in `config.py`, referenced by name — no hardcoded values in business logic
