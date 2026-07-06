@@ -66,6 +66,15 @@ SIMPLE_XML = """<story>
 </story>"""
 
 
+class MockApiResult:
+    """Minimal ApiResult-like object for testing."""
+    def __init__(self, content: str, ttft: float | None = None,
+                 tokens: dict | None = None):
+        self.content = content
+        self.ttft = ttft
+        self.tokens = tokens
+
+
 class MockApiClient:
     """Mock API client for testing."""
 
@@ -73,9 +82,10 @@ class MockApiClient:
         self.response = response
         self.last_messages = None
 
-    def stream_chat(self, messages: list[dict]) -> str:
+    def stream_chat(self, messages: list[dict]) -> MockApiResult:
         self.last_messages = messages
-        return self.response
+        return MockApiResult(self.response, ttft=0.5,
+                            tokens={"prompt": 100, "completion": 50, "total": 150})
 
     def chat(self, messages: list[dict]) -> str:
         self.last_messages = messages

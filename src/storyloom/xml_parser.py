@@ -286,15 +286,53 @@ class XmlParser:
                     )
 
     @staticmethod
-    def _extract_bridge_text(post_children: list[ET.Element]) -> str:
-        """Extract plain text from post-bridge elements."""
+    def _extract_bridge_text(
+        post_children: list[ET.Element],
+        current_branch: str | None = None,
+    ) -> str:
+        """Extract plain text from post-bridge elements.
+
+        When current_branch is provided, only extracts text from the
+        matching <branch> (or bare <seg> elements when current_branch
+        is empty/None for the default single-path case).
+
+        When current_branch is None, extracts all text (backwards
+        compatible — used by parse() to populate ParsedOutput.bridge_text).
+        """
         texts = []
         for el in post_children:
             if el.tag == "seg":
-                if el.text:
-                    texts.append(el.text.strip())
+                if current_branch is None or current_branch == "":
+                    if el.text:
+                        texts.append(el.text.strip())
             elif el.tag == "branch":
-                for seg_el in el.findall("seg"):
-                    if seg_el.text:
-                        texts.append(seg_el.text.strip())
+                if current_branch is None or el.get("name") == current_branch:
+                    for seg_el in el.findall("seg"):
+                        if seg_el.text:
+                            texts.append(seg_el.text.strip())
         return "\n".join(texts)
+
+    @staticmethod
+    def extract_bridge_text_for_branch(xml_str: str, branch_name: str) -> str:
+        """Extract bridge text filtered to a specific branch.
+
+        Re-parses the XML and returns only the post-bridge text from
+        the matching <branch name="..."> (or bare <seg> elements when
+        branch_name is empty).
+
+        Args:
+            xml_str: Raw LLM output (may contain line numbers).
+            branch_name: Branch name to match, or "" for the default
+                         single-path (bare segs, no branch wrapper).
+
+        Returns:
+            Filtered bridge text string.
+        """
+        clean = XmlParser._extract_xml(xml_str)
+        if clean is None:
+            return ""
+        root = XmlParser._parse_xml(clean)
+        children = list(root)
+        bridge_idx = XmlParser._find_bridge(children)
+        post_children = children[bridge_idx + 1:]
+        return XmlParser._extract_bridge_text(post_children, current_branch=branch_name)

@@ -136,7 +136,11 @@ class MockApiClient:
 
     def stream_chat(self, messages):
         self.last_messages = messages
-        return SAMPLE_XML
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            content=SAMPLE_XML, ttft=0.5,
+            tokens={"prompt": 100, "completion": 50, "total": 150},
+        )
 
     def chat(self, messages):
         self.last_messages = messages

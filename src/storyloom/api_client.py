@@ -6,8 +6,10 @@ Supports streaming (SSE) and non-streaming chat completions.
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.storyloom.config import DEFAULT_MODEL, STREAM_STALL_TIMEOUT_SEC
@@ -16,6 +18,14 @@ from src.storyloom.config import DEFAULT_MODEL, STREAM_STALL_TIMEOUT_SEC
 class ApiError(Exception):
     """Raised on API call failures (network, HTTP, or response errors)."""
     pass
+
+
+@dataclass
+class ApiResult:
+    """Result of a streaming API call."""
+    content: str
+    ttft: float | None        # seconds to first content token
+    tokens: dict | None       # {"prompt": N, "completion": N, "total": N}
 
 
 def _find_project_root() -> Path:
@@ -128,7 +138,7 @@ class ApiClient:
             msg = str(e)
         raise ApiError(f"HTTP {e.code}: {msg}") from e
 
-    def stream_chat(self, messages: list[dict]) -> str:
+    def stream_chat(self, messages: list[dict]) -> ApiResult:
         """Send messages via streaming API, collect and return the full response.
 
         Reads SSE chunks line-by-line. Each non-DONE data line is a JSON object
@@ -138,13 +148,16 @@ class ApiClient:
             messages: List of message dicts with role and content keys.
 
         Returns:
-            Concatenated content string from all chunks.
+            ApiResult with content, TTFT (time to first token), and token usage.
 
         Raises:
             ApiError: On network errors, HTTP errors, or malformed responses.
         """
         request = self._build_request(messages, stream=True)
         collected: list[str] = []
+        t_start = time.perf_counter()
+        ttft: float | None = None
+        tokens: dict | None = None
 
         try:
             with urllib.request.urlopen(request, timeout=STREAM_STALL_TIMEOUT_SEC) as response:
@@ -176,7 +189,18 @@ class ApiClient:
                         delta = data.get("choices", [{}])[0].get("delta", {})
                         content = delta.get("content", "")
                         if content:
+                            if ttft is None:
+                                ttft = time.perf_counter() - t_start
                             collected.append(content)
+
+                        # Capture usage from final chunk (if API provides it)
+                        if "usage" in data:
+                            u = data["usage"]
+                            tokens = {
+                                "prompt": u.get("prompt_tokens"),
+                                "completion": u.get("completion_tokens"),
+                                "total": u.get("total_tokens"),
+                            }
 
         except urllib.error.HTTPError as e:
             self._handle_http_error(e)
@@ -185,7 +209,11 @@ class ApiClient:
         except OSError as e:
             raise ApiError(f"Network error: {e}") from e
 
-        return "".join(collected)
+        return ApiResult(
+            content="".join(collected),
+            ttft=ttft,
+            tokens=tokens,
+        )
 
     def chat(self, messages: list[dict]) -> str:
         """Non-streaming chat for one-shot calls.

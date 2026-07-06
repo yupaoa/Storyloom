@@ -64,7 +64,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Enable debug output",
+        help="Save per-round prompt/response/metrics for debugging",
     )
     parser.add_argument(
         "--quick",
@@ -112,9 +112,9 @@ def main(output=None) -> None:
         return
 
     if args.quick:
-        run_game(display, api_client, language=language)
+        run_game(display, api_client, language=language, debug=args.debug)
     else:
-        show_main_menu(display, api_client, language=language)
+        show_main_menu(display, api_client, language=language, debug=args.debug)
 
 
 def _extract_first_node(outline_text: str) -> str:
@@ -138,13 +138,14 @@ def _extract_first_goal(outline_text: str) -> str:
 
 
 def show_main_menu(display: Display, api_client: ApiClient,
-                   language: str = "zh-CN") -> None:
+                   language: str = "zh-CN", debug: bool = False) -> None:
     """Show main menu and route user choices.
 
     Args:
         display: Display instance for output.
         api_client: API client for game calls.
         language: UI and story language.
+        debug: If True, save per-round data to disk.
     """
     while True:
         display.show_main_menu(save_count=0)
@@ -157,7 +158,8 @@ def show_main_menu(display: Display, api_client: ApiClient,
                 run_game(display, api_client,
                          story_config=result.story_config,
                          outline_text=result.outline_text,
-                         language=language)
+                         language=language,
+                         debug=debug)
             except CoCreationAborted:
                 display.output.write(display.t("return_to_menu") + "\n")
             except ApiError as e:
@@ -175,12 +177,82 @@ def show_main_menu(display: Display, api_client: ApiClient,
             display.output.write(display.t("menu_invalid") + "\n")
 
 
+def _make_debug_observer(output_dir: str):
+    """Create an observer that saves per-round data to disk.
+
+    Args:
+        output_dir: Base directory for round data output.
+
+    Returns:
+        Callable suitable as GameLoop observer.
+    """
+    import json
+    from pathlib import Path
+
+    base = Path(output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+
+    def observer(record):
+        rd = base / f"round-{record.round_number}"
+        rd.mkdir(parents=True, exist_ok=True)
+
+        # Full messages array
+        (rd / "messages.json").write_text(
+            json.dumps(record.messages_sent, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        # Raw LLM response
+        (rd / "response.txt").write_text(record.raw_response, encoding="utf-8")
+
+        # Metrics
+        metrics = {
+            "round": record.round_number,
+            "ttft": record.ttft,
+            "tokens": record.tokens,
+            "node": record.node,
+            "branch": record.selected_branch,
+            "timestamp": record.timestamp,
+        }
+        (rd / "metrics.json").write_text(
+            json.dumps(metrics, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        # Parsed summary
+        if record.parsed:
+            parsed_summary = {
+                "total_segs": record.parsed.total_segments,
+                "pre_segs": record.parsed.pre_segments,
+                "post_segs": record.parsed.post_segments,
+                "bridge": record.parsed.bridge_found,
+                "checkpoint": record.parsed.checkpoint_node,
+                "checkpoint_summary": record.parsed.checkpoint_summary,
+                "choices": record.parsed.choices,
+                "sets": [
+                    {"var": s.var, "op": s.op, "val": s.val, "if": s.condition}
+                    for s in record.parsed.sets
+                ],
+                "routes": [
+                    {"target": r.target, "condition": r.condition}
+                    for r in record.parsed.routes
+                ],
+            }
+            (rd / "parsed.json").write_text(
+                json.dumps(parsed_summary, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+    return observer
+
+
 def run_game(
     display: Display,
     api_client: ApiClient,
     story_config: dict | None = None,
     outline_text: str | None = None,
     language: str = "zh-CN",
+    debug: bool = False,
 ) -> None:
     """Run the narrative game loop.
 
@@ -190,6 +262,8 @@ def run_game(
         story_config: Story config (from co-creation or default).
         outline_text: Outline text (from co-creation or default).
         language: UI and story language.
+        debug: If True, save per-round prompt/response/metrics to disk
+               under tests/data/output/debug-{timestamp}/.
     """
     if story_config is None:
         story_config = DEFAULT_STORY_CONFIG
@@ -201,6 +275,15 @@ def run_game(
     first_node = _extract_first_node(outline_text)
     first_goal = _extract_first_goal(outline_text)
 
+    # Debug observer
+    observer = None
+    if debug:
+        import time
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        observer = _make_debug_observer(
+            f"tests/data/output/debug-{ts}"
+        )
+
     game_loop = GameLoop(
         story_config=story_config,
         outline_text=outline_text,
@@ -209,6 +292,7 @@ def run_game(
         game_state=game_state,
         current_node=first_node,
         goal=first_goal,
+        observer=observer,
     )
 
     try:

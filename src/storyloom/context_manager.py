@@ -43,8 +43,20 @@ class ContextManager:
         # Extract bridge_text for next round
         self._last_bridge_text = self._extract_bridge_from_xml(assistant_content)
 
-    def add_round(self, user_content: str, assistant_content: str) -> None:
-        """Add a new round's messages and trigger compression if needed."""
+    def add_round(
+        self,
+        user_content: str,
+        assistant_content: str,
+        selected_branch: str | None = None,
+    ) -> None:
+        """Add a new round's messages and trigger compression if needed.
+
+        Args:
+            user_content: The Round N context message sent to the LLM.
+            assistant_content: The LLM's XML response.
+            selected_branch: The branch name the player chose (None if no
+                            choice was presented or Round 1).
+        """
         if self._round1_user is None:
             raise RuntimeError("Round 1 not set - call set_round1 first")
 
@@ -55,11 +67,14 @@ class ContextManager:
             "user_content": user_content,
             "assistant_content": assistant_content,
             "checkpoint": checkpoint_text,
+            "selected_branch": selected_branch,
         })
         self._round_count += 1
 
-        # Extract bridge_text for next round
-        self._last_bridge_text = self._extract_bridge_from_xml(assistant_content)
+        # Extract bridge_text for next round (filtered by selected branch)
+        self._last_bridge_text = self._extract_bridge_from_xml(
+            assistant_content, selected_branch
+        )
 
         self._maybe_compress()
 
@@ -146,9 +161,21 @@ class ContextManager:
         return match.group(1) if match else ""
 
     @staticmethod
-    def _extract_bridge_from_xml(xml: str) -> str:
-        """Extract bridge text from assistant XML output. Returns empty string on failure."""
+    def _extract_bridge_from_xml(
+        xml: str,
+        current_branch: str | None = None,
+    ) -> str:
+        """Extract bridge text from assistant XML output.
+
+        When current_branch is provided, only extracts text from the
+        matching post-bridge <branch>. Otherwise extracts all (for
+        debugging) or bare <seg> text (for single-path rounds).
+        """
         try:
+            if current_branch is not None:
+                return XmlParser.extract_bridge_text_for_branch(
+                    xml, current_branch
+                )
             parsed = XmlParser.parse(xml)
             return parsed.bridge_text
         except Exception:

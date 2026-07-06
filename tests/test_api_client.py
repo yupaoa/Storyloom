@@ -56,7 +56,8 @@ class TestStreamChat:
         monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
         client = ApiClient()
         result = client.stream_chat([{"role": "user", "content": "hi"}])
-        assert result == "hello world"
+        assert result.content == "hello world"
+        assert isinstance(result.ttft, float)
 
     def test_handles_empty_delta(self, monkeypatch):
         def mock_urlopen(req, timeout=None):
@@ -67,7 +68,7 @@ class TestStreamChat:
         monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
         client = ApiClient()
         result = client.stream_chat([{"role": "user", "content": "hi"}])
-        assert result == ""
+        assert result.content == ""
 
     def test_raises_on_connection_error(self, monkeypatch):
         def mock_urlopen(req, timeout=None):

@@ -5,7 +5,9 @@ Validates all LLM-suggested state changes (local source of truth).
 """
 
 import re
+import time
 from dataclasses import dataclass, field
+from typing import Callable
 
 from src.storyloom.api_client import ApiClient
 from src.storyloom.context_manager import ContextManager
@@ -33,6 +35,26 @@ class RoundResult:
     parsed: ParsedOutput
     round_number: int
     ending_triggered: bool = False
+
+
+@dataclass
+class RoundRecord:
+    """Snapshot of a completed narrative round for observers.
+
+    Contains everything needed for debugging, testing, and analytics:
+    the full messages array sent to the API, the raw LLM response,
+    timing data, and the parsed output.
+    """
+
+    round_number: int
+    messages_sent: list[dict]           # full messages array sent to API
+    raw_response: str                   # LLM raw output
+    parsed: ParsedOutput | None         # parsed result (None if parse failed)
+    ttft: float | None                  # seconds to first token
+    tokens: dict | None                 # {"prompt": N, "completion": N, "total": N}
+    timestamp: str                      # ISO 8601
+    node: str | None                    # current_node this round
+    selected_branch: str | None         # player's chosen branch name (None if no choice)
 
 
 # ── GameState ─────────────────────────────────────────────────────
@@ -325,6 +347,7 @@ class GameLoop:
         game_state: GameState | None = None,
         current_node: str | None = None,
         goal: str | None = None,
+        observer: Callable[[RoundRecord], None] | None = None,
     ):
         """Initialize game loop with story config and dependencies.
 
@@ -336,6 +359,9 @@ class GameLoop:
             game_state: Optional GameState (created from story_config if omitted).
             current_node: Starting node ID (optional).
             goal: Starting node goal description (optional).
+            observer: Optional callback invoked after each round completes.
+                      Receives a RoundRecord. Observer failures are silently
+                      ignored (must not break the game loop).
         """
         self.story_config = story_config
         self.outline_text = outline_text
@@ -345,6 +371,9 @@ class GameLoop:
         # Internal modules
         self._prompter = PromptBuilder()
         self._context_mgr = ContextManager()
+
+        # Observer
+        self._observer = observer
 
         # State
         self.game_state = game_state or GameState(story_config)
@@ -401,10 +430,21 @@ class GameLoop:
         self.display.show_wait_message("故事生成中...")
 
         # Call API
-        response = self.api_client.stream_chat(messages)
+        api_result = self.api_client.stream_chat(messages)
+        response = api_result.content
 
         # Parse response
-        parsed = XmlParser.parse(response)
+        try:
+            parsed = XmlParser.parse(response)
+        except Exception as e:
+            self._format_error = str(e)
+            parsed = None
+
+        if parsed is None:
+            from src.storyloom.xml_parser import ParseError
+            raise ParseError(
+                f"Round 1 parse failed: {self._format_error or 'unknown'}"
+            )
 
         # Store in context manager (both user and assistant)
         self._context_mgr.set_round1(r1_prompt, response)
@@ -412,6 +452,13 @@ class GameLoop:
         # Store parsed output
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
+
+        # Apply unconditional sets from Round 1 (sets without if condition)
+        for set_op in parsed.sets:
+            if not set_op.condition:
+                result = self.game_state.apply_set(set_op, {})
+                if not result.accepted and result.reason:
+                    self._rejected_changes.append(result.reason)
 
         # Display segments
         self.display.show_segments(parsed.segments)
@@ -422,6 +469,19 @@ class GameLoop:
             labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
             self.display.show_options(last["id"], last["branches"], labels)
 
+        # Notify observer
+        self._notify(RoundRecord(
+            round_number=1,
+            messages_sent=messages,
+            raw_response=response,
+            parsed=parsed,
+            ttft=api_result.ttft,
+            tokens=api_result.tokens,
+            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            node=self.current_node,
+            selected_branch=None,  # Round 1 has no prior choice
+        ))
+
         return RoundResult(parsed=parsed, round_number=1)
 
     # ── Continue Round ────────────────────────────────────────────
@@ -429,8 +489,24 @@ class GameLoop:
     def continue_round(self, choice_key: str | None = None) -> RoundResult:
         """Process player choice, build context, call API, parse response.
 
+        Flow (buffered-reading model, exec-flow.md §4.1):
+          1. Build choice_dict from last round's choice + player's key
+          2. Apply last round's <set> elements (condition evaluated with
+             choice_dict)
+          3. Evaluate <route> → advance current_node → update
+             completed_nodes
+          4. Build Round N context (PromptBuilder.build_round_n)
+          5. Assemble messages (ContextManager.get_messages + context)
+          6. Call API (streaming) → ApiResult(content, ttft, tokens)
+          7. Parse response (XmlParser.parse); on error → format_error
+          8. Store round in ContextManager (with selected_branch)
+          9. Apply this round's unconditional <set> → GameState
+         10. Display segments + options
+         11. Notify observer → RoundRecord
+
         Args:
-            choice_key: Player's choice (1-indexed string) or None if no choice.
+            choice_key: Player's choice (1-indexed string) or None if
+                        no choice was presented.
 
         Returns:
             RoundResult with parsed output.
@@ -441,7 +517,7 @@ class GameLoop:
         if self.last_parsed is None:
             raise RuntimeError("No last result - call start_round1 first")
 
-        # Build choice_dict
+        # ── Step 1: Build choice_dict ───────────────────────────────
         choice_dict: dict[str, int] = {}
         if choice_key is not None and self.last_parsed.choice_id is not None:
             try:
@@ -450,7 +526,10 @@ class GameLoop:
             except ValueError:
                 pass
 
-        # Apply state changes from last parsed output
+        # Determine selected branch from the player's choice
+        selected_branch = self._get_selected_branch(choice_key)
+
+        # ── Step 2: Apply last round's sets (with choice_dict) ──────
         new_rejected: list[str] = []
         for set_op in self.last_parsed.sets:
             result = self.game_state.apply_set(set_op, choice_dict)
@@ -458,7 +537,7 @@ class GameLoop:
                 new_rejected.append(result.reason)
         self._rejected_changes = new_rejected
 
-        # Evaluate routes
+        # ── Step 3: Evaluate routes → advance node ──────────────────
         if choice_dict:
             old_node = self.current_node
             route = self._evaluate_routes(choice_dict)
@@ -466,20 +545,23 @@ class GameLoop:
                 if old_node and old_node not in self._completed_nodes:
                     self._completed_nodes.append(old_node)
                 self.current_node = route
-                # Update goal for the new node
                 self.goal = self._node_goals.get(route, self.goal or "")
             elif not self.last_parsed.routes:
-                # Final node reached (no routes in parsed output)
                 if old_node and old_node not in self._completed_nodes:
                     self._completed_nodes.append(old_node)
+        elif not self.last_parsed.routes:
+            # No player choice and no routes — LLM auto-advanced node
+            cp = self.last_parsed.checkpoint_node
+            if cp and cp != self.current_node:
+                if self.current_node and self.current_node not in self._completed_nodes:
+                    self._completed_nodes.append(self.current_node)
+                self.current_node = cp
+                self.goal = self._node_goals.get(cp, self.goal or "")
 
-        # Get compressed checkpoint summaries from context manager
+        # ── Step 4: Build Round N context ───────────────────────────
         compressed_summaries = self._context_mgr.get_compressed_summaries() or None
-
-        # Get bridge text from context manager
         bridge_text = self._context_mgr.get_last_bridge_text()
 
-        # Build Round N context
         rn_context = self._prompter.build_round_n(
             current_node=self.current_node or "",
             goal=self.goal or "",
@@ -487,57 +569,121 @@ class GameLoop:
             state_vars=self.game_state.state_vars,
             bridge_text=bridge_text,
             compressed_summaries=compressed_summaries,
-            rejected_changes=self._rejected_changes if self._rejected_changes else None,
+            rejected_changes=(
+                self._rejected_changes if self._rejected_changes else None
+            ),
             format_error=self._format_error,
         )
 
-        # Get existing messages and append current context
+        # ── Step 5: Assemble messages ───────────────────────────────
         messages = self._context_mgr.get_messages()
         messages.append({"role": "user", "content": rn_context})
 
-        # Display wait message
+        # ── Step 6: Call API ────────────────────────────────────────
         self.display.show_wait_message("故事生成中...")
+        api_result = self.api_client.stream_chat(messages)
+        response = api_result.content
 
-        # Call API
-        response = self.api_client.stream_chat(messages)
+        # ── Step 7: Parse response ──────────────────────────────────
+        self._format_error = None  # clear previous error
+        try:
+            parsed = XmlParser.parse(response)
+        except Exception as e:
+            self._format_error = str(e)
+            parsed = None
 
-        # Parse response
-        parsed = XmlParser.parse(response)
+        if parsed is None:
+            # Parse failed — notify observer with partial data, then raise
+            self._notify(RoundRecord(
+                round_number=self._context_mgr.round_count + 1,
+                messages_sent=messages,
+                raw_response=response,
+                parsed=None,
+                ttft=api_result.ttft,
+                tokens=api_result.tokens,
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                node=self.current_node,
+                selected_branch=selected_branch,
+            ))
+            from src.storyloom.xml_parser import ParseError
+            raise ParseError(
+                f"Round {self._context_mgr.round_count + 1} parse failed: "
+                f"{self._format_error or 'unknown'}"
+            )
 
-        # Store round in context manager
-        self._context_mgr.add_round(rn_context, response)
+        # ── Step 8: Store round in context manager ──────────────────
+        self._context_mgr.add_round(rn_context, response, selected_branch)
+
+        # ── Step 9: Apply this round's unconditional sets ───────────
+        for set_op in parsed.sets:
+            if not set_op.condition:
+                result = self.game_state.apply_set(set_op, {})
+                if not result.accepted and result.reason:
+                    self._rejected_changes.append(result.reason)
 
         # Update stored state
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
 
-        # Apply state changes from new round (unconditional ones)
-        new_rejected_current: list[str] = []
-        for set_op in parsed.sets:
-            # Unconditional sets in the current round are applied immediately
-            if not set_op.condition:
-                result = self.game_state.apply_set(set_op, {})
-                if not result.accepted and result.reason:
-                    new_rejected_current.append(result.reason)
-            else:
-                # Conditional sets evaluated later when player makes choice
-                pass
-        if new_rejected_current:
-            self._rejected_changes.extend(new_rejected_current)
-
-        # Display segments
+        # ── Step 10: Display ────────────────────────────────────────
         self.display.show_segments(parsed.segments)
-
-        # Display options
         if parsed.choices:
             last = parsed.choices[-1]
             labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
             self.display.show_options(last["id"], last["branches"], labels)
 
+        # ── Step 11: Notify observer ────────────────────────────────
+        self._notify(RoundRecord(
+            round_number=self._context_mgr.round_count,
+            messages_sent=messages,
+            raw_response=response,
+            parsed=parsed,
+            ttft=api_result.ttft,
+            tokens=api_result.tokens,
+            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            node=self.current_node,
+            selected_branch=selected_branch,
+        ))
+
         return RoundResult(
             parsed=parsed,
             round_number=self._context_mgr.round_count,
         )
+
+    # ── Observer ──────────────────────────────────────────────────
+
+    def _notify(self, record: RoundRecord) -> None:
+        """Notify the observer of a completed round.
+
+        Observer failures are silently ignored — they must not break
+        the game loop.
+        """
+        if self._observer is None:
+            return
+        try:
+            self._observer(record)
+        except Exception:
+            pass
+
+    def _get_selected_branch(self, choice_key: str | None) -> str | None:
+        """Determine the branch name from a player's choice key.
+
+        Maps choice_key (1-indexed string) to the branch name from
+        the last parsed output's choice options.
+        """
+        if choice_key is None or self.last_parsed is None:
+            return None
+        if not self.last_parsed.choices:
+            return None
+        try:
+            idx = int(choice_key) - 1
+        except ValueError:
+            return None
+        last_choice = self.last_parsed.choices[-1]
+        branches = last_choice.get("branches", [])
+        if 0 <= idx < len(branches):
+            return branches[idx]
+        return None
 
     # ── Options ───────────────────────────────────────────────────
 
