@@ -1,0 +1,132 @@
+# Chinese (Simplified) translations for Storyloom
+# Copyright (C) 2026 Storyloom
+# This file is distributed under the same license as the Storyloom project.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Storyloom\n"
+"Language: zh_CN\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# ── Menu ──
+msgid "Storyloom — Interactive Fiction"
+msgstr "Storyloom — 文字冒险"
+
+msgid "[1] New Game"
+msgstr "[1] 新游戏"
+
+msgid "[2] Continue"
+msgstr "[2] 继续"
+
+msgid "[3] Manage Saves"
+msgstr "[3] 管理存档"
+
+msgid "[4] Exit"
+msgstr "[4] 退出"
+
+msgid "Choose: "
+msgstr "请选择: "
+
+msgid "Invalid choice, try again."
+msgstr "无效选择，请重试。"
+
+msgid "Goodbye."
+msgstr "再会。"
+
+msgid "Returning to menu."
+msgstr "返回主菜单。"
+
+# ── In-game ──
+msgid "[{min}-{max}] Choose an option (0 for status, Q to quit): "
+msgstr "[{min}-{max}] 选择选项 (0 查看状态, Q 退出): "
+
+msgid "Invalid choice. Enter {min}-{max}, 0, or Q."
+msgstr "无效选择，请输入 {min}-{max}、0 或 Q。"
+
+msgid "Choose an option (type quit to return to menu): "
+msgstr "选择选项 (输入 quit 返回菜单): "
+
+msgid "Invalid choice, please enter 1-{n}."
+msgstr "无效选择，请输入 1-{n}。"
+
+msgid "Enter a number or quit."
+msgstr "请输入数字或 quit。"
+
+msgid "────────────────────────────────────"
+msgstr "────────────────────────────────────"
+
+msgid "···"
+msgstr "···"
+
+# ── Status / errors ──
+msgid "Error: {msg}"
+msgstr "错误: {msg}"
+
+msgid "Generating story..."
+msgstr "故事生成中..."
+
+msgid "Under development"
+msgstr "功能开发中"
+
+msgid "API error: {msg}"
+msgstr "API 错误: {msg}"
+
+msgid "Loading: {feature}"
+msgstr "{feature} —— 功能开发中"
+
+# ── Co-creation ──
+msgid "[Co-Creation — Story Setup]"
+msgstr "【共创阶段 — 故事设定】"
+
+msgid ""
+"Describe the story you'd like to play.\n"
+"e.g. 'A cyberpunk love story' or 'A wuxia adventure'\n"
+msgstr ""
+"请描述你想玩的故事。\n"
+"例如：'赛博朋克背景下的爱情故事'、'古代仙侠世界的冒险'\n"
+
+msgid "Please share some thoughts to begin."
+msgstr "请输入一些想法来开始。"
+
+msgid "[Q&A Phase]"
+msgstr "【追问阶段】"
+
+msgid ""
+"I'll ask a few questions to understand the story you want.\n"
+"When you're ready, type 'go' to generate the story setup.\n"
+"Type 'quit' to return to the main menu.\n"
+msgstr ""
+"AI 会提出几个问题来了解你想玩的故事。\n"
+"回答完毕后输入 '开始' 即可生成故事设定。\n"
+"输入 '不玩了' 返回主菜单。\n"
+
+msgid "Thinking..."
+msgstr "思考中..."
+
+msgid "Your answer (or type 'go'/'quit')> "
+msgstr "你的回答（或输入 '开始'/'不玩了'）> "
+
+msgid "Weaving your story world..."
+msgstr "正在编织故事世界..."
+
+msgid "Fixing {block}... (attempt {n})"
+msgstr "修正{block}中...（第{n}次重试）"
+
+msgid "{block} parsing failed ({errors})."
+msgstr "{block} 解析失败（{errors}）。"
+
+msgid "[R]etry / [M]enu: "
+msgstr "[R]重试 / [M]返回主菜单: "
+
+msgid "API call failed: {error}"
+msgstr "API 调用失败: {error}"
+
+msgid "Abort co-creation and return to menu? (y/n): "
+msgstr "确定退出共创，返回主菜单？(y/n): "
+
+msgid "Generation failed: {error}"
+msgstr "生成失败: {error}"
+
+msgid "Outline validation failed ({errors})."
+msgstr "大纲校验失败（{errors}）。"
