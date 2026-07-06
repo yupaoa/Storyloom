@@ -29,3 +29,4 @@ tests/prompt_lab/data/prompts/seg-test-manifest*.json
 
 # Compiled gettext binary catalogs (regenerated from .po sources)
 *.mo
+*.egg-info/

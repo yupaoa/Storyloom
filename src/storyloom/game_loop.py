@@ -6,14 +6,15 @@ Validates all LLM-suggested state changes (local source of truth).
 
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Callable
 
-from src.storyloom.api_client import ApiClient
-from src.storyloom.context_manager import ContextManager
-from src.storyloom.display import Display
-from src.storyloom.prompt_builder import PromptBuilder
-from src.storyloom.xml_parser import (
+from storyloom.api_client import ApiClient
+from storyloom.context_manager import ContextManager
+from storyloom.display import Display
+from storyloom.prompt_builder import PromptBuilder
+from storyloom.xml_parser import (
     ParsedOutput,
     SetOperation,
     XmlParser,
@@ -401,11 +402,18 @@ class GameLoop:
 
     # ── Round 1 ───────────────────────────────────────────────────
 
-    def start_round1(self) -> RoundResult:
-        """Build Round 1 prompt, call API, parse response.
+    def start_round1_stream(self) -> Iterator[dict]:
+        """Build Round 1 prompt, stream API response, yield structured events.
 
-        Returns:
-            RoundResult with parsed output.
+        Yields:
+            {"type": "token", "text": str}           — per-token LLM output
+            {"type": "segment", "text": str, "n": int,
+             "position": "pre"|"post", "branch": str|None}
+            {"type": "options", "choices": [dict]}   — choice panel
+            {"type": "state", "vars": dict}          — state after sets applied
+            {"type": "error", "message": str}        — parse failure
+            {"type": "done", "round": int, "node": str|None,
+             "state": dict}                          — round complete
 
         Raises:
             RuntimeError: If round 1 was already started.
@@ -426,48 +434,46 @@ class GameLoop:
         # Build messages array (Round 1 only has user message)
         messages = [{"role": "user", "content": r1_prompt}]
 
-        # Display wait message
-        self.display.show_wait_message("故事生成中...")
+        # Stream API response token by token
+        collected: list[str] = []
+        ttft: float | None = None
+        tokens: dict | None = None
 
-        # Call API
-        api_result = self.api_client.stream_chat(messages)
-        response = api_result.content
+        for chunk in self.api_client.stream_chat_iter(messages):
+            if chunk.get("done"):
+                tokens = chunk.get("usage")
+            else:
+                if chunk.get("ttft") is not None:
+                    ttft = chunk["ttft"]
+                collected.append(chunk["delta"])
+                yield {"type": "token", "text": chunk["delta"]}
+
+        response = "".join(collected)
 
         # Parse response
         try:
             parsed = XmlParser.parse(response)
         except Exception as e:
             self._format_error = str(e)
-            parsed = None
+            yield {"type": "error", "message": str(e)}
+            return
 
-        if parsed is None:
-            from src.storyloom.xml_parser import ParseError
-            raise ParseError(
-                f"Round 1 parse failed: {self._format_error or 'unknown'}"
-            )
-
-        # Store in context manager (both user and assistant)
+        # Store in context manager
         self._context_mgr.set_round1(r1_prompt, response)
 
         # Store parsed output
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
 
-        # Apply unconditional sets from Round 1 (sets without if condition)
+        # Apply unconditional sets from Round 1
         for set_op in parsed.sets:
             if not set_op.condition:
                 result = self.game_state.apply_set(set_op, {})
                 if not result.accepted and result.reason:
                     self._rejected_changes.append(result.reason)
 
-        # Display segments
-        self.display.show_segments(parsed.segments)
-
-        # Display options if available
-        if parsed.choices:
-            last = parsed.choices[-1]
-            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
-            self.display.show_options(last["id"], last["branches"], labels)
+        # Yield structured events from parsed output
+        yield from self._emit_parsed(parsed)
 
         # Notify observer
         self._notify(RoundRecord(
@@ -475,41 +481,70 @@ class GameLoop:
             messages_sent=messages,
             raw_response=response,
             parsed=parsed,
-            ttft=api_result.ttft,
-            tokens=api_result.tokens,
+            ttft=ttft,
+            tokens=tokens,
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             node=self.current_node,
-            selected_branch=None,  # Round 1 has no prior choice
+            selected_branch=None,
         ))
 
-        return RoundResult(parsed=parsed, round_number=1)
+        yield {
+            "type": "done",
+            "round": 1,
+            "node": self.current_node,
+            "state": self.game_state.state_vars,
+        }
+
+    def start_round1(self) -> RoundResult:
+        """Build Round 1 prompt, call API, parse response.
+
+        CLI wrapper that consumes start_round1_stream() and routes
+        events to Display.
+
+        Returns:
+            RoundResult with parsed output.
+
+        Raises:
+            RuntimeError: If round 1 was already started.
+            ParseError: If parsing fails.
+        """
+        self.display.show_wait_message("故事生成中...")
+
+        for event in self.start_round1_stream():
+            if event["type"] == "error":
+                from storyloom.xml_parser import ParseError
+                raise ParseError(
+                    f"Round 1 parse failed: {event['message']}"
+                )
+
+        if self.last_parsed is None:
+            from storyloom.xml_parser import ParseError
+            raise ParseError("Round 1 parse failed: unknown error")
+
+        self.display.show_segments(self.last_parsed.segments)
+
+        if self.last_parsed.choices:
+            last = self.last_parsed.choices[-1]
+            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
+            self.display.show_options(last["id"], last["branches"], labels)
+
+        return RoundResult(parsed=self.last_parsed, round_number=1)
 
     # ── Continue Round ────────────────────────────────────────────
 
-    def continue_round(self, choice_key: str | None = None) -> RoundResult:
-        """Process player choice, build context, call API, parse response.
+    def continue_round_stream(
+        self, choice_key: str | None = None
+    ) -> Iterator[dict]:
+        """Process player choice, stream API response, yield structured events.
 
-        Flow (buffered-reading model, exec-flow.md §4.1):
-          1. Build choice_dict from last round's choice + player's key
-          2. Apply last round's <set> elements (condition evaluated with
-             choice_dict)
-          3. Evaluate <route> → advance current_node → update
-             completed_nodes
-          4. Build Round N context (PromptBuilder.build_round_n)
-          5. Assemble messages (ContextManager.get_messages + context)
-          6. Call API (streaming) → ApiResult(content, ttft, tokens)
-          7. Parse response (XmlParser.parse); on error → format_error
-          8. Store round in ContextManager (with selected_branch)
-          9. Apply this round's unconditional <set> → GameState
-         10. Display segments + options
-         11. Notify observer → RoundRecord
+        Same event types as start_round1_stream().
 
         Args:
             choice_key: Player's choice (1-indexed string) or None if
                         no choice was presented.
 
-        Returns:
-            RoundResult with parsed output.
+        Yields:
+            Structured event dicts (same schema as start_round1_stream).
 
         Raises:
             RuntimeError: If start_round1 hasn't been called.
@@ -579,10 +614,21 @@ class GameLoop:
         messages = self._context_mgr.get_messages()
         messages.append({"role": "user", "content": rn_context})
 
-        # ── Step 6: Call API ────────────────────────────────────────
-        self.display.show_wait_message("故事生成中...")
-        api_result = self.api_client.stream_chat(messages)
-        response = api_result.content
+        # ── Step 6: Stream API response ─────────────────────────────
+        collected: list[str] = []
+        ttft: float | None = None
+        tokens: dict | None = None
+
+        for chunk in self.api_client.stream_chat_iter(messages):
+            if chunk.get("done"):
+                tokens = chunk.get("usage")
+            else:
+                if chunk.get("ttft") is not None:
+                    ttft = chunk["ttft"]
+                collected.append(chunk["delta"])
+                yield {"type": "token", "text": chunk["delta"]}
+
+        response = "".join(collected)
 
         # ── Step 7: Parse response ──────────────────────────────────
         self._format_error = None  # clear previous error
@@ -590,26 +636,19 @@ class GameLoop:
             parsed = XmlParser.parse(response)
         except Exception as e:
             self._format_error = str(e)
-            parsed = None
-
-        if parsed is None:
-            # Parse failed — notify observer with partial data, then raise
             self._notify(RoundRecord(
                 round_number=self._context_mgr.round_count + 1,
                 messages_sent=messages,
                 raw_response=response,
                 parsed=None,
-                ttft=api_result.ttft,
-                tokens=api_result.tokens,
+                ttft=ttft,
+                tokens=tokens,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 node=self.current_node,
                 selected_branch=selected_branch,
             ))
-            from src.storyloom.xml_parser import ParseError
-            raise ParseError(
-                f"Round {self._context_mgr.round_count + 1} parse failed: "
-                f"{self._format_error or 'unknown'}"
-            )
+            yield {"type": "error", "message": str(e)}
+            return
 
         # ── Step 8: Store round in context manager ──────────────────
         self._context_mgr.add_round(rn_context, response, selected_branch)
@@ -625,30 +664,101 @@ class GameLoop:
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
 
-        # ── Step 10: Display ────────────────────────────────────────
-        self.display.show_segments(parsed.segments)
-        if parsed.choices:
-            last = parsed.choices[-1]
-            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
-            self.display.show_options(last["id"], last["branches"], labels)
+        # ── Yield structured events ─────────────────────────────────
+        yield from self._emit_parsed(parsed)
 
-        # ── Step 11: Notify observer ────────────────────────────────
+        # ── Notify observer ─────────────────────────────────────────
         self._notify(RoundRecord(
             round_number=self._context_mgr.round_count,
             messages_sent=messages,
             raw_response=response,
             parsed=parsed,
-            ttft=api_result.ttft,
-            tokens=api_result.tokens,
+            ttft=ttft,
+            tokens=tokens,
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             node=self.current_node,
             selected_branch=selected_branch,
         ))
 
+        yield {
+            "type": "done",
+            "round": self._context_mgr.round_count,
+            "node": self.current_node,
+            "state": self.game_state.state_vars,
+        }
+
+    def continue_round(self, choice_key: str | None = None) -> RoundResult:
+        """Process player choice, build context, call API, parse response.
+
+        CLI wrapper that consumes continue_round_stream() and routes
+        events to Display.
+
+        Args:
+            choice_key: Player's choice (1-indexed string) or None if
+                        no choice was presented.
+
+        Returns:
+            RoundResult with parsed output.
+
+        Raises:
+            RuntimeError: If start_round1 hasn't been called.
+            ParseError: If parsing fails.
+        """
+        self.display.show_wait_message("故事生成中...")
+
+        for event in self.continue_round_stream(choice_key):
+            if event["type"] == "error":
+                from storyloom.xml_parser import ParseError
+                raise ParseError(
+                    f"Round {self._context_mgr.round_count + 1} parse "
+                    f"failed: {event['message']}"
+                )
+
+        if self.last_parsed is None:
+            from storyloom.xml_parser import ParseError
+            raise ParseError(
+                f"Round {self._context_mgr.round_count + 1} parse "
+                f"failed: unknown error"
+            )
+
+        self.display.show_segments(self.last_parsed.segments)
+
+        if self.last_parsed.choices:
+            last = self.last_parsed.choices[-1]
+            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
+            self.display.show_options(last["id"], last["branches"], labels)
+
         return RoundResult(
-            parsed=parsed,
+            parsed=self.last_parsed,
             round_number=self._context_mgr.round_count,
         )
+
+    # ── Event Emission ───────────────────────────────────────────
+
+    @staticmethod
+    def _emit_parsed(parsed: ParsedOutput) -> Iterator[dict]:
+        """Yield structured events from parsed LLM output.
+
+        Args:
+            parsed: ParsedOutput from XmlParser.parse().
+
+        Yields:
+            segment and options events.
+        """
+        for seg in parsed.segments:
+            yield {
+                "type": "segment",
+                "text": seg.text,
+                "n": seg.n,
+                "position": seg.position,
+                "branch": seg.branch,
+            }
+
+        if parsed.choices:
+            yield {
+                "type": "options",
+                "choices": parsed.choices,
+            }
 
     # ── Observer ──────────────────────────────────────────────────
 

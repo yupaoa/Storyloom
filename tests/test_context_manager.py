@@ -1,8 +1,8 @@
 """Tests for context_manager module."""
 
 import pytest
-from src.storyloom.context_manager import ContextManager
-from src.storyloom.config import WINDOW_SIZE, FIRST_COMPRESSION_AT
+from storyloom.context_manager import ContextManager
+from storyloom.config import WINDOW_SIZE, FIRST_COMPRESSION_AT
 
 
 class TestContextManagerInit:

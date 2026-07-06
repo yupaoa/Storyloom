@@ -36,8 +36,8 @@ if "your-api-key" in API_KEY or not API_KEY:
 
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.storyloom.prompt_builder import PromptBuilder
-from src.storyloom.xml_parser import XmlParser
+from storyloom.prompt_builder import PromptBuilder
+from storyloom.xml_parser import XmlParser
 
 # ── Load Round 1 data ────────────────────────────────────────────
 r1_prompt_file = PROJECT_ROOT / "tests/prompt_lab/data/prompts/round1-linenum.txt"

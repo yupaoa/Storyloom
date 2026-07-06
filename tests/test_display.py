@@ -4,8 +4,8 @@ import io
 import sys
 
 import pytest
-from src.storyloom.display import Display
-from src.storyloom.xml_parser import Segment
+from storyloom.display import Display
+from storyloom.xml_parser import Segment
 
 
 class TestDisplayInit:

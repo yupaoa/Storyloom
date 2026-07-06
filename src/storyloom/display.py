@@ -15,8 +15,8 @@ except ImportError:
         pass  # Bare input() — Windows console natively handles CJK input correctly
 import time
 
-from src.storyloom.i18n import _
-from src.storyloom.xml_parser import Segment
+from storyloom.i18n import _
+from storyloom.xml_parser import Segment
 
 
 class Display:

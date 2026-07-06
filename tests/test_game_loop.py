@@ -3,8 +3,8 @@
 from pathlib import Path
 
 import pytest
-from src.storyloom.game_loop import GameLoop, GameState, SetResult, RoundResult
-from src.storyloom.xml_parser import SetOperation
+from storyloom.game_loop import GameLoop, GameState, SetResult, RoundResult
+from storyloom.xml_parser import SetOperation
 
 
 # ── Fixtures ───────────────────────────────────────────────────────
@@ -82,10 +82,31 @@ class MockApiClient:
         self.response = response
         self.last_messages = None
 
-    def stream_chat(self, messages: list[dict]) -> MockApiResult:
+    def stream_chat_iter(self, messages: list[dict]):
+        """Yield tokens from response, then done chunk (matches ApiClient)."""
         self.last_messages = messages
-        return MockApiResult(self.response, ttft=0.5,
-                            tokens={"prompt": 100, "completion": 50, "total": 150})
+        # Yield one chunk per character (simulates per-token streaming)
+        for char in self.response:
+            yield {"delta": char}
+        yield {
+            "usage": {"prompt": 100, "completion": 50, "total": 150},
+            "done": True,
+        }
+
+    def stream_chat(self, messages: list[dict]) -> MockApiResult:
+        """Convenience wrapper around stream_chat_iter."""
+        collected = []
+        ttft = None
+        tokens = None
+        for chunk in self.stream_chat_iter(messages):
+            if chunk.get("done"):
+                tokens = chunk.get("usage")
+            else:
+                if chunk.get("ttft") is not None:
+                    ttft = chunk["ttft"]
+                collected.append(chunk["delta"])
+        return MockApiResult("".join(collected), ttft=ttft or 0.5,
+                            tokens=tokens or {"prompt": 100, "completion": 50, "total": 150})
 
     def chat(self, messages: list[dict]) -> str:
         self.last_messages = messages
@@ -332,7 +353,7 @@ class TestGameLoopInit:
     def test_initializes_with_display(self):
         """GameLoop should initialize with a display."""
         import io
-        from src.storyloom.display import Display
+        from storyloom.display import Display
         d = Display(output=io.StringIO())
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,

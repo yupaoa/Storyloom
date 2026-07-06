@@ -4,9 +4,9 @@ import io
 import sys
 
 import pytest
-from src.storyloom.main import main, parse_args, DEFAULT_STORY_CONFIG
-from src.storyloom.display import Display
-from src.storyloom.i18n import init_i18n
+from storyloom.main import main, parse_args, DEFAULT_STORY_CONFIG
+from storyloom.display import Display
+from storyloom.i18n import init_i18n
 init_i18n("en")  # Use English for deterministic test output
 
 
@@ -55,7 +55,7 @@ class TestMainFunction:
         buf = io.StringIO()
         monkeypatch.setattr("sys.stdin", io.StringIO("4\n"))
         monkeypatch.setattr(
-            "src.storyloom.main.ApiClient",
+            "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
         main(output=buf)
@@ -74,7 +74,7 @@ class TestMainFunction:
             "4\n"         # exit menu
         ))
         monkeypatch.setattr(
-            "src.storyloom.main.ApiClient",
+            "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
         main(output=buf)
@@ -87,7 +87,7 @@ class TestMainFunction:
         buf = io.StringIO()
         monkeypatch.setattr("sys.stdin", io.StringIO("4\n"))
         monkeypatch.setattr(
-            "src.storyloom.main.ApiClient",
+            "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
         main(output=buf)  # Should not raise
@@ -104,7 +104,7 @@ class TestMainFunction:
             "4\n"         # exit menu
         ))
         monkeypatch.setattr(
-            "src.storyloom.main.ApiClient",
+            "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
         main(output=buf)  # Should not raise
@@ -115,7 +115,7 @@ class TestMainFunction:
         buf = io.StringIO()
         monkeypatch.setattr("sys.stdin", io.StringIO("3\n4\n"))
         monkeypatch.setattr(
-            "src.storyloom.main.ApiClient",
+            "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
         main(output=buf)
@@ -129,12 +129,22 @@ class MockApiClient:
     Tracks call count to return appropriate responses for co-creation flow:
     - First chat() → Q&A response triggering "是否开始生成故事"
     - Subsequent chat() → full generation response with all three blocks
-    - stream_chat() → narrative XML (used by GameLoop)
+    - stream_chat_iter() → narrative XML tokens (used by GameLoop)
     """
 
     def __init__(self):
         self.last_messages = None
         self._chat_count = 0
+
+    def stream_chat_iter(self, messages):
+        """Yield tokens from SAMPLE_XML, then done chunk."""
+        self.last_messages = messages
+        for char in SAMPLE_XML:
+            yield {"delta": char}
+        yield {
+            "usage": {"prompt": 100, "completion": 50, "total": 150},
+            "done": True,
+        }
 
     def stream_chat(self, messages):
         self.last_messages = messages

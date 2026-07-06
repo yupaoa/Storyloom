@@ -7,7 +7,7 @@ Call init_i18n() once at startup.
 import gettext
 import os
 
-from src.storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
+from storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
 
 _translators: dict[str, gettext.NullTranslations] = {}
 _current_lang: str = DEFAULT_LANGUAGE

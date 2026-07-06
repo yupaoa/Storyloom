@@ -1,7 +1,7 @@
 """Integration tests for conversation-based prompt architecture."""
 
-from src.storyloom.context_manager import ContextManager
-from src.storyloom.prompt_builder import PromptBuilder
+from storyloom.context_manager import ContextManager
+from storyloom.prompt_builder import PromptBuilder
 
 
 SAMPLE_STORY = {

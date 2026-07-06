@@ -25,11 +25,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.storyloom.api_client import ApiClient, ApiError
-from src.storyloom.prompt_builder import PromptBuilder
-from src.storyloom.context_manager import ContextManager
-from src.storyloom.game_loop import GameState
-from src.storyloom.xml_parser import XmlParser, ParseError, ParsedOutput
+from storyloom.api_client import ApiClient, ApiError
+from storyloom.prompt_builder import PromptBuilder
+from storyloom.context_manager import ContextManager
+from storyloom.game_loop import GameState
+from storyloom.xml_parser import XmlParser, ParseError, ParsedOutput
 
 # ── Paths ──────────────────────────────────────────────────────────────
 

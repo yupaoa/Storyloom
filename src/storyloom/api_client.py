@@ -9,10 +9,11 @@ import os
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.storyloom.config import DEFAULT_MODEL, STREAM_STALL_TIMEOUT_SEC
+from storyloom.config import DEFAULT_MODEL, STREAM_STALL_TIMEOUT_SEC
 
 
 class ApiError(Exception):
@@ -138,26 +139,25 @@ class ApiClient:
             msg = str(e)
         raise ApiError(f"HTTP {e.code}: {msg}") from e
 
-    def stream_chat(self, messages: list[dict]) -> ApiResult:
-        """Send messages via streaming API, collect and return the full response.
+    def stream_chat_iter(self, messages: list[dict]) -> Iterator[dict]:
+        """Yield streaming chat tokens one by one.
 
-        Reads SSE chunks line-by-line. Each non-DONE data line is a JSON object
-        with potential content delta in choices[0].delta.content.
+        Each yielded dict has:
+          {"delta": str}           — content token (first token also has "ttft": float)
+          {"usage": dict, "done": True}  — final chunk with token counts
 
         Args:
             messages: List of message dicts with role and content keys.
 
-        Returns:
-            ApiResult with content, TTFT (time to first token), and token usage.
+        Yields:
+            Token dicts as described above.
 
         Raises:
             ApiError: On network errors, HTTP errors, or malformed responses.
         """
         request = self._build_request(messages, stream=True)
-        collected: list[str] = []
         t_start = time.perf_counter()
         ttft: float | None = None
-        tokens: dict | None = None
 
         try:
             with urllib.request.urlopen(request, timeout=STREAM_STALL_TIMEOUT_SEC) as response:
@@ -189,17 +189,22 @@ class ApiClient:
                         delta = data.get("choices", [{}])[0].get("delta", {})
                         content = delta.get("content", "")
                         if content:
+                            chunk = {"delta": content}
                             if ttft is None:
                                 ttft = time.perf_counter() - t_start
-                            collected.append(content)
+                                chunk["ttft"] = ttft
+                            yield chunk
 
                         # Capture usage from final chunk (if API provides it)
                         if "usage" in data:
                             u = data["usage"]
-                            tokens = {
-                                "prompt": u.get("prompt_tokens"),
-                                "completion": u.get("completion_tokens"),
-                                "total": u.get("total_tokens"),
+                            yield {
+                                "usage": {
+                                    "prompt": u.get("prompt_tokens"),
+                                    "completion": u.get("completion_tokens"),
+                                    "total": u.get("total_tokens"),
+                                },
+                                "done": True,
                             }
 
         except urllib.error.HTTPError as e:
@@ -208,6 +213,33 @@ class ApiClient:
             raise ApiError(f"Connection error: {e.reason}") from e
         except OSError as e:
             raise ApiError(f"Network error: {e}") from e
+
+    def stream_chat(self, messages: list[dict]) -> ApiResult:
+        """Send messages via streaming API, collect and return the full response.
+
+        Convenience wrapper around stream_chat_iter() for callers that want
+        the full result at once.
+
+        Args:
+            messages: List of message dicts with role and content keys.
+
+        Returns:
+            ApiResult with content, TTFT (time to first token), and token usage.
+
+        Raises:
+            ApiError: On network errors, HTTP errors, or malformed responses.
+        """
+        collected: list[str] = []
+        ttft: float | None = None
+        tokens: dict | None = None
+
+        for chunk in self.stream_chat_iter(messages):
+            if chunk.get("done"):
+                tokens = chunk.get("usage")
+            else:
+                if chunk.get("ttft") is not None:
+                    ttft = chunk["ttft"]
+                collected.append(chunk["delta"])
 
         return ApiResult(
             content="".join(collected),

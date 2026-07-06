@@ -2,10 +2,10 @@
 import re
 from dataclasses import dataclass
 
-from src.storyloom.api_client import ApiClient
-from src.storyloom.display import Display
-from src.storyloom.i18n import _, get_current_lang
-from src.storyloom.config import (
+from storyloom.api_client import ApiClient
+from storyloom.display import Display
+from storyloom.i18n import _, get_current_lang
+from storyloom.config import (
     MAX_RETRIES,
     VARIABLE_CAP,
     VARIABLE_NUMERIC_CAP,

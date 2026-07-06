@@ -1,6 +1,6 @@
 """Build Round 1 and Round N prompt content for conversation-based architecture."""
 
-from src.storyloom.config import (
+from storyloom.config import (
     LINES_PER_ROUND_MIN,
     LINES_PER_ROUND_MAX,
     BRIDGE_POSITION_RATIO,

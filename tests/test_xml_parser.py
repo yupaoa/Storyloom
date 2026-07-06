@@ -1,7 +1,7 @@
 """Tests for xml_parser module."""
 
 import pytest
-from src.storyloom.xml_parser import XmlParser, ParsedOutput, ParseError
+from storyloom.xml_parser import XmlParser, ParsedOutput, ParseError
 
 
 VALID_XML = """<story>

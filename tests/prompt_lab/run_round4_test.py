@@ -27,8 +27,8 @@ if "your-api-key" in API_KEY or not API_KEY:
     print("ERROR: DEEPSEEK_API_KEY not set"); sys.exit(1)
 
 sys.path.insert(0, str(PROJECT_ROOT))
-from src.storyloom.prompt_builder import PromptBuilder
-from src.storyloom.xml_parser import XmlParser
+from storyloom.prompt_builder import PromptBuilder
+from storyloom.xml_parser import XmlParser
 
 # ── Helpers ──────────────────────────────────────────────────────
 def load_output(path):

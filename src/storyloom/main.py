@@ -8,12 +8,12 @@ import argparse
 import os
 import sys
 
-from src.storyloom.api_client import ApiClient, ApiError
-from src.storyloom.display import Display
-from src.storyloom.co_create import CoCreateFlow, CoCreationAborted
-from src.storyloom.game_loop import GameLoop, GameState
-from src.storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
-from src.storyloom.i18n import init_i18n, _
+from storyloom.api_client import ApiClient, ApiError
+from storyloom.display import Display
+from storyloom.co_create import CoCreateFlow, CoCreationAborted
+from storyloom.game_loop import GameLoop, GameState
+from storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
+from storyloom.i18n import init_i18n, _
 
 # ── Default story config (used until co-creation UI is built) ─────
 
