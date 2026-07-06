@@ -663,6 +663,32 @@ class GameLoop:
                 self.current_node = cp
                 self.goal = self._node_goals.get(cp, self.goal or "")
 
+        # ── Step 3.5: Accumulate checkpoint data ────────────────────
+        if self.last_parsed.checkpoint_node:
+            cp_node = self.last_parsed.checkpoint_node
+            cp_summary = self.last_parsed.checkpoint_summary or ""
+
+            if cp_summary:
+                self._checkpoint_summaries.append(cp_summary)
+
+            self._checkpoint_history.append({
+                "node": cp_node,
+                "title": self._node_goals.get(cp_node, cp_node),
+                "summary": cp_summary,
+                "round": self._context_mgr.round_count,
+            })
+
+            self._checkpoint_snapshots[cp_node] = copy.deepcopy(
+                self.game_state.state_vars
+            )
+
+            # Trigger auto-save if SaveManager is configured
+            if self._save_manager is not None:
+                try:
+                    self._save_manager.save(self.to_save_dict())
+                except Exception:
+                    pass
+
         # ── Step 4: Build Round N context ───────────────────────────
         compressed_summaries = self._context_mgr.get_compressed_summaries() or None
         bridge_text = self._context_mgr.get_last_bridge_text()
