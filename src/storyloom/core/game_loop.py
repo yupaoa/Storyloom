@@ -110,6 +110,35 @@ class GameState:
         """Return current state variables as a dict copy."""
         return dict(self._state_vars)
 
+    def to_dict(self) -> dict:
+        """Serialize state variables to a plain dict.
+
+        Returns:
+            Dict with 'state_vars' key containing current values.
+        """
+        return {
+            "state_vars": dict(self._state_vars),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, story_config: dict) -> "GameState":
+        """Restore GameState from save data.
+
+        Uses the original story_config for variable type definitions;
+        actual state values come from data['state_vars'].
+
+        Args:
+            data: Dict with 'state_vars' key from save file.
+            story_config: Original story_config from save file
+                          (preserves variable definitions with initial values).
+
+        Returns:
+            New GameState instance with restored values.
+        """
+        gs = cls(story_config)
+        gs._state_vars = dict(data.get("state_vars", {}))
+        return gs
+
     def apply_set(self, set_op: SetOperation, choice_dict: dict[str, int]) -> SetResult:
         """Validate and apply a state change from the LLM.
 
@@ -349,6 +378,7 @@ class GameLoop:
         current_node: str | None = None,
         goal: str | None = None,
         observer: Callable[[RoundRecord], None] | None = None,
+        outline_nodes: list[dict] | None = None,
     ):
         """Initialize game loop with story config and dependencies.
 
@@ -366,6 +396,7 @@ class GameLoop:
         """
         self.story_config = story_config
         self.outline_text = outline_text
+        self._outline_nodes = outline_nodes or []
         self.api_client = api_client
         self.display = display or Display()
 
@@ -387,6 +418,14 @@ class GameLoop:
         self._rejected_changes: list[str] = []
         self._format_error: str | None = None
         self._round1_started = False
+
+        # Checkpoint and save accumulators
+        self._temperature = getattr(api_client, "temperature", None)
+        self._checkpoint_summaries: list[str] = []
+        self._checkpoint_history: list[dict] = []
+        self._checkpoint_snapshots: dict[str, dict] = {}
+        self.ending_flag: bool = False
+        self._save_manager = None
 
     # ── Properties ─────────────────────────────────────────────────
 

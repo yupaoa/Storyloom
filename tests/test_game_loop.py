@@ -619,3 +619,38 @@ class TestGameLoopLastParsed:
         )
         result = loop.start_round1()
         assert loop.last_parsed is result.parsed
+
+
+class TestGameStateSerialization:
+    def test_to_dict_returns_state_vars(self):
+        story_config = {
+            "variables": [
+                {"name": "体力", "type": "number", "initial": 80},
+                {"name": "信任度", "type": "number", "initial": 10},
+            ]
+        }
+        gs = GameState(story_config)
+        data = gs.to_dict()
+        assert data == {"state_vars": {"体力": 80, "信任度": 10}}
+
+    def test_from_dict_preserves_original_initial_values(self):
+        story_config = {
+            "variables": [
+                {"name": "体力", "type": "number", "initial": 80},
+            ]
+        }
+        save_state = {"state_vars": {"体力": 30}}
+        gs = GameState.from_dict(save_state, story_config)
+        assert gs.state_vars == {"体力": 30}
+
+    def test_from_dict_roundtrip(self):
+        story_config = {
+            "variables": [
+                {"name": "体力", "type": "number", "initial": 100},
+            ]
+        }
+        gs1 = GameState(story_config)
+        gs1._state_vars["体力"] = 50
+        data = gs1.to_dict()
+        gs2 = GameState.from_dict(data, story_config)
+        assert gs2.state_vars == gs1.state_vars
