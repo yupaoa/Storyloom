@@ -1,6 +1,6 @@
 """Co-creation phase: user input → Q&A loop → story setup generation."""
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from storyloom.io.api_client import ApiClient
 from storyloom.core.ui_interface import UiInterface
@@ -559,6 +559,7 @@ class CoCreationResult:
     """Output of the co-creation phase, ready for GameLoop."""
     story_config: dict
     outline_text: str
+    outline_nodes: list[dict] = field(default_factory=list)
 
 
 # ── Flow ─────────────────────────────────────────────────────────────
@@ -714,6 +715,7 @@ class CoCreateFlow:
         return CoCreationResult(
             story_config=story_config,
             outline_text=outline_text,
+            outline_nodes=outline_nodes,
         )
 
     def _build_var_names_hint(self) -> str:
