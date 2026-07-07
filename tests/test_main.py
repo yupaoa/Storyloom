@@ -1,11 +1,10 @@
-"""Tests for main module (CLI entry point)."""
+"""Tests for main module (CLI test harness)."""
 
 import io
 import sys
 
 import pytest
-from storyloom.main import main, parse_args, DEFAULT_STORY_CONFIG
-from storyloom.io.display import Display
+from storyloom.main import main, parse_args, DEFAULT_STORY_CONFIG, SAMPLE_OUTLINE
 from storyloom.i18n import init_i18n
 init_i18n("en")  # Use English for deterministic test output
 
@@ -29,112 +28,136 @@ class TestDefaultStoryConfig:
             assert "type" in var
             assert "initial" in var
 
+    def test_sample_outline_is_non_empty(self):
+        """SAMPLE_OUTLINE should contain nodes."""
+        assert len(SAMPLE_OUTLINE) > 0
+        assert "ch1_intro" in SAMPLE_OUTLINE
+
 
 class TestParseArgs:
     def test_no_args_returns_defaults(self):
         """parse_args should return defaults with no arguments."""
         args = parse_args([])
-        assert args.menu is False
         assert args.debug is False
-
-    def test_menu_flag(self):
-        """--menu flag should be detected."""
-        args = parse_args(["--menu"])
-        assert args.menu is True
+        assert args.quick is False
+        assert args.rounds == 1
+        assert args.choices is None
 
     def test_debug_flag(self):
         """--debug flag should be detected."""
         args = parse_args(["--debug"])
         assert args.debug is True
 
+    def test_quick_flag(self):
+        """--quick flag should be detected."""
+        args = parse_args(["--quick"])
+        assert args.quick is True
+
+    def test_rounds_default(self):
+        """--rounds should default to 1."""
+        args = parse_args([])
+        assert args.rounds == 1
+
+    def test_rounds_custom(self):
+        """--rounds N should be detected."""
+        args = parse_args(["--rounds", "5"])
+        assert args.rounds == 5
+
+    def test_choices(self):
+        """--choices should be detected as a string."""
+        args = parse_args(["--choices", "1,2,1"])
+        assert args.choices == "1,2,1"
+
 
 class TestMainFunction:
-    def test_main_prints_banner(self, monkeypatch):
-        """main() should print the Storyloom banner."""
+    def test_main_quick_runs_round1(self, monkeypatch):
+        """main --quick should run 1 round and print completion."""
         monkeypatch.setattr("time.sleep", lambda x: None)
-        buf = io.StringIO()
-        monkeypatch.setattr("sys.stdin", io.StringIO("4\n"))
         monkeypatch.setattr(
             "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
-        main(output=buf)
+        buf = io.StringIO()
+        main(output=buf, argv=["--quick"])
         output = buf.getvalue()
-        assert "Storyloom" in output
+        assert "Completed 1 round" in output
 
-    def test_new_game_starts(self, monkeypatch):
-        """New game should start (choose 1, provide co-creation inputs, then quit)."""
+    def test_main_quick_rounds_3(self, monkeypatch):
+        """main --quick --rounds 3 should run 3 rounds."""
         monkeypatch.setattr("time.sleep", lambda x: None)
-        buf = io.StringIO()
-        monkeypatch.setattr("sys.stdin", io.StringIO(
-            "1\n"         # menu → new game
-            "科幻\n"      # step1: raw idea
-            "开始\n"      # step2: trigger generation
-            "quit\n"      # exit game
-            "4\n"         # exit menu
-        ))
         monkeypatch.setattr(
             "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
-        main(output=buf)
+        buf = io.StringIO()
+        main(output=buf, argv=["--quick", "--rounds", "3"])
         output = buf.getvalue()
-        assert "故事生成中" in output or "生成中" in output
+        assert "Completed 3 round" in output
 
-    def test_exit_option(self, monkeypatch):
-        """Exit option should terminate cleanly."""
-        monkeypatch.setattr("time.sleep", lambda x: None)
+    def test_main_without_quick_fails(self, monkeypatch):
+        """main without --quick should print error to stderr and exit."""
         buf = io.StringIO()
-        monkeypatch.setattr("sys.stdin", io.StringIO("4\n"))
+        err = io.StringIO()
+        monkeypatch.setattr("sys.stderr", err)
+        with pytest.raises(SystemExit) as excinfo:
+            main(output=buf, argv=[])
+        assert excinfo.value.code == 1
+
+    def test_main_print_flag(self, monkeypatch):
+        """main --quick --print should output round summary to stderr."""
+        monkeypatch.setattr("time.sleep", lambda x: None)
         monkeypatch.setattr(
             "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
-        main(output=buf)  # Should not raise
-
-    def test_quit_during_gameplay(self, monkeypatch):
-        """Typing 'quit' during gameplay should return to menu, then exit."""
-        monkeypatch.setattr("time.sleep", lambda x: None)
         buf = io.StringIO()
-        monkeypatch.setattr("sys.stdin", io.StringIO(
-            "1\n"         # menu → new game
-            "科幻\n"      # step1: raw idea
-            "开始\n"      # step2: trigger generation
-            "quit\n"      # exit during gameplay
-            "4\n"         # exit menu
-        ))
+        err = io.StringIO()
+        monkeypatch.setattr("sys.stderr", err)
+        main(output=buf, argv=["--quick", "--print"])
+        assert "Completed 1 round" in buf.getvalue()
+        assert "[Round 1]" in err.getvalue()
+
+    def test_main_verbose_flag(self, monkeypatch):
+        """main --quick --print --verbose should include segment counts."""
+        monkeypatch.setattr("time.sleep", lambda x: None)
         monkeypatch.setattr(
             "storyloom.main.ApiClient",
             lambda: MockApiClient(),
         )
-        main(output=buf)  # Should not raise
-
-    def test_manage_save_shows_stub(self, monkeypatch):
-        """Manage saves should show a stub message."""
-        monkeypatch.setattr("time.sleep", lambda x: None)
         buf = io.StringIO()
-        monkeypatch.setattr("sys.stdin", io.StringIO("3\n4\n"))
+        err = io.StringIO()
+        monkeypatch.setattr("sys.stderr", err)
+        main(output=buf, argv=["--quick", "--print", "--verbose"])
+        assert "segs=" in err.getvalue()
+
+    def test_main_missing_api_key(self, monkeypatch):
+        """main should exit with error if ApiClient raises RuntimeError."""
         monkeypatch.setattr(
             "storyloom.main.ApiClient",
-            lambda: MockApiClient(),
+            lambda: _raise_runtime_error,
         )
-        main(output=buf)
-        output = buf.getvalue()
-        assert "存档" in output
+        buf = io.StringIO()
+        err = io.StringIO()
+        monkeypatch.setattr("sys.stderr", err)
+        with pytest.raises(SystemExit) as excinfo:
+            main(output=buf, argv=["--quick"])
+        assert excinfo.value.code == 1
+
+
+# ── Mock ─────────────────────────────────────────────────────────────
+
+def _raise_runtime_error():
+    raise RuntimeError("No API key configured")
 
 
 class MockApiClient:
-    """Mock API client for main module tests.
+    """Mock API client for test harness tests.
 
-    Tracks call count to return appropriate responses for co-creation flow:
-    - First chat() → Q&A response triggering "是否开始生成故事"
-    - Subsequent chat() → full generation response with all three blocks
-    - stream_chat_iter() → narrative XML tokens (used by GameLoop)
+    Returns minimal valid XML for stream_chat_iter (used by GameLoop).
     """
 
     def __init__(self):
         self.last_messages = None
-        self._chat_count = 0
 
     def stream_chat_iter(self, messages):
         """Yield tokens from SAMPLE_XML, then done chunk."""
@@ -146,56 +169,10 @@ class MockApiClient:
             "done": True,
         }
 
-    def stream_chat(self, messages):
-        self.last_messages = messages
-        from types import SimpleNamespace
-        return SimpleNamespace(
-            content=SAMPLE_XML, ttft=0.5,
-            tokens={"prompt": 100, "completion": 50, "total": 150},
-        )
-
-    def chat(self, messages):
-        self.last_messages = messages
-        self._chat_count += 1
-        if self._chat_count == 1:
-            return "这个想法很有趣。请问主角是男性还是女性？是否开始生成故事？"
-        return CO_CREATE_GENERATION_RESPONSE
-
-
-CO_CREATE_GENERATION_RESPONSE = """=== story_config ===
-genre: 赛博朋克冒险
-tier: medium
-label: test-story
-setting: 2087年新东京地下城
-protagonist_name: 林焰
-protagonist_identity: 自由佣兵
-protagonist_traits: 冷静、道德灰色
-tone: 黑暗冷峻
-conflict: 一枚神秘芯片正在寻找宿主
-characters:
-  耗子 | 情报贩子 | 亦敌亦友
-
-=== variables ===
-体力: number, 初始 80
-信任度: number, 初始 10
-
-=== outline ===
-[node]
-id: ch1_intro
-title: 霓虹深渊
-goal: 在地下城酒吧感受氛围
-routes: → ch2_meeting
-
-[node]
-id: ch2_meeting
-title: 地下交易
-goal: 与耗子会面
-routes: （结局）"""
-
 
 SAMPLE_XML = """<story>
 <seg n="1">数字霓虹在雨幕中流淌。</seg>
-<seg n="2">林焰: 这条街我走了十二年。</seg>
+<seg n="2">你站在街角，雨水顺着大衣滑落。</seg>
 <choice id="first_choice">
   <opt key="A" branch="enter">走进酒吧</opt>
   <opt key="B" branch="wait">在街角观察</opt>

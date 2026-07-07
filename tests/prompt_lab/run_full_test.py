@@ -38,8 +38,8 @@ if "your-api-key" in API_KEY or not API_KEY:
 
 sys.path.insert(0, str(PROJECT_ROOT))
 from storyloom.io.api_client import ApiClient
-from storyloom.core.game_loop import GameLoop, GameState, RoundRecord
-from storyloom.io.display import Display
+from storyloom.core.game_loop import GameLoop, GameState
+from storyloom.cli_utils import make_debug_observer
 
 # ── Config ────────────────────────────────────────────────────────
 STORY_CONFIG = {
@@ -75,69 +75,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ── Observer ──────────────────────────────────────────────────────
-def save_round(record: RoundRecord) -> None:
-    """Observer: save complete round data for analysis."""
-    rd = OUT_DIR / f"round-{record.round_number}"
-    rd.mkdir(parents=True, exist_ok=True)
-
-    # Full messages sent to API
-    (rd / "messages.json").write_text(
-        json.dumps(record.messages_sent, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    # Raw LLM response
-    (rd / "response.txt").write_text(record.raw_response, encoding="utf-8")
-
-    # Metrics
-    (rd / "metrics.json").write_text(json.dumps({
-        "round": record.round_number,
-        "ttft": record.ttft,
-        "tokens": record.tokens,
-        "node": record.node,
-        "branch": record.selected_branch,
-        "timestamp": record.timestamp,
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # Parsed summary
-    if record.parsed:
-        (rd / "parsed.json").write_text(json.dumps({
-            "total_segs": record.parsed.total_segments,
-            "pre_segs": record.parsed.pre_segments,
-            "post_segs": record.parsed.post_segments,
-            "bridge": record.parsed.bridge_found,
-            "checkpoint": record.parsed.checkpoint_node,
-            "checkpoint_summary": record.parsed.checkpoint_summary,
-            "choices": record.parsed.choices,
-            "post_branches": record.parsed.post_branches,
-            "sets": [
-                {"var": s.var, "op": s.op, "val": s.val, "if": s.condition}
-                for s in record.parsed.sets
-            ],
-            "routes": [
-                {"target": r.target, "condition": r.condition}
-                for r in record.parsed.routes
-            ],
-        }, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        # Human-readable analysis
-        lines = []
-        lines.append(f"# Round {record.round_number} — Analysis")
-        lines.append(f"- Node: {record.node}")
-        lines.append(f"- Branch: {record.selected_branch}")
-        lines.append(f"- TTFT: {record.ttft:.1f}s" if record.ttft else "- TTFT: N/A")
-        lines.append(f"- Segments: {record.parsed.total_segments} "
-                     f"(pre={record.parsed.pre_segments}, "
-                     f"post={record.parsed.post_segments})")
-        lines.append(f"- Bridge: {'✓' if record.parsed.bridge_found else '✗'}")
-        if record.parsed.checkpoint_node:
-            lines.append(f"- Checkpoint: {record.parsed.checkpoint_node} "
-                         f"→ {[r.target for r in record.parsed.routes]}")
-        if record.parsed.choices:
-            c = record.parsed.choices[-1]
-            lines.append(f"- Choice: {c['id']} → {c['branches']}")
-        lines.append("")
-        (rd / "analysis.md").write_text("\n".join(lines), encoding="utf-8")
+save_round = make_debug_observer(str(OUT_DIR))
 
 
 # ── Choice simulation strategy ────────────────────────────────────

@@ -13,3 +13,6 @@ where = ["src"]
 
 [project.scripts]
 storyloom = "storyloom.main:main"
+
+[tool.pytest.ini_options]
+addopts = "--ignore=tests/prompt_lab"

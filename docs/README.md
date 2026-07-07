@@ -8,6 +8,8 @@
 | [`spec/block-spec.md`](./spec/block-spec.md) | XML 元素语法、编号规范、分支路由、状态校验 | 开发者 | **权威** |
 | [`spec/data-model.md`](./spec/data-model.md) | GameState、存档系统、常量、约定 | 开发者 | **权威** |
 | [`spec/prompt-design.md`](./spec/prompt-design.md) | 全阶段 Prompt 模板、对话式消息数组架构 | 开发者、调试者 | **权威** |
+| [`cli.md`](./cli.md) | CLI 测试工具与观察者系统使用指南 | 维护者、调试者 | 参考 |
+| [`api/co-create.md`](./api/co-create.md) | 共创 API 参考（供界面层开发者） | 界面层开发者 | 参考 |
 | [`superpowers/specs/`](./superpowers/specs/) | 功能设计规格（按日期归档） | 设计者、审查者 | 参考 |
 | [`superpowers/plans/`](./superpowers/plans/) | 实现计划（按日期归档） | 实现者 | 参考 |
 

@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """Storyloom — AI-powered interactive text fiction game engine.
 
-CLI entry point. Loads .env, shows main menu, routes to game loop.
+CLI test harness. Runs the game loop non-interactively; all output goes
+through observers (filesystem when --debug, else discarded). No game
+interaction — this is a developer tool for testing and data collection.
 """
 
 import argparse
 import os
 import sys
 
-from storyloom.io.api_client import ApiClient, ApiError
-from storyloom.io.display import Display
-from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
+from storyloom.io.api_client import ApiClient
 from storyloom.core.game_loop import GameLoop, GameState
 from storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
-from storyloom.i18n import init_i18n, _
+from storyloom.i18n import init_i18n
+from storyloom.cli_utils import make_debug_observer, make_print_observer
 
-# ── Default story config (used until co-creation UI is built) ─────
+# ── Default story config (used with --quick) ────────────────────────
 
 DEFAULT_STORY_CONFIG: dict = {
     "genre": "赛博朋克冒险",
@@ -45,80 +46,57 @@ ch4_revelation [pending] — 真相：芯片的秘密逐渐揭开
 ch5_ending [pending] — 结局：最终抉择"""
 
 
+# ── CLI ──────────────────────────────────────────────────────────────
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments.
-
-    Args:
-        argv: Argument list (defaults to sys.argv[1:]).
-
-    Returns:
-        Parsed arguments namespace.
-    """
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Storyloom — AI-powered interactive text fiction"
-    )
-    parser.add_argument(
-        "--menu",
-        action="store_true",
-        help="Show main menu immediately",
+        description="Storyloom — test harness for the narrative engine"
     )
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Save per-round prompt/response/metrics for debugging",
+        help="Save per-round prompt/response/metrics to disk",
     )
     parser.add_argument(
         "--quick",
         action="store_true",
-        help="Skip co-creation, use default story",
+        help="Use default story config (skip co-creation)",
     )
     parser.add_argument(
         "--lang",
         choices=sorted(SUPPORTED_LANGUAGES),
         default=None,
-        help="Language for UI and story (zh-CN / en)",
+        help="Language for UI strings (zh-CN / en)",
+    )
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Number of rounds to run (default: 1). Auto-picks first option.",
+    )
+    parser.add_argument(
+        "--choices",
+        type=str,
+        default=None,
+        metavar="1,2,1",
+        help="Comma-separated choice sequence (1-indexed). Overrides auto-pick.",
+    )
+    parser.add_argument(
+        "--print",
+        action="store_true",
+        help="Print per-round summary to stderr (one line per round).",
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Verbose output: include segment counts and token info in --print lines.",
     )
     return parser.parse_args(argv)
 
 
-def main(output=None) -> None:
-    """Main entry point.
-
-    Args:
-        output: Output stream for testing (defaults to sys.stdout).
-    """
-    # Resolve language early (needed for Display init)
-    if output is None:
-        args = parse_args()
-    else:
-        args = parse_args([])
-    language = args.lang or os.environ.get("STORYLOOM_LANG") or DEFAULT_LANGUAGE
-    if language not in SUPPORTED_LANGUAGES:
-        language = DEFAULT_LANGUAGE
-
-    init_i18n(language)
-
-    display = Display(output=output)
-
-    display.output.write("\n")
-    display.output.write(_("Storyloom — Interactive Fiction") + "\n")
-    display.output.write("=" * 40 + "\n\n")
-
-    # Load API client
-    try:
-        api_client = ApiClient()
-    except RuntimeError as e:
-        display.show_error(str(e))
-        display.show_error(
-            "请复制 .env.example 为 .env 并填入 API 配置。"
-        )
-        return
-
-    if args.quick:
-        run_game(display, api_client, debug=args.debug)
-    else:
-        show_main_menu(display, api_client, debug=args.debug)
-
+# ── Helpers ──────────────────────────────────────────────────────────
 
 def _extract_first_node(outline_text: str) -> str:
     """Extract first node ID from outline text."""
@@ -140,202 +118,113 @@ def _extract_first_goal(outline_text: str) -> str:
     return ""
 
 
-def show_main_menu(display: Display, api_client: ApiClient,
-                   debug: bool = False) -> None:
-    """Show main menu and route user choices.
+# ── Main ─────────────────────────────────────────────────────────────
+
+def main(output=None, argv: list[str] | None = None) -> None:
+    """Test harness entry point.
+
+    Runs the game loop non-interactively for N rounds. All output goes
+    through observers — the terminal shows nothing except errors.
 
     Args:
-        display: Display instance for output.
-        api_client: API client for game calls.
-        debug: If True, save per-round data to disk.
+        output: Output stream (defaults to sys.stdout; StringIO for tests).
+        argv: Argument list (defaults to sys.argv[1:]).
     """
-    while True:
-        display.show_main_menu(save_count=0)
-        choice = display.get_input(_("Choose: "))
+    if output is None:
+        args = parse_args()
+    else:
+        args = parse_args(argv if argv is not None else [])
 
-        if choice == "1":
-            try:
-                flow = CoCreateFlow(api_client, display)
-                result = flow.run()
-                run_game(display, api_client,
-                         story_config=result.story_config,
-                         outline_text=result.outline_text,
-                         debug=debug)
-            except CoCreationAborted:
-                display.output.write(_("Returning to menu.") + "\n")
-            except ApiError as e:
-                display.show_error(_("API error: {msg}").format(msg=e))
-        elif choice == "2":
-            display.show_wait_message(
-                _("Loading: {feature}").format(feature="继续游戏（加载存档）"))
-        elif choice == "3":
-            display.show_wait_message(
-                _("Loading: {feature}").format(feature="管理存档"))
-        elif choice == "4":
-            display.output.write(_("Goodbye.") + "\n")
-            break
-        else:
-            display.output.write(_("Invalid choice, try again.") + "\n")
+    # Resolve language
+    language = args.lang or os.environ.get("STORYLOOM_LANG") or DEFAULT_LANGUAGE
+    if language not in SUPPORTED_LANGUAGES:
+        language = DEFAULT_LANGUAGE
+    init_i18n(language)
 
+    # Parse choice sequence
+    choice_sequence: list[str] = []
+    if args.choices:
+        choice_sequence = [c.strip() for c in args.choices.split(",") if c.strip()]
 
-def _make_debug_observer(output_dir: str):
-    """Create an observer that saves per-round data to disk.
+    # Load API client
+    try:
+        api_client = ApiClient()
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print("Copy .env.example to .env and fill in API configuration.", file=sys.stderr)
+        sys.exit(1)
 
-    Args:
-        output_dir: Base directory for round data output.
+    if not args.quick:
+        print("Error: --quick is required (co-creation not available in test harness).",
+              file=sys.stderr)
+        print("Use the web UI for interactive co-creation.", file=sys.stderr)
+        sys.exit(1)
 
-    Returns:
-        Callable suitable as GameLoop observer.
-    """
-    import json
-    from pathlib import Path
-
-    base = Path(output_dir)
-    base.mkdir(parents=True, exist_ok=True)
-
-    def observer(record):
-        rd = base / f"round-{record.round_number}"
-        rd.mkdir(parents=True, exist_ok=True)
-
-        # Full messages array
-        (rd / "messages.json").write_text(
-            json.dumps(record.messages_sent, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        # Raw LLM response
-        (rd / "response.txt").write_text(record.raw_response, encoding="utf-8")
-
-        # Metrics
-        metrics = {
-            "round": record.round_number,
-            "ttft": record.ttft,
-            "tokens": record.tokens,
-            "node": record.node,
-            "branch": record.selected_branch,
-            "timestamp": record.timestamp,
-        }
-        (rd / "metrics.json").write_text(
-            json.dumps(metrics, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        # Parsed summary
-        if record.parsed:
-            parsed_summary = {
-                "total_segs": record.parsed.total_segments,
-                "pre_segs": record.parsed.pre_segments,
-                "post_segs": record.parsed.post_segments,
-                "bridge": record.parsed.bridge_found,
-                "checkpoint": record.parsed.checkpoint_node,
-                "checkpoint_summary": record.parsed.checkpoint_summary,
-                "choices": record.parsed.choices,
-                "sets": [
-                    {"var": s.var, "op": s.op, "val": s.val, "if": s.condition}
-                    for s in record.parsed.sets
-                ],
-                "routes": [
-                    {"target": r.target, "condition": r.condition}
-                    for r in record.parsed.routes
-                ],
-            }
-            (rd / "parsed.json").write_text(
-                json.dumps(parsed_summary, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-
-    return observer
-
-
-def run_game(
-    display: Display,
-    api_client: ApiClient,
-    story_config: dict | None = None,
-    outline_text: str | None = None,
-    debug: bool = False,
-) -> None:
-    """Run the narrative game loop.
-
-    Args:
-        display: Display instance for output.
-        api_client: API client for LLM calls.
-        story_config: Story config (from co-creation or default).
-        outline_text: Outline text (from co-creation or default).
-        debug: If True, save per-round prompt/response/metrics to disk
-               under tests/data/output/debug-{timestamp}/.
-    """
-    if story_config is None:
-        story_config = DEFAULT_STORY_CONFIG
-    if outline_text is None:
-        outline_text = SAMPLE_OUTLINE
-
-    game_state = GameState(story_config)
-
-    first_node = _extract_first_node(outline_text)
-    first_goal = _extract_first_goal(outline_text)
-
-    # Debug observer
-    observer = None
-    if debug:
+    # Build observers
+    observers = []
+    if args.debug:
         import time
         ts = time.strftime("%Y%m%d-%H%M%S")
-        observer = _make_debug_observer(
-            f"tests/data/output/debug-{ts}"
-        )
+        observers.append(make_debug_observer(f"tests/data/output/debug-{ts}"))
+    if args.print:
+        observers.append(make_print_observer(verbose=args.verbose))
+
+    # Setup game
+    story_config = DEFAULT_STORY_CONFIG
+    outline_text = SAMPLE_OUTLINE
+
+    game_state = GameState(story_config)
+    first_node = _extract_first_node(outline_text)
+    first_goal = _extract_first_goal(outline_text)
 
     game_loop = GameLoop(
         story_config=story_config,
         outline_text=outline_text,
         api_client=api_client,
-        display=display,
         game_state=game_state,
         current_node=first_node,
         goal=first_goal,
-        observer=observer,
+        observers=observers,
     )
 
+    # Run rounds
+    n_rounds = max(1, args.rounds)
+    failed = 0
+
     try:
-        result = game_loop.start_round1()
-    except ApiError as e:
-        display.show_error(_("API error: {msg}").format(msg=e))
-        return
+        game_loop.start_round1()
+    except Exception as e:
+        print(f"Round 1 failed: {e}", file=sys.stderr)
+        sys.exit(1)
 
-    n_opts = 0  # will be updated when options are available
-
-    # Main narrative loop
-    while True:
+    for r in range(1, n_rounds):
         options = game_loop.get_available_options()
 
         if not options:
-            try:
-                result = game_loop.continue_round(choice_key=None)
-            except ApiError as e:
-                display.show_error(_("API error: {msg}").format(msg=e))
-                break
-            continue
-
-        n_opts = len(options)
-        choice = display.get_input("\n" + _("Choose an option (type quit to return to menu): ") + " ")
-
-        if choice and choice.strip().lower() in ("quit", "exit", "q"):
-            display.output.write(_("Returning to menu.") + "\n")
-            return
-
-        if choice and choice.strip().isdigit():
-            idx = int(choice.strip())
-            if 1 <= idx <= n_opts:
-                try:
-                    result = game_loop.continue_round(choice_key=choice.strip())
-                except ApiError as e:
-                    display.show_error(_("API error: {msg}").format(msg=e)) 
-                    break
-            else:
-                display.output.write(
-                    _("Invalid choice, please enter 1-{n}.").format(n=n_opts) + "\n")
-        elif choice == "0":
-            display.show_state(game_loop.game_state.state_vars)
+            choice_key = None
         else:
-            display.output.write(_("Enter a number or quit.") + "\n")
+            # Pick from --choices sequence, or default to first option
+            idx = r - 1  # round 2 = sequence index 0
+            if idx < len(choice_sequence):
+                choice_key = choice_sequence[idx]
+            else:
+                choice_key = "1"
+
+        try:
+            game_loop.continue_round(choice_key=choice_key)
+        except Exception as e:
+            failed += 1
+            print(f"Round {r + 1} failed: {e}", file=sys.stderr)
+            if not args.debug:
+                sys.exit(1)
+            # In --debug mode, continue to next round (data from prior
+            # rounds is already saved; failed round has no new data.)
+
+    if failed:
+        print(f"Completed {n_rounds} round(s) — {failed} failed.",
+              file=output or sys.stdout)
+    else:
+        print(f"Completed {n_rounds} round(s).", file=output or sys.stdout)
 
 
 if __name__ == "__main__":
