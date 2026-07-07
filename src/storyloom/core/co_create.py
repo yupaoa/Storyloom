@@ -650,16 +650,17 @@ class CoCreateFlow:
 
         # ── Phase: awaiting_idea ──
         if self._phase == "awaiting_idea":
-            if not user_input.strip():
+            stripped_idea = user_input.strip()
+            if not stripped_idea:
                 return {"phase": "awaiting_idea",
                         "prompt": _("Please share some thoughts to begin.")}
 
-            self._messages.append({"role": "user", "content": user_input.strip()})
-
             self._phase = "generating"
+            self._messages.append({"role": "user", "content": stripped_idea})
             try:
                 response = self._api.chat(self._messages)
             except Exception as e:
+                self._messages.pop()  # Remove orphaned user message
                 self._phase = "awaiting_idea"
                 return {"phase": "error", "message": str(e), "recoverable": True}
 
@@ -694,11 +695,12 @@ class CoCreateFlow:
                 return {"phase": "complete", "result": result}
 
             # Normal answer → next Q&A round
-            self._messages.append({"role": "user", "content": stripped})
             self._phase = "generating"
+            self._messages.append({"role": "user", "content": stripped})
             try:
                 response = self._api.chat(self._messages)
             except Exception as e:
+                self._messages.pop()  # Remove orphaned user message
                 self._phase = "awaiting_answer"
                 return {"phase": "error", "message": str(e), "recoverable": True}
 
@@ -748,6 +750,9 @@ class CoCreateFlow:
 
         story_config = CoCreateParser.parse_story_config(blocks["story_config"])
         variables = CoCreateParser.parse_variables(blocks["variables"])
+        var_errors = CoCreateParser.validate_variables(variables)
+        if var_errors:
+            raise CoCreationAborted()
         outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
 
         var_names_list = [v["name"] for v in variables]
