@@ -505,6 +505,11 @@ class MockApiClient:
         return self.chat(messages)
 
 
+def make_mock_api_client():
+    """Create a bare MockApiClient for send() error tests."""
+    return MockApiClient()
+
+
 class MockDisplay:
     """Mock display that captures output and returns predefined inputs."""
 
@@ -930,3 +935,82 @@ class TestCoCreateFlowSend:
         assert isinstance(event["result"], CoCreationResult)
         assert flow.phase == "complete"
         assert flow.result is not None
+
+
+class TestCoCreateFlowSendErrors:
+    """Tests for send() error handling."""
+
+    def test_api_error_during_idea_returns_error_event(self):
+        """API failure during idea submission returns {phase: 'error', recoverable: True}."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = make_mock_api_client()
+        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("Connection refused"))
+        flow = CoCreateFlow(api, ui=None)
+        flow.start()
+
+        event = flow.send("A story idea")
+
+        assert event["phase"] == "error"
+        assert "Connection refused" in event["message"]
+        assert event["recoverable"] is True
+        assert flow.phase == "awaiting_idea"
+
+    def test_retry_after_error_works(self):
+        """After API error, sending again succeeds."""
+        from storyloom.core.co_create import CoCreateFlow
+        call_count = [0]
+        def chat_side_effect(msgs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise Exception("fail")
+            return "What kind of story?"
+        api = make_mock_api_client()
+        api.chat = chat_side_effect
+        flow = CoCreateFlow(api, ui=None)
+        flow.start()
+
+        event1 = flow.send("idea")
+        assert event1["phase"] == "error"
+
+        event2 = flow.send("idea")
+        assert event2["phase"] == "awaiting_answer"
+
+    def test_api_error_during_qa_returns_error_event(self):
+        """API failure during Q&A returns error event, stays in awaiting_answer."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = make_mock_api_client()
+        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("API timeout"))
+        flow = CoCreateFlow(api, ui=None)
+        flow._phase = "awaiting_answer"
+        flow._qa_round = 2
+
+        event = flow.send("my answer")
+
+        assert event["phase"] == "error"
+        assert event["recoverable"] is True
+        assert flow.phase == "awaiting_answer"
+
+    def test_generation_api_error_returns_error_event(self):
+        """API error during generation (from go keyword) returns error event."""
+        from storyloom.core.co_create import CoCreateFlow
+        call_count = [0]
+        def chat_side_effect(msgs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return "A question"
+            raise Exception("Generation API timeout")
+
+        api = make_mock_api_client()
+        api.chat = chat_side_effect
+        flow = CoCreateFlow(api, ui=None)
+        flow._phase = "awaiting_answer"
+        flow._messages = [
+            {"role": "system", "content": "test"},
+            {"role": "user", "content": "idea"},
+            {"role": "assistant", "content": "question"},
+        ]
+
+        event = flow.send("开始")
+
+        assert event["phase"] == "error"
+        assert event["recoverable"] is True
