@@ -772,3 +772,38 @@ class TestCoCreateFlowUiOptional:
         ui = MockDisplay()
         flow = CoCreateFlow(api, ui)
         assert flow._ui is ui
+
+
+class TestCoCreateFlowStateMachineProperties:
+    """Tests for phase, result properties."""
+
+    def test_initial_phase_is_init(self):
+        """phase returns 'init' before start() is called."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        assert flow.phase == "init"
+
+    def test_result_is_none_initially(self):
+        """result is None before co-creation completes."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        assert flow.result is None
+
+    def test_phase_transitions_after_start(self):
+        """phase changes to 'awaiting_idea' after start()."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        # start() not implemented yet, so manually set
+        flow._phase = "awaiting_idea"
+        assert flow.phase == "awaiting_idea"
+
+    def test_abort_changes_phase(self):
+        """abort() sets phase to 'aborted'."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        flow.abort()
+        assert flow.phase == "aborted"

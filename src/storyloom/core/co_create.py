@@ -579,6 +579,8 @@ class CoCreateFlow:
         self._messages: list[dict] = [
             {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
         ]
+        self._phase: str = "init"
+        self._result: CoCreationResult | None = None
 
     @property
     def messages(self) -> list[dict]:
@@ -588,6 +590,21 @@ class CoCreateFlow:
         prompt. Use with cli_utils.save_prompts() to dump to a file.
         """
         return list(self._messages)
+
+    @property
+    def phase(self) -> str:
+        """Current phase: 'init' | 'awaiting_idea' | 'awaiting_answer'
+           | 'generating' | 'complete' | 'aborted'."""
+        return self._phase
+
+    @property
+    def result(self) -> CoCreationResult | None:
+        """Result when phase == 'complete', None otherwise."""
+        return self._result
+
+    def abort(self) -> None:
+        """Abort co-creation immediately."""
+        self._phase = "aborted"
 
     def run(self) -> CoCreationResult:
         """Run the full co-creation flow.
