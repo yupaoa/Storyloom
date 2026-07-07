@@ -4,11 +4,13 @@
 
 ## Project
 
-Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward + dual-end interface. Currently in design/specification phase — no production code yet.
+Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward. It is a **single Python application** (not client-server) — the core engine is UI-agnostic via the `UiInterface` protocol, with a terminal CLI on `main` and a web interface under active parallel development.
 
-**Implementing (2026-07-04):** Both major migrations are now complete.
-1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters — see `src/storyloom/xml_parser.py`.
-2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts — see `src/storyloom/context_manager.py` and `src/storyloom/prompt_builder.py`.
+**Status (2026-07-07):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Web interface (FastAPI + SSE) under active development on parallel branch — dual-developer collaboration; the UI layer was prioritized ahead of the original phased roadmap. Terminal CLI is retained as a test/maintenance tool.
+
+**Key migrations (2026-07-04):**
+1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters — see `src/storyloom/parser/xml_parser.py`.
+2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts — see `src/storyloom/core/context_manager.py` and `src/storyloom/core/prompt_builder.py`.
 
 ## Core Design Concepts
 
@@ -41,22 +43,26 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 
 | Document | Role | Authority |
 |----------|------|-----------|
-| `docs/design.md` | Vision, architecture, phased roadmap | Advisory |
 | `docs/spec/exec-flow.md` | Phase 1 execution pipeline | **Authoritative** |
 | `docs/spec/block-spec.md` | XML element syntax, branch routing, state validation | **Authoritative** |
 | `docs/spec/prompt-design.md` | All Prompt templates, conversation architecture, constraints | **Authoritative** |
 | `docs/spec/data-model.md` | State, save system, constants | **Authoritative** |
-| `docs/spec/walkthrough.md` | 4-round narrative loop example (may be outdated) | Reference |
 | `docs/README.md` | Documentation index | — |
-| `docs/superpowers/specs/2026-07-04-conversation-prompt-design.md` | Conversation architecture spec | Reference |
-| `src/storyloom/prompt_builder.py` | Round 1 / Round N prompt content builder | Implementation |
-| `src/storyloom/xml_parser.py` | LLM XML output parser | Implementation |
-| `src/storyloom/context_manager.py` | Messages array, sliding window, compression | Implementation |
+| `docs/superpowers/specs/` | Feature design specs (archived by date) | Reference |
+| `docs/superpowers/plans/` | Implementation plans (archived by date) | Reference |
+| `src/storyloom/core/game_loop.py` | Game loop, GameState, ending detection, serialization | Implementation |
+| `src/storyloom/core/context_manager.py` | Messages array, sliding window, compression | Implementation |
+| `src/storyloom/core/prompt_builder.py` | Round 1 / Round N prompt content builder | Implementation |
+| `src/storyloom/core/co_create.py` | Co-creation flow (Q&A → story_config → outline) | Implementation |
+| `src/storyloom/core/save_manager.py` | Atomic JSON save/load/delete/list | Implementation |
+| `src/storyloom/core/ui_interface.py` | UiInterface protocol (UI-agnostic abstraction) | Implementation |
+| `src/storyloom/parser/xml_parser.py` | LLM XML output parser (full document) | Implementation |
+| `src/storyloom/parser/streaming_parser.py` | Real-time streaming XML parser | Implementation |
+| `src/storyloom/io/api_client.py` | OpenAI-compatible API client | Implementation |
+| `src/storyloom/io/display.py` | Terminal display (CLI) | Implementation |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
-| `tests/test_prompt_builder.py` | PromptBuilder unit tests | Test |
-| `tests/test_xml_parser.py` | XmlParser unit tests | Test |
-| `tests/test_context_manager.py` | ContextManager unit tests | Test |
-| `tests/test_integration.py` | Multi-round conversation flow integration tests | Test |
+| `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
+| `tests/test_*.py` | Unit tests (mock, no API) — 10 files, 223 tests | Test |
 | `tests/prompt_lab/` | Prompt design tools and LLM test harnesses (real API) | Tool |
 | `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
 
@@ -64,10 +70,11 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 
 ## Tech Stack
 
-- **Language:** Python 3 (standard library preferred)
-- **Interface:** Terminal CLI (Phase 1), FastAPI + SSE (Phase 2+)
+- **Language:** Python 3.10+ (standard library preferred)
+- **Interface:** Terminal CLI (test/maintenance tool on `main`), FastAPI + SSE web (primary UI, active parallel development)
 - **LLM:** OpenAI-compatible API (abstracted behind common interface)
 - **Storage:** Local JSON files in `saves/` directory
+- **i18n:** gettext (.po/.mo)
 
 ## Conventions
 
@@ -77,4 +84,4 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 - **Prompt language:** English for all system/narrative prompts (per authoritative `tests/prompt_lab/data/prompts/round1-linenum.txt`). Adventure log prompt in Chinese per prompt-design.md §5.2.
 - **XML element names:** English (`<seg>`, `<checkpoint>`, `<bridge/>`, etc.)
 - **Variable names in prompts:** Chinese (state variable names, choice names)
-- **Config constants:** Defined in `config.py`, referenced by name — no hardcoded values in business logic
+- **Config constants:** Defined in `src/storyloom/config.py`, referenced by name — no hardcoded values in business logic

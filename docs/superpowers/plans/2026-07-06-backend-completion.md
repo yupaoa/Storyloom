@@ -1,8 +1,8 @@
-# Backend Completion 实现计划
+# 引擎核心闭环 实现计划
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
-**目标：** 补齐后端核心闭环——存档系统、结局检测+冒险日志、CoCreateFlow 去耦合、状态序列化。
+**目标：** 补齐引擎核心闭环——存档系统、结局检测+冒险日志、CoCreateFlow 去耦合、状态序列化。
 
 **架构：** 在现有 12 模块基础上新增 2 个模块（SaveManager、UiInterface），修改 6 个现有模块。所有变更以 `docs/spec/` 下 4 个权威文档为标准，代码适配文档。
 
@@ -25,13 +25,13 @@
 - [ ] **步骤 1：创建协议文件**
 
 ```python
-"""UI abstraction protocol for headless (frontend) use."""
+"""UI abstraction protocol for headless (UI) use."""
 
 from typing import Protocol
 
 
 class UiInterface(Protocol):
-    """UI abstraction. Display implements this; frontends provide their own."""
+    """UI abstraction. Display implements this; UI implementations provide their own."""
 
     def write(self, text: str) -> None:
         """Display text to the user (info, prompts, wait messages, etc.)."""
@@ -1424,7 +1424,7 @@ from storyloom.core.save_manager import SaveManager
 "SaveManager",
 ```
 
-同时添加 UiInterface（虽然前端自己实现，但后端导出方便引用）：
+同时添加 UiInterface（虽然界面层自己实现，但引擎层导出方便引用）：
 
 ```python
 from storyloom.core.ui_interface import UiInterface

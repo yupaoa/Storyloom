@@ -1,10 +1,10 @@
-"""UI abstraction protocol for headless (frontend) use."""
+"""UI abstraction protocol for headless (UI) use."""
 
 from typing import Protocol
 
 
 class UiInterface(Protocol):
-    """UI abstraction. Display implements this; frontends provide their own."""
+    """UI abstraction. Display implements this; UI implementations provide their own."""
 
     def write(self, text: str) -> None:
         """Display text to the user (info, prompts, wait messages, etc.)."""

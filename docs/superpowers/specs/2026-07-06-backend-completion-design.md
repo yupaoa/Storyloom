@@ -1,5 +1,7 @@
-# Backend Completion Design — Core Loop Closure
+# Core Engine Completion Design — Save, Ending, Decoupling
 
+> **术语说明**：本文撰写时使用了"前端/后端"术语。在 Storyloom 架构中，这对应"界面层/核心引擎"——Storyloom 是单体应用，非 client-server 架构。
+>
 > **Date**: 2026-07-06
 > **Status**: Approved (revised after self-review)
 > **Authority**: `docs/spec/exec-flow.md`, `docs/spec/block-spec.md`, `docs/spec/data-model.md`, `docs/spec/prompt-design.md`
@@ -12,12 +14,12 @@ Four areas, all minimal-change:
 
 1. **Save System** — new `SaveManager` module (save/load/delete/list)
 2. **Ending Detection + Adventure Log** — `ending_flag` mechanism + independent LLM call per spec
-3. **CoCreateFlow Decoupling** — `UiInterface` protocol so frontend can implement its own UI
+3. **CoCreateFlow Decoupling** — `UiInterface` protocol so UI layer can implement its own UI
 4. **Serialization** — `GameState.to_dict()` / `GameLoop.to_save_dict()` / `GameLoop.from_save_dict()`
 
 Plus one prerequisite fix: add `label` to `story_config` (required for save file naming per spec).
 
-Out of scope: main menu implementation (frontend concern), Q-key ending (frontend concern), option graying display (frontend concern — `conditions` already exposed in events).
+Out of scope: main menu implementation (UI concern), Q-key ending (UI concern), option graying display (UI concern — `conditions` already exposed in events).
 
 ---
 
@@ -320,9 +322,9 @@ No multi-choice selection is used in co-creation — only free-text input.
 from typing import Protocol
 
 class UiInterface(Protocol):
-    """UI abstraction for headless (frontend) use.
+    """UI abstraction for headless (UI) use.
 
-    Display implements this; frontends provide their own implementation.
+    Display implements this; UI implementations provide their own.
     """
 
     def write(self, text: str) -> None:
@@ -381,7 +383,7 @@ All other Display methods (`show_segment`, `show_options`, etc.) remain unchange
 
 ---
 
-## §6 Frontend API Contract (Summary)
+## §6 UI Layer API Contract (Summary)
 
 ### Game Flow (existing, unchanged)
 ```python

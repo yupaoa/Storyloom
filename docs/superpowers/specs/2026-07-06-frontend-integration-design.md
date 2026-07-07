@@ -1,10 +1,12 @@
-# Frontend Integration Design
+# Interface Integration Design
 
-> 2026-07-06 | 双人开发 — 后端提供可 pip install 的库，前端自行构建 HTTP/SSE 层。
+> **术语说明**：本文撰写时使用了"前端/后端"术语。在 Storyloom 架构中，这对应"界面层/核心引擎"——Storyloom 是单体应用，非 client-server 架构。
+>
+> 2026-07-06 | 双人开发 — 引擎层提供可 pip install 的库，界面层自行构建 HTTP/SSE 层。
 
 ## 目标
 
-Storyloom 作为 Python 库被前端项目导入。前端负责 API 服务层（FastAPI/Express/等），后端只暴露生成器接口。CLI 保持兼容，未来逐步淘汰。
+Storyloom 作为 Python 库被界面层项目导入。界面层负责 API 服务层（FastAPI/Express/等），引擎层只暴露生成器接口。CLI 保持兼容，未来逐步淘汰。
 
 ## 改动范围
 
@@ -19,7 +21,7 @@ Storyloom 作为 Python 库被前端项目导入。前端负责 API 服务层（
 
 ### 1. pyproject.toml — 包化
 
-让前端通过 `pip install -e .` 或 `pip install git+...` 安装。
+让界面层通过 `pip install -e .` 或 `pip install git+...` 安装。
 
 ```toml
 [build-system]
@@ -99,11 +101,11 @@ def start_round1(self) -> RoundResult:
 - 输出格式说明（`=== story_config ===` / `=== variables ===` / `=== outline ===` 三块）
 - 字段约束（变量上限 3、outline 格式等）
 
-不提供任何实现建议，不限制前端自由发挥。
+不提供任何实现建议，不限制界面层自由发挥。
 
-## API 端点（前端实现参考）
+## API 端点（界面层实现参考）
 
-以下为建议端点，后端不实现。前端自行决定。
+以下为建议端点，引擎层不实现。界面层自行决定。
 
 ```
 POST   /api/game/new          body: {story_config, outline_text} → SSE stream
@@ -131,10 +133,10 @@ event: done
 data: {"round": 1, "node": "ch2_confrontation", "state": {"体力": 80}}
 ```
 
-## 前端集成示例
+## 界面层集成示例
 
 ```python
-# 前端自己的 FastAPI/Starlette 服务中
+# 界面层自己的 FastAPI/Starlette 服务中
 from storyloom import GameLoop, GameState, ApiClient
 from starlette.responses import StreamingResponse
 
@@ -158,12 +160,12 @@ async def game_new_endpoint(body: dict):
 
 ## 不变的部分
 
-以下模块无需修改，前端可直接复用：
+以下模块无需修改，界面层可直接复用：
 
 - `GameState` — 状态管理（local source of truth）
 - `ContextManager` — 消息数组 + 滑动窗口
 - `PromptBuilder` — Round 1 / Round N prompt 构建
 - `XmlParser` — LLM XML 输出解析
-- `Display` — 前端不需要（自行渲染），CLI 继续使用
-- `CoCreateFlow` — 共创逻辑移至前端
+- `Display` — 界面层不需要（自行渲染），CLI 继续使用
+- `CoCreateFlow` — 共创逻辑移至界面层
 - `main.py` — CLI 入口，保持不变
