@@ -20,7 +20,7 @@ any presentation layer via the `UiInterface` protocol.
 │  │PromptBldr│ │CoCreate   │ │GameState     │  │
 │  └──────────┘ └───────────┘ └─────────────┘  │
 └──────────────────┬───────────────────────────┘
-                   │ UiInterface (protocol)
+                   │ UiInterface + GameSession
            ┌───────┴───────┐
            ▼               ▼
     ┌────────────┐  ┌─────────────────┐
@@ -76,11 +76,11 @@ Each round:
 | `storyloom.core.prompt_builder` | Round 1 / Round N prompt assembly |
 | `storyloom.core.co_create` | Co-creation flow (Q&A → story_config → outline) |
 | `storyloom.core.save_manager` | Atomic JSON save/load/delete/list |
+| `storyloom.core.session` | `GameSession` lifecycle coordinator — UI integration API |
 | `storyloom.core.ui_interface` | `UiInterface` protocol for UI-agnostic design |
 | `storyloom.parser.xml_parser` | LLM XML output parsing (full document) |
-| `storyloom.parser.streaming_parser` | Real-time streaming XML parse |
 | `storyloom.io.api_client` | OpenAI-compatible API client (stream + non-stream) |
-| `storyloom.io.display` | Terminal display (CLI) |
+| `storyloom.io.display` | Terminal display (CLI) — **deprecated**, reference only |
 | `storyloom.i18n` | Internationalization via gettext (.po/.mo) |
 
 ## Documentation
@@ -104,7 +104,10 @@ Each round:
 ## Development
 
 ```bash
-# Run tests (mock — no API key needed)
+# Run tests (mock — no API key needed; skips 9 API tests that require .env)
+pytest --ignore=tests/test_api_client.py
+
+# Run all tests including API tests (requires .env with valid API key)
 pytest
 
 # CLI with per-round debug output
@@ -112,4 +115,30 @@ python -m storyloom.main --debug
 
 # Run a specific test file
 pytest tests/test_game_loop.py -v
+```
+
+### UI Integration
+
+Web UI developers should use the `GameSession` coordinator and streaming API:
+
+```python
+from storyloom.core import GameSession, CoCreationResult
+
+session = GameSession()
+
+# New game
+flow = session.new_co_create()           # → CoCreateFlow (state machine)
+event = flow.start()                     # → {phase: "awaiting_idea"}
+event = flow.send("a cyberpunk story")   # → {phase: "awaiting_answer"}
+event = flow.send("开始")                 # → {phase: "complete", result: ...}
+gl = session.start_game(event["result"]) # → GameLoop
+
+# Narrative loop
+for event in gl.start_round1_stream():
+    # handle token/segment/options/state/error/done events
+    ...
+gl.continue_round_stream(choice_key="1")
+
+# Load game
+gl = session.load_game("save_label")
 ```

@@ -10,6 +10,8 @@
 | [`spec/prompt-design.md`](./spec/prompt-design.md) | 全阶段 Prompt 模板、对话式消息数组架构 | 开发者、调试者 | **权威** |
 | [`cli.md`](./cli.md) | CLI 测试工具与观察者系统使用指南 | 维护者、调试者 | 参考 |
 | [`api/co-create.md`](./api/co-create.md) | 共创 API 参考（供界面层开发者） | 界面层开发者 | 参考 |
+| [`superpowers/specs/2026-07-07-api-audit-and-interface-design.md`](./superpowers/specs/2026-07-07-api-audit-and-interface-design.md) | API 审计与界面集成设计 | 界面层开发者 | 设计 |
+| [`superpowers/plans/2026-07-07-api-interface-implementation.md`](./superpowers/plans/2026-07-07-api-interface-implementation.md) | API 接口实现计划 | 实现者 | 计划 |
 | [`superpowers/specs/`](./superpowers/specs/) | 功能设计规格（按日期归档） | 设计者、审查者 | 参考 |
 | [`superpowers/plans/`](./superpowers/plans/) | 实现计划（按日期归档） | 实现者 | 参考 |
 
