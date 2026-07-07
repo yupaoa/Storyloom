@@ -62,7 +62,7 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `src/storyloom/io/display.py` | Terminal display (CLI) | Implementation |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
-| `tests/test_*.py` | Unit tests (mock, no API) — 10 files, 223 tests | Test |
+| `tests/test_*.py` | Unit tests (mock, no API) — 10 files, 228 tests | Test |
 | `tests/prompt_lab/` | Prompt design tools and LLM test harnesses (real API) | Tool |
 | `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
 

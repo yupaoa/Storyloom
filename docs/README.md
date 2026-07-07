@@ -39,12 +39,13 @@ spec/prompt-design.md ──── 同等权威（Prompt 模板）
 spec/data-model.md    ──── 同等权威（数据模型）
 ```
 
-**冲突解决**：spec 文档之间应保持一致。Prompt 格式以 `tests/data/prompts/round1-linenum.txt` 为最终标准。
+**冲突解决**：spec 文档之间应保持一致。Prompt 格式以 `tests/prompt_lab/data/prompts/round1-linenum.txt` 为最终标准。
 
 ## 扩展路线
 
-### Phase 1 — CLI 纯文本 MVP（当前）
+### Phase 1 — CLI 纯文本 MVP（核心引擎已实现）
 终端 CLI、LLM 自定义变量、共创阶段变量定义、固定选项、自动存档。验证核心游戏循环。
+> **注意**：Web 界面（原 Phase 2）已被提前至并行分支活跃开发，UI 层优先于原始阶段路线图。
 
 ### Phase 2 — Web + 动态系统
 - **变量系统增强**：可用变量数扩展至 10+，支持更复杂的数值约束

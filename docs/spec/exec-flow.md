@@ -517,11 +517,11 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
    e. 验证 post 区域无 <choice>/<set>/<checkpoint>
 
 3. 提取结构化数据：
-   → <seg>：收集叙事段及其编号 n、位置（pre/post）、所属 branch
-   → <choice>：提取 id 属性和各 <opt> 的 key/branch
+   → <seg>：收集叙事段及其位置（pre/post）、所属 branch。n 属性可选（行号格式通过 NNN| 前缀标注，解析时已剥离）
+   → <choice>：提取 id 属性和各 <opt> 的 key/branch（key 为数字键 1/2/3/4）
    → <set>：提取 var/op/val/if 属性
    → <checkpoint>：提取 node/summary 属性及 <route> 子元素
-   → bridge_text：从 post 子元素的文本节点提取纯文本
+   → bridge_text：从 post 子元素的文本节点提取纯文本（按 current_branch 过滤）
 ```
 
 > **各元素语法**：见 [`block-spec.md`](./block-spec.md) §4。
@@ -549,11 +549,9 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
    └── 无 → 展示 bridge_text → 自动进入下一轮
 ```
 
-**bridge_text 展示**：`<bridge/>` 之后的 `<seg>` 和 `<branch>` 内的 <seg> 同样按编号分割展示。用户无感知——体感上是连续叙事。
+**bridge_text 展示**：`<bridge/>` 之后的 `<seg>` 和 `<branch>` 内的 `<seg>` 按元素边界分割展示。用户无感知——体感上是连续叙事。
 
 **命名 narrative 展示**：遍历时仅 `current_branch` 匹配的 narrative 进入展示队列。
-
-**bridge_text 展示**：bridge 之后的内容继续从展示队列输出，用户无感知——体感上是连续叙事。
 
 ### 4.6 玩家交互
 
@@ -629,10 +627,10 @@ bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完
 ```
 倒数第二轮（Round N-1）：
   <story>
-  <seg n="1">（结局叙事段落……）</seg>
+  <seg>（结局叙事段落……）</seg>
   <checkpoint node="end" summary="所有线索在此交汇……"/>
   <bridge/>
-  <seg n="2">（最后的衔接文本——缓冲用，保持与正常剧情段一致的结构）</seg>
+  <seg>（最后的衔接文本——缓冲用，保持与正常剧情段一致的结构）</seg>
   </story>
 
 程序处理：

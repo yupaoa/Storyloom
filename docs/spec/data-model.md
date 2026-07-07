@@ -239,7 +239,7 @@ load_save(filepath):
 | `SEGMENTS_PER_ROUND_MAX` | 120 | 迁移到 `LINES_PER_ROUND_*`（行号格式） |
 | `BRIDGE_SEGMENT_RATIO` | 0.4 | 重命名为 `BRIDGE_POSITION_RATIO`，值更新为 0.75 |
 | `MIN_NARRATION_CHARS` | 200 | 行号格式下每行即一段，字数由 Prompt 端 `LANGUAGE_SEG_LIMITS` 约束 |
-| `AUTO_ADVANCE_DELAY_MS` | 500 | CLI 显示专用。CLI 已降级为测试工具，Web UI 自行控制展示节奏 |
+| `AUTO_ADVANCE_DELAY_MS` | 500 | 仅 CLI 测试工具使用（控制自动推进间隔）。Web UI 自行管理展示节奏 |
 
 ---
 

@@ -22,10 +22,10 @@ LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `xml.etree.E
 
 | 元素 | 标签 | 位置限制 | 出现次数 | 说明 |
 |------|------|---------|---------|------|
-| 叙事段 | `<seg>` | 任意 | 0-N | 每个叙事段。n 属性为全局编号，text node 为内容 |
+| 叙事段 | `<seg>` | 任意 | 0-N | 每个叙事段。text node 为内容。行号通过 `NNN\| ` 行前缀标注（非 XML 属性） |
 | 分支容器 | `<branch>` | 任意 | 0-N | 分支叙事容器。name 属性标识分支名。内含 `<seg>` 子元素 |
 | 选项 | `<choice>` | 仅 bridge 前 | 0-1 | 玩家选项列表。id 属性为变量名。内含 `<opt>` 子元素 |
-| 选项项 | `<opt>` | 含在 `<choice>` 内 | 2-5 | 单个选项。key 为字母键，branch 为分支名 |
+| 选项项 | `<opt>` | 含在 `<choice>` 内 | 2-5 | 单个选项。key 为数字键（1/2/3/4），branch 为分支名 |
 | 状态变更 | `<set>` | 仅 bridge 前 | 0-N | 状态变量变更。var/op/val 属性为必填，if 属性可选 |
 | 检查点 | `<checkpoint>` | 仅 bridge 前 | 0-1 | 大纲路由。node/summary 属性。内含 `<route>` 子元素 |
 | 路由 | `<route>` | 含在 `<checkpoint>` 内 | 0-N | 分支路由。if 属性可选，target 指定目标节点 |
@@ -36,49 +36,53 @@ LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `xml.etree.E
 
 ### 1.3 完整结构示例
 
+> 行号前缀（`NNN| `）由 LLM 在每行输出，程序解析前剥离。行号不是 XML 的一部分。
+
 ```xml
-<story>
-  <seg n="1">雨水敲击着头顶的金属雨棚，霓虹灯在积水里折射出破碎的光。</seg>
-  <seg n="2">耗子抬起眼，义眼红光在昏暗中微微闪烁。</seg>
-  <seg n="3">耗子: 林焰，坐。</seg>
-  <choice id="approach">
-    <opt key="A" branch="direct">直视对方，直截了当</opt>
-    <opt key="B" branch="cautious">先环顾四周，压低声音</opt>
-  </choice>
-  <set var="信任度" op="+" val="5" if="approach==1"/>
-  <checkpoint node="ch2_confrontation" summary="在霓虹深渊与耗子接头，选择了接触方式。"/>
-  <bridge/>
-  <branch name="direct">
-    <seg n="4">你直视耗子的义眼，那一点红光在昏暗中微微闪烁。</seg>
-    <seg n="5">林焰: 芯片在哪儿？我没时间绕弯子。</seg>
-  </branch>
-  <branch name="cautious">
-    <seg n="6">你的目光扫过昏暗的酒吧，角落里几个穿皮夹克的人正盯着你们。</seg>
-  </branch>
-</story>
+001| <story>
+002| <seg>雨水敲击着头顶的金属雨棚，霓虹灯在积水里折射出破碎的光。</seg>
+003| <seg>耗子抬起眼，义眼红光在昏暗中微微闪烁。</seg>
+004| <seg>耗子: 林焰，坐。</seg>
+005| <choice id="approach">
+006|   <opt key="1" branch="direct">直视对方，直截了当</opt>
+007|   <opt key="2" branch="cautious">先环顾四周，压低声音</opt>
+008| </choice>
+009| <set var="信任度" op="+" val="5" if="approach==1"/>
+010| <checkpoint node="ch2_confrontation" summary="在霓虹深渊与耗子接头，选择了接触方式。"/>
+011| <bridge/>
+012| <branch name="direct">
+013| <seg>你直视耗子的义眼，那一点红光在昏暗中微微闪烁。</seg>
+014| <seg>林焰: 芯片在哪儿？我没时间绕弯子。</seg>
+015| </branch>
+016| <branch name="cautious">
+017| <seg>你的目光扫过昏暗的酒吧，角落里几个穿皮夹克的人正盯着你们。</seg>
+018| </branch>
+019| </story>
 ```
 
 ---
 
-## §2 编号规范
+## §2 行号与编号规范
 
-> **目的**：让 LLM 在生成过程中自我计量，替代字数估算。编号类似文本编辑器中的行号——LLM 生成每个叙事段时在 `n` 属性中标注，程序解析后剥离展示。
+> **目的**：让 LLM 在生成过程中自我计量，替代字数估算。每行以 `NNN| ` 前缀开头（零填充 3 位），程序解析前剥离。行号类似文本编辑器中的行号——LLM 每行标注，程序剥离后展示。
 
-### 2.1 编号规则
+### 2.1 行号规则
 
 | 元素 | 编号方式 | 示例 |
 |------|---------|------|
-| `<seg>` 叙事段 | n 属性，全局连续递增 | `<seg n="1">` ... `<seg n="12">` |
-| `<opt>` 选项项 | key 属性，字母 | `key="A"` `key="B"` |
+| 每行输出 | `NNN\| ` 前缀，零填充 3 位，全局连续递增 | `001\| ` `002\| ` ... `150\| ` |
+| `<opt>` 选项项 | key 属性，数字 | `key="1"` `key="2"` |
 | 其他元素 | ❌ 无编号 | 元数据/分隔符 |
 
-### 2.2 Prompt 编号指令
+> `<seg>` 元素不再使用 `n` 属性——行号由 `NNN| ` 前缀提供。解析器兼容旧格式（`n` 缺失时默认 0），但当前 Prompt 不产生 `n` 属性。
 
-> 以下为注入 Round 1 Prompt 格式规范部分的编号约束。
+### 2.2 Prompt 行号指令
+
+> 以下为注入 Round 1 Prompt 格式规范部分的行号约束。
 
 ```
-- 所有 <seg> 的 n 从 1 开始，全局连续递增，不重复不跳号
-- {MIN}-{MAX} 个叙事段。bridge 放在交互与叙事分界处，约总段数一半
+- 每行以 NNN| 前缀开头（零填充 3 位），从 001 开始，全局连续递增，不重复不跳号
+- {MIN}-{MAX} 行。bridge 放在交互与叙事分界处，约总行数 75%
 - 对话段：`角色名: 内容`（英文半角冒号，冒号后空一格，对话不加引号）
 - 旁白段：15-40 字，一段只说一件事
 ```
@@ -91,31 +95,36 @@ LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `xml.etree.E
 # 使用 xml.etree.ElementTree 解析
 # 关键步骤：
 
-# 1. 提取 XML（去除 markdown 围栏、分割 "---" 前导行）
+# 1. 提取 XML（去除 markdown 围栏）
 xml_str = extract_xml(text)
 
-# 2. 解析为 ElementTree
+# 2. 剥离行号前缀（NNN| ）——不是 XML 的一部分
+xml_str = re.sub(r'^\d{3}\| ', '', xml_str, flags=re.MULTILINE)
+
+# 3. 解析为 ElementTree
 root = ET.fromstring(xml_str)
 
-# 3. 找到 bridge 位置
+# 4. 找到 bridge 位置
 children = list(root)
 bridge_idx = [i for i, el in enumerate(children) if el.tag == "bridge"][0]
 
-# 4. 分离 pre/post
+# 5. 分离 pre/post
 pre_children = children[:bridge_idx]
 post_children = children[bridge_idx + 1:]
 
-# 5. 收集 <seg> 元素（包括 <branch> 内的嵌套 seg）
+# 6. 收集 <seg> 元素（包括 <branch> 内的嵌套 seg）
+#    n 属性可选（兼容旧格式），缺失时默认 0
 for el in pre_children:
     if el.tag == "seg":
-        n = int(el.get("n"))
+        n = int(el.get("n", 0))  # n 可选，行号已由前缀提供
         text = el.text.strip()
         segments.append(Segment(n, text, "pre"))
     elif el.tag == "branch":
         for seg_el in el.findall("seg"):
+            n = int(seg_el.get("n", 0))
             segments.append(Segment(n, seg_el.text.strip(), "pre", branch=el.get("name")))
 
-# 6. 同理处理 post_children
+# 7. 同理处理 post_children
 ```
 
 **对话段识别**（可复用旧逻辑，XML 文本节点保持相同格式）：
@@ -134,16 +143,16 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
     return ("narration", None, text)
 ```
 
-### 2.4 编号校验
+### 2.4 行号校验
 
 | 检查 | 处理 |
 |------|------|
-| 起始编号 ≠ 1 | 记入 numbering_issues，接受 |
-| 编号重复/不连续 | 记入 numbering_issues，接受 |
-| 总段数 < MIN 或 > MAX | 接受，记入 rejected_changes，下轮反馈 |
+| 起始行号 ≠ 001 | 记入 numbering_issues，接受 |
+| 行号重复/不连续 | 记入 numbering_issues，接受 |
+| 总行数 < MIN 或 > MAX | 接受，记入 rejected_changes，下轮反馈 |
 | bridge 位置偏离过大 | 接受，记入 rejected_changes，下轮反馈 |
 
-> **宽容原则**：内容质量优先于编号准确性。编号是 LLM 的辅助工具，不是硬性约束。
+> **宽容原则**：内容质量优先于行号准确性。行号是 LLM 的辅助工具，不是硬性约束。
 
 ---
 
@@ -177,7 +186,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 | 来源 | 机制 | 示例 |
 |------|------|------|
-| 玩家选择 | 选中的 `<opt>` 的 `branch` 属性 | 选 `key="A"` 且 `branch="direct"` → `current_branch = "direct"` |
+| 玩家选择 | 选中的 `<opt>` 的 `branch` 属性 | 选 `key="1"` 且 `branch="direct"` → `current_branch = "direct"` |
 
 **`choice_dict` 修改来源**：`<choice>` 的 `id` 属性声明 choice 名，玩家选择后 `choice_dict[id] = 选项字母序号`。
 
@@ -189,15 +198,15 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 ### `<seg>`
 
-纯叙事文本。`n` 属性全局连续编号，text node 为叙事内容：
+纯叙事文本。行号由 `NNN| ` 前缀标注（非 XML 属性），text node 为叙事内容：
 
 ```xml
-<seg n="1">你推开厚重的橡木门，冷风裹挟着雪花卷入室内。</seg>
-<seg n="2">耗子: 芯片在哪儿？我没时间绕弯子。</seg>
+001| <seg>你推开厚重的橡木门，冷风裹挟着雪花卷入室内。</seg>
+002| <seg>耗子: 芯片在哪儿？我没时间绕弯子。</seg>
 ```
 
 约束：
-- `n` 从 1 开始，全局递增
+- 行号从 001 开始，全局递增（每行 `NNN| ` 前缀）
 - 旁白（15-40 字）或对话（`角色名: 内容`，≤50字）
 - 一段只做一件事，禁止混合旁白和对话
 
@@ -207,8 +216,8 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 ```xml
 <branch name="direct">
-  <seg n="4">你直视耗子的义眼。</seg>
-  <seg n="5">林焰: 芯片在哪儿？</seg>
+  <seg>你直视耗子的义眼。</seg>
+  <seg>林焰: 芯片在哪儿？</seg>
 </branch>
 ```
 
@@ -224,8 +233,8 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 ```xml
 <choice id="chip_choice">
-  <opt key="A" branch="took_chip">接过芯片</opt>
-  <opt key="B" branch="left" if="理智值 >= 30">暂时离开</opt>
+  <opt key="1" branch="took_chip">接过芯片</opt>
+  <opt key="2" branch="left" if="理智值 >= 30">暂时离开</opt>
 </choice>
 ```
 
@@ -233,7 +242,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 | 属性 | 必填 | 说明 |
 |------|------|------|
-| `key` | 是 | 字母键 `A`/`B`/`C`/`D`。展示时转为数字选项 |
+| `key` | 是 | 数字键 `1`/`2`/`3`/`4`。对应选项序号 |
 | `branch` | 是 | 选中后设置的 `current_branch`，必须对应 bridge 之后同名的 `<branch name>` |
 | `if` | 否 | 条件表达式，满足才可选。格式 `变量名 运算符 值` |
 
