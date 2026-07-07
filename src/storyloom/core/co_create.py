@@ -747,9 +747,7 @@ class CoCreateFlow:
         blocks = CoCreateParser.split_blocks(response)
 
         story_config = CoCreateParser.parse_story_config(blocks["story_config"])
-        blocks = CoCreateParser.split_blocks(self._messages[-1]["content"])
         variables = CoCreateParser.parse_variables(blocks["variables"])
-        blocks = CoCreateParser.split_blocks(self._messages[-1]["content"])
         outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
 
         var_names_list = [v["name"] for v in variables]
