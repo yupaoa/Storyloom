@@ -836,3 +836,97 @@ class TestCoCreateFlowStart:
         flow.start()
         with pytest.raises(RuntimeError, match="already started"):
             flow.start()
+
+
+class TestCoCreateFlowSend:
+    """Tests for send() method."""
+
+    def test_send_before_start_raises(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        with pytest.raises(RuntimeError, match="call start\\(\\) first"):
+            flow.send("anything")
+
+    def test_send_after_complete_raises(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        flow._phase = "complete"
+        with pytest.raises(RuntimeError, match="already complete"):
+            flow.send("anything")
+
+    def test_send_empty_idea_returns_prompt(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        flow.start()
+        event = flow.send("")
+        assert event["phase"] == "awaiting_idea"
+        assert flow.phase == "awaiting_idea"
+
+    def test_send_quit_aborts(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        flow._phase = "awaiting_answer"
+        event = flow.send("quit")
+        assert event["phase"] == "aborted"
+        assert flow.phase == "aborted"
+
+    def test_send_idea_calls_llm_and_returns_question(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        api.chat = lambda msgs: "What era would you like?"
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        event = flow.send("A cyberpunk romance in Neo Tokyo")
+
+        assert event["phase"] == "awaiting_answer"
+        assert event["question"] == "What era would you like?"
+        assert event["round"] == 1
+        assert flow.phase == "awaiting_answer"
+
+    def test_send_answer_continues_qa(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        api.chat = lambda msgs: "What kind of protagonist?"
+        flow = CoCreateFlow(api)
+        flow._phase = "awaiting_answer"
+        flow._qa_round = 1
+
+        event = flow.send("Neo Tokyo, 2087")
+
+        assert event["phase"] == "awaiting_answer"
+        assert event["round"] == 2
+
+    def test_send_start_keyword_triggers_generation(self):
+        from storyloom.core.co_create import CoCreateFlow, CoCreationResult
+        api = MockApiClient()
+        api.chat = lambda msgs: (
+            "=== story_config ===\n"
+            "genre: cyberpunk\ntier: short\nlabel: 测试故事集\n"
+            "setting: Test\nprotagonist_name: T\n"
+            "protagonist_identity: Tester\nprotagonist_traits: Brave\n"
+            "tone: Dark\nconflict: Test\ncharacters:\n  Foo | ally\n"
+            "=== variables ===\n体力: number, 初始 80\n"
+            "=== outline ===\n[node]\nid: ch1\n"
+            "title: Start\ngoal: Begin\nroutes: → ch2\n"
+            "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes: （结局）\n"
+        )
+        flow = CoCreateFlow(api)
+        flow._phase = "awaiting_answer"
+        flow._messages = [
+            {"role": "system", "content": "test"},
+            {"role": "user", "content": "test idea"},
+            {"role": "assistant", "content": "a question"},
+        ]
+
+        event = flow.send("开始")
+
+        assert event["phase"] == "complete"
+        assert "result" in event
+        assert isinstance(event["result"], CoCreationResult)
+        assert flow.phase == "complete"
+        assert flow.result is not None
