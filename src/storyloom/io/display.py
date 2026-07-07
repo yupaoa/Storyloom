@@ -1,4 +1,9 @@
-"""Terminal display management for Storyloom.
+"""Terminal display management for Storyloom — DEPRECATED.
+
+⚠️  This module is a reference implementation of the UiInterface protocol.
+It is NOT used by the current CLI test harness (which uses observer pattern
+via cli_utils.py) nor by the Web UI. Retained as documentation for UI
+developers implementing their own UiInterface.
 
 Handles all user-facing output: narrative segments, options, state display,
 main menu, and user input. Uses gettext for i18n.

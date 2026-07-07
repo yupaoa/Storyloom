@@ -1,4 +1,10 @@
-"""Tests for display module."""
+"""Tests for display module — SKIPPED.
+
+Display is deprecated (see src/storyloom/io/display.py).
+These tests are retained as reference for UiInterface implementors.
+"""
+import pytest
+pytestmark = pytest.mark.skip(reason="Display is deprecated — reference implementation only")
 
 import io
 import sys

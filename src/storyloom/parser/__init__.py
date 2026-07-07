@@ -1,4 +1,4 @@
-"""Parsing layer — XML parser and streaming line-by-line parser."""
+"""Parsing layer — XML parser for LLM narrative output."""
 
 from storyloom.parser.xml_parser import (
     ParsedOutput,

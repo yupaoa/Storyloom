@@ -55,14 +55,14 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `src/storyloom/core/prompt_builder.py` | Round 1 / Round N prompt content builder | Implementation |
 | `src/storyloom/core/co_create.py` | Co-creation flow (Q&A → story_config → outline) | Implementation |
 | `src/storyloom/core/save_manager.py` | Atomic JSON save/load/delete/list | Implementation |
+| `src/storyloom/core/session.py` | `GameSession` lifecycle coordinator (UI integration API) | Implementation |
 | `src/storyloom/core/ui_interface.py` | UiInterface protocol (UI-agnostic abstraction) | Implementation |
 | `src/storyloom/parser/xml_parser.py` | LLM XML output parser (full document) | Implementation |
-| `src/storyloom/parser/streaming_parser.py` | Real-time streaming XML parser | Implementation |
 | `src/storyloom/io/api_client.py` | OpenAI-compatible API client | Implementation |
-| `src/storyloom/io/display.py` | Terminal display (CLI) | Implementation |
+| `src/storyloom/io/display.py` | Terminal display (CLI) — **DEPRECATED**, reference only | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
-| `tests/test_*.py` | Unit tests (mock, no API) — 10 files, 228 tests | Test |
+| `tests/test_*.py` | Unit tests (mock, no API) — 257 tests (233 active + 24 skipped) | Test |
 | `tests/prompt_lab/` | Prompt design tools and LLM test harnesses (real API) | Tool |
 | `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
 
