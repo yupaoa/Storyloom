@@ -573,12 +573,18 @@ class CoCreateFlow:
         Step 3: Single LLM call generates story_config + variables + outline.
     """
 
-    def __init__(self, api_client: ApiClient, ui: UiInterface):
+    _START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes", "go", "start", "begin", "ready"}
+    _QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q", "stop", "abort"}
+
+    def __init__(self, api_client: ApiClient, ui: UiInterface | None = None):
         self._api = api_client
         self._ui = ui
         self._messages: list[dict] = [
             {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
         ]
+        self._phase: str = "init"
+        self._result: CoCreationResult | None = None
+        self._qa_round = 0
 
     @property
     def messages(self) -> list[dict]:
@@ -589,6 +595,180 @@ class CoCreateFlow:
         """
         return list(self._messages)
 
+    @property
+    def phase(self) -> str:
+        """Current phase: 'init' | 'awaiting_idea' | 'awaiting_answer'
+           | 'generating' | 'complete' | 'aborted'."""
+        return self._phase
+
+    @property
+    def result(self) -> CoCreationResult | None:
+        """Result when phase == 'complete', None otherwise."""
+        return self._result
+
+    def start(self) -> dict:
+        """Begin co-creation. Returns {phase: 'awaiting_idea', prompt: str}.
+
+        Must be called once before any send().
+
+        Raises:
+            RuntimeError: If already started.
+        """
+        if self._phase != "init":
+            raise RuntimeError(
+                f"Co-creation already started (phase: {self._phase})"
+            )
+        self._phase = "awaiting_idea"
+        return {
+            "phase": "awaiting_idea",
+            "prompt": _("Describe the story you'd like to play.\n"
+                         "e.g. 'A cyberpunk love story' or 'A wuxia adventure'"),
+        }
+
+    def abort(self) -> None:
+        """Abort co-creation immediately."""
+        self._phase = "aborted"
+
+    def send(self, user_input: str) -> dict:
+        """Send user input, advance one step, return next event dict.
+
+        Handles phase transitions: awaiting_idea → awaiting_answer →
+        complete/aborted. Blocking during LLM generation.
+
+        Returns event dict with 'phase' key and phase-specific data.
+        Does NOT call ui methods — communicates solely via return dicts.
+
+        Raises:
+            RuntimeError: If called before start() or after completion.
+        """
+        if self._phase == "init":
+            raise RuntimeError("call start() first before send()")
+        if self._phase == "complete":
+            raise RuntimeError("co-creation already complete")
+        if self._phase == "aborted":
+            raise RuntimeError("co-creation was aborted")
+
+        # ── Phase: awaiting_idea ──
+        if self._phase == "awaiting_idea":
+            stripped_idea = user_input.strip()
+            if not stripped_idea:
+                return {"phase": "awaiting_idea",
+                        "prompt": _("Please share some thoughts to begin.")}
+
+            self._phase = "generating"
+            self._messages.append({"role": "user", "content": stripped_idea})
+            try:
+                response = self._api.chat(self._messages)
+            except Exception as e:
+                self._messages.pop()  # Remove orphaned user message
+                self._phase = "awaiting_idea"
+                return {"phase": "error", "message": str(e), "recoverable": True}
+
+            self._messages.append({"role": "assistant", "content": response})
+            self._phase = "awaiting_answer"
+            self._qa_round = 1
+            return {"phase": "awaiting_answer", "question": response, "round": 1}
+
+        # ── Phase: awaiting_answer ──
+        if self._phase == "awaiting_answer":
+            stripped = user_input.strip()
+
+            # Check quit keywords
+            if stripped in self._QUIT_KEYWORDS:
+                self._phase = "aborted"
+                return {"phase": "aborted"}
+
+            # Check start/go keywords → trigger generation
+            if stripped in self._START_KEYWORDS:
+                self._phase = "generating"
+                try:
+                    result = self._generate_all()
+                except CoCreationAborted:
+                    self._phase = "aborted"
+                    return {"phase": "aborted"}
+                except Exception as e:
+                    self._phase = "awaiting_answer"
+                    return {"phase": "error", "message": str(e), "recoverable": True}
+
+                self._phase = "complete"
+                self._result = result
+                return {"phase": "complete", "result": result}
+
+            # Normal answer → next Q&A round
+            self._phase = "generating"
+            self._messages.append({"role": "user", "content": stripped})
+            try:
+                response = self._api.chat(self._messages)
+            except Exception as e:
+                self._messages.pop()  # Remove orphaned user message
+                self._phase = "awaiting_answer"
+                return {"phase": "error", "message": str(e), "recoverable": True}
+
+            self._messages.append({"role": "assistant", "content": response})
+            self._phase = "awaiting_answer"
+            self._qa_round += 1
+
+            # Round limit check (max 15 rounds, matching current _step2_questioning)
+            if self._qa_round > 15:
+                self._phase = "generating"
+                try:
+                    result = self._generate_all()
+                except CoCreationAborted:
+                    self._phase = "aborted"
+                    return {"phase": "aborted"}
+                except Exception as e:
+                    self._phase = "awaiting_answer"
+                    return {"phase": "error", "message": str(e), "recoverable": True}
+
+                self._phase = "complete"
+                self._result = result
+                return {"phase": "complete", "result": result}
+
+            return {"phase": "awaiting_answer", "question": response,
+                    "round": self._qa_round}
+
+        # Fallback
+        return {"phase": self._phase}
+
+    def _generate_all(self) -> CoCreationResult:
+        """Generate full story setup without UI interaction.
+
+        Used by send() for the state machine API.
+
+        Raises:
+            CoCreationAborted: If outline validation fails.
+            ValueError: If parsing fails (caught by send()).
+        """
+        var_names = self._build_var_names_hint()
+        gen_prompt = GENERATE_ALL_PROMPT.format(variable_names=var_names)
+        self._messages.append({"role": "user", "content": gen_prompt})
+
+        response = self._api.chat(self._messages)
+        self._messages.append({"role": "assistant", "content": response})
+
+        blocks = CoCreateParser.split_blocks(response)
+
+        story_config = CoCreateParser.parse_story_config(blocks["story_config"])
+        variables = CoCreateParser.parse_variables(blocks["variables"])
+        var_errors = CoCreateParser.validate_variables(variables)
+        if var_errors:
+            raise CoCreationAborted()
+        outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
+
+        var_names_list = [v["name"] for v in variables]
+        outline_errors = CoCreateParser.validate_outline(outline_nodes, var_names_list)
+        if outline_errors:
+            raise CoCreationAborted()
+
+        story_config["variables"] = variables
+        outline_text = CoCreateParser.format_outline(outline_nodes)
+
+        return CoCreationResult(
+            story_config=story_config,
+            outline_text=outline_text,
+            outline_nodes=outline_nodes,
+        )
+
     def run(self) -> CoCreationResult:
         """Run the full co-creation flow.
 
@@ -598,7 +778,14 @@ class CoCreateFlow:
 
         Raises:
             CoCreationAborted: If user chooses to abort.
+            RuntimeError: If ui is None (not set during construction).
         """
+        if self._ui is None:
+            raise RuntimeError(
+                "CoCreateFlow.run() requires a UiInterface. "
+                "Pass ui= at construction, or use the state machine API "
+                "(start()/send()) for UI-agnostic co-creation."
+            )
         self._step1_get_idea()
         self._step2_questioning()
         return self._step3_generate_all()
