@@ -705,3 +705,93 @@ class TestCheckpointHistory:
         history = gl.checkpoint_history
         history.append({"node": "fake", "title": "x", "summary": "x", "round": 99})
         assert gl.checkpoint_history == []  # internal list unchanged
+
+
+class TestOutlineNodes:
+    """Tests for GameLoop.outline_nodes property."""
+
+    def test_returns_list_of_nodes_with_required_keys(self):
+        """outline_nodes returns list of dicts with id, title, goal, status, branches."""
+        outline_nodes = [
+            {"id": "ch1_intro", "title": "Intro", "goal": "Start the story",
+             "routes": [{"condition": None, "target": "ch2_next"}]},
+        ]
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+            current_node="ch1_intro",
+            outline_nodes=outline_nodes,
+        )
+        result = gl.outline_nodes
+        assert len(result) == 1
+        node = result[0]
+        assert node["id"] == "ch1_intro"
+        assert node["title"] == "Intro"
+        assert node["goal"] == "Start the story"
+        assert node["status"] == "active"
+        assert node["branches"] == ["ch2_next"]
+
+    def test_returns_copy_not_internal_reference(self):
+        """outline_nodes returns a copy."""
+        outline_nodes = [
+            {"id": "ch1_intro", "title": "Intro", "goal": "Start",
+             "routes": []},
+        ]
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+            outline_nodes=outline_nodes,
+        )
+        result = gl.outline_nodes
+        result[0]["id"] = "hacked"
+        assert gl.outline_nodes[0]["id"] == "ch1_intro"  # internal unchanged
+
+    def test_status_computed_correctly(self):
+        """Status is active/completed/pending based on current_node and _completed_nodes."""
+        outline_nodes = [
+            {"id": "ch1", "title": "One", "goal": "First",
+             "routes": [{"condition": None, "target": "ch2"}]},
+            {"id": "ch2", "title": "Two", "goal": "Second",
+             "routes": [{"condition": None, "target": "ch3"}]},
+            {"id": "ch3", "title": "Three", "goal": "Third", "routes": []},
+        ]
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+            current_node="ch2",
+            outline_nodes=outline_nodes,
+        )
+        # Mark ch1 as completed
+        gl._completed_nodes = ["ch1"]
+
+        result = gl.outline_nodes
+        assert result[0]["status"] == "completed"  # ch1
+        assert result[1]["status"] == "active"      # ch2 (current)
+        assert result[2]["status"] == "pending"     # ch3
+
+    def test_normalizes_loaded_save_format(self):
+        """Nodes from save format (node_id, branches keys) are normalized to id, branches."""
+        # Simulate save-format nodes (from from_save_dict)
+        save_format_nodes = [
+            {"node_id": "ch1_intro", "title": "Intro", "goal": "Start",
+             "status": "completed", "branches": ["ch2_next"]},
+        ]
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+            current_node="ch2_next",
+            outline_nodes=save_format_nodes,
+        )
+        # Mark ch1 as completed (it is in save format, but status computed dynamically)
+        gl._completed_nodes = ["ch1_intro"]
+
+        result = gl.outline_nodes
+        assert len(result) == 1
+        node = result[0]
+        assert node["id"] == "ch1_intro"       # normalized from node_id
+        assert node["branches"] == ["ch2_next"]  # normalized from branches
+        assert node["status"] == "completed"     # computed dynamically

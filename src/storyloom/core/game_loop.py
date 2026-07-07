@@ -457,6 +457,40 @@ class GameLoop:
         return list(self._checkpoint_history)
 
     @property
+    def outline_nodes(self) -> list[dict]:
+        """Current outline with computed node statuses.
+
+        Returns a copy. Each entry: {id, title, goal, status, branches}.
+        Format matches the save file outline structure (data-model.md §3.1).
+
+        Status is computed dynamically: 'active' | 'completed' | 'pending'.
+        branches: list of target node ID strings (conditions excluded).
+
+        Normalizes the two internal formats:
+          - Fresh: {id, routes: [{condition, target}]}
+          - Loaded: {node_id, branches: [str]}
+        into a single consistent public shape.
+        """
+        result = []
+        for node in self._outline_nodes:
+            nid = node.get("id") or node.get("node_id", "")
+            result.append({
+                "id": nid,
+                "title": node.get("title", ""),
+                "goal": node.get("goal", ""),
+                "status": (
+                    "active" if nid == self.current_node
+                    else "completed" if nid in self._completed_nodes
+                    else "pending"
+                ),
+                "branches": [
+                    r.get("target", r) if isinstance(r, dict) else r
+                    for r in node.get("routes", node.get("branches", []))
+                ],
+            })
+        return result
+
+    @property
     def completed_nodes(self) -> list[str]:
         """List of completed node IDs."""
         return list(self._completed_nodes)
