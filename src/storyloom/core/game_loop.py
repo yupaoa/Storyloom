@@ -449,6 +449,14 @@ class GameLoop:
         return self._context_mgr.round_count
 
     @property
+    def checkpoint_history(self) -> list[dict]:
+        """Return checkpoint history for UI progress display.
+
+        Returns a copy. Each entry: {node, title, summary, round}.
+        """
+        return list(self._checkpoint_history)
+
+    @property
     def completed_nodes(self) -> list[str]:
         """List of completed node IDs."""
         return list(self._completed_nodes)

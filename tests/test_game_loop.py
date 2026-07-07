@@ -680,3 +680,28 @@ class TestGameStateSerialization:
         data = gs1.to_dict()
         gs2 = GameState.from_dict(data, story_config)
         assert gs2.state_vars == gs1.state_vars
+
+
+class TestCheckpointHistory:
+    """Tests for GameLoop.checkpoint_history property."""
+
+    def test_returns_empty_list_when_no_checkpoints(self):
+        """checkpoint_history returns [] before any checkpoints occur."""
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+        )
+        assert gl.checkpoint_history == []
+        assert isinstance(gl.checkpoint_history, list)
+
+    def test_returns_copy_not_internal_reference(self):
+        """checkpoint_history returns a copy, not the internal list."""
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+        )
+        history = gl.checkpoint_history
+        history.append({"node": "fake", "title": "x", "summary": "x", "round": 99})
+        assert gl.checkpoint_history == []  # internal list unchanged
