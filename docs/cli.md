@@ -75,6 +75,7 @@ class RoundRecord:
 ```
 tests/data/output/debug-20260707-143052/
 ├── round-1/
+│   ├── prompt.md        # **提取的 Prompt 文本（可读 markdown）**
 │   ├── messages.json    # 完整 messages 数组（含 Round 1 prompt）
 │   ├── response.txt     # LLM 原始 XML 输出
 │   ├── metrics.json     # 时间、token、节点、分支
@@ -90,7 +91,8 @@ tests/data/output/debug-20260707-143052/
 
 | 文件 | 调试场景 |
 |------|---------|
-| `messages.json` | 检查 Prompt 是否正确组装；上下文窗口大小是否合理 |
+| `prompt.md` | **查看实际发送给 LLM 的 Prompt 文本**——每轮的用户消息完整内容，标注当前轮次 |
+| `messages.json` | 完整的 messages 数组（机器可读），用于程序化分析 |
 | `response.txt` | 检查 LLM 原始输出格式；XML 是否合法 |
 | `metrics.json` | 性能分析：TTFT 趋势、token 消耗曲线 |
 | `parsed.json` | 检查解析是否正确：段数、桥位置、选项、状态变更 |
@@ -189,6 +191,71 @@ python -m src.storyloom.main --quick --debug --print --rounds 10
 ```
 
 非 `--debug` 模式下，任何失败立即退出。
+
+### 场景 6：查看实际发送的 Prompt
+
+```bash
+# 叙事 Prompt：每个 round 目录下都有 prompt.md
+python -m src.storyloom.main --quick --debug --rounds 3
+cat tests/data/output/debug-*/round-1/prompt.md   # Round 1 完整 prompt
+cat tests/data/output/debug-*/round-2/prompt.md   # Round N 上下文 prompt
+```
+
+`prompt.md` 格式：
+```markdown
+# Prompts — 5 messages, 3 user turns
+
+## User Message #1
+[Round 1 完整 prompt — 角色定义 + XML 格式规范 + 故事上下文 + 状态变量]
+
+*[Assistant response — 1234 chars]*
+
+## User Message #2
+[压缩摘要...]
+
+*[Assistant response — 56 chars]*
+
+## Current Round Prompt
+[当前轮上下文 — bridge_text + 进度 + 状态快照 + 错误反馈]
+```
+
+最后一个 user message 用 `## Current Round Prompt` 标注——这就是实际发送给 LLM 的 Prompt。
+
+### 场景 7：查看共创阶段的 Prompt
+
+共创 Prompt 不在 CLI 中（CLI 使用 `--quick` 跳过共创）。通过 `CoCreateFlow.messages` 属性和 `save_prompts()` 工具查看：
+
+```python
+from pathlib import Path
+from storyloom.core.co_create import CoCreateFlow
+from storyloom.io.api_client import ApiClient
+from storyloom.cli_utils import save_prompts
+
+# 运行共创（需要真实的 UiInterface 实现）
+flow = CoCreateFlow(api_client=ApiClient(), ui=my_ui)
+result = flow.run()
+
+# 导出全部对话 Prompt（含 system prompt、Q&A、最终生成 prompt）
+save_prompts(flow.messages, Path("co_create_prompts.md"))
+```
+
+### 场景 8：查看冒险日志 Prompt
+
+冒险日志 Prompt 由 `PromptBuilder.build_adventure_log_prompt()` 构建。查看方式：
+
+```python
+from storyloom.core.prompt_builder import PromptBuilder
+
+prompt = PromptBuilder.build_adventure_log_prompt(
+    story_config=story_config,
+    state_vars=state_vars,
+    checkpoint_summaries=summaries,
+    checkpoint_history=history,
+)
+print(prompt)
+```
+
+或从 debug 输出中查看结局轮的 `prompt.md`——冒险日志在结局轮发送，其 context 包含在 messages 数组中。
 
 ## 自定义观察者
 

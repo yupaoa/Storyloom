@@ -11,13 +11,54 @@ from typing import Callable
 from storyloom.core.game_loop import RoundRecord
 
 
+# ── Prompt extraction ───────────────────────────────────────────────
+
+def save_prompts(messages: list[dict], output_path: Path) -> None:
+    """Extract user prompts from a messages array into a readable file.
+
+    Writes each user message as a markdown section, with the final
+    (current-round) prompt highlighted. Assistant responses are summarised
+    as character counts to keep the file scannable.
+
+    Args:
+        messages: Full messages array sent to the API.
+        output_path: Path to write (e.g. Path('round-1/prompt.md')).
+    """
+    lines: list[str] = []
+    user_indices = [i for i, m in enumerate(messages) if m.get("role") == "user"]
+
+    lines.append(f"# Prompts — {len(messages)} messages, {len(user_indices)} user turns")
+    lines.append("")
+
+    for idx, msg in enumerate(messages):
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+
+        if role == "user":
+            is_last = (idx == user_indices[-1]) if user_indices else False
+            header = "## Current Round Prompt" if is_last else f"## User Message #{user_indices.index(idx) + 1}"
+            lines.append(header)
+            lines.append("")
+            lines.append(content)
+            lines.append("")
+        elif role == "assistant":
+            lines.append(f"*[Assistant response — {len(content)} chars]*")
+            lines.append("")
+        elif role == "system":
+            lines.append(f"*[System message — {len(content)} chars]*")
+            lines.append("")
+
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 # ── File-system observer ────────────────────────────────────────────
 
 def make_debug_observer(output_dir: str) -> Callable[[RoundRecord], None]:
     """Create an observer that saves per-round data to disk.
 
     Writes to {output_dir}/round-{N}/:
-      - messages.json   — full messages array sent to API
+      - prompt.md       — extracted user prompts (readable markdown)
+      - messages.json   — full messages array sent to API (machine-readable)
       - response.txt    — raw LLM response
       - metrics.json    — timing, token usage, node, branch
       - parsed.json     — structured parse summary (segments, choices, sets, routes)
@@ -35,6 +76,9 @@ def make_debug_observer(output_dir: str) -> Callable[[RoundRecord], None]:
     def observer(record: RoundRecord) -> None:
         rd = base / f"round-{record.round_number}"
         rd.mkdir(parents=True, exist_ok=True)
+
+        # Extracted prompts (readable)
+        save_prompts(record.messages_sent, rd / "prompt.md")
 
         # Full messages array
         (rd / "messages.json").write_text(

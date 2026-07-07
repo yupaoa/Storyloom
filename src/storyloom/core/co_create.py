@@ -580,6 +580,15 @@ class CoCreateFlow:
             {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
         ]
 
+    @property
+    def messages(self) -> list[dict]:
+        """Return the full co-creation conversation messages.
+
+        Contains system prompt, Q&A turns, and the final generation
+        prompt. Use with cli_utils.save_prompts() to dump to a file.
+        """
+        return list(self._messages)
+
     def run(self) -> CoCreationResult:
         """Run the full co-creation flow.
 

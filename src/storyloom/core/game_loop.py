@@ -832,6 +832,19 @@ class GameLoop:
                 "node": "end",
                 "state": self.game_state.state_vars,
             }
+
+            # Notify observers for ending round (same data as normal rounds)
+            self._notify(RoundRecord(
+                round_number=self._context_mgr.round_count,
+                messages_sent=messages,
+                raw_response=response,
+                parsed=parsed,
+                ttft=ttft,
+                tokens=tokens,
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                node="end",
+                selected_branch=selected_branch,
+            ))
             return  # Game over
 
         # ── Notify observer ─────────────────────────────────────────
