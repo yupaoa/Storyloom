@@ -68,6 +68,59 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 
 **Test structure:** `tests/test_*.py` = pytest unit tests (mock, no API). `tests/prompt_lab/` = ad-hoc prompt design tools (require API key).
 
+## File Ownership & Modification Rules
+
+> **Rationale:** Dual-developer setup (engine + UI) requires clear boundaries to prevent merge conflicts and unintended coupling. Each layer has exclusive modification rights over its files.
+
+### 🔒 Engine Core — UI MUST NOT modify
+
+These files implement the narrative engine. UI imports them but never edits them:
+
+| File | Contains |
+|------|----------|
+| `src/storyloom/core/game_loop.py` | `GameLoop`, `GameState`, `RoundRecord` |
+| `src/storyloom/core/co_create.py` | `CoCreateFlow`, `CoCreationResult`, `CoCreateParser` |
+| `src/storyloom/core/context_manager.py` | `ContextManager` — sliding window, compression |
+| `src/storyloom/core/prompt_builder.py` | `PromptBuilder` — Round 1 / Round N prompts |
+| `src/storyloom/core/save_manager.py` | `SaveManager` — atomic JSON save/load/delete |
+| `src/storyloom/parser/xml_parser.py` | `XmlParser`, `ParsedOutput` |
+| `src/storyloom/parser/streaming_parser.py` | `StreamingXmlParser` |
+| `src/storyloom/io/api_client.py` | `ApiClient` — OpenAI-compatible API |
+| `src/storyloom/config.py` | Configurable constants |
+| `src/storyloom/i18n.py` | gettext i18n |
+
+### 📖 Engine API — UI can IMPORT, must NOT modify
+
+These are the public API surface for UI integration:
+
+| File | Contains |
+|------|----------|
+| `src/storyloom/core/ui_interface.py` | `UiInterface` protocol |
+| `src/storyloom/core/session.py` | `GameSession` — lifecycle coordinator |
+
+UI imports: `from storyloom.core import GameSession, CoCreationResult`
+
+### 🎨 UI Territory — Engine MUST NOT depend on
+
+Engine code must never import from these files:
+
+| File | Contains |
+|------|----------|
+| `src/storyloom/main.py` | CLI test harness |
+| `src/storyloom/cli_utils.py` | CLI observer utilities |
+| `src/storyloom/io/display.py` | Terminal `Display` (CLI-only) |
+| `src/storyloom/web/` | **Web UI package** (FastAPI + SSE) — recommended location |
+
+### 🧪 Tests
+
+Each team owns their test files. UI adds `tests/test_web_*.py`; does not modify `tests/test_game_loop.py`, `tests/test_co_create.py`, `tests/test_session.py`, etc.
+
+### 📦 Package Exports
+
+- `from storyloom.core import GameSession` — preferred import path for UI
+- `from storyloom import GameSession` — also available via top-level package
+- `Display` is NOT exported from the top-level `storyloom` package (CLI-only; import from `storyloom.io.display` directly)
+
 ## Tech Stack
 
 - **Language:** Python 3.10+ (standard library preferred)

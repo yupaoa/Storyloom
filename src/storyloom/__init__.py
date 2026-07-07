@@ -3,10 +3,10 @@
 from storyloom.io.api_client import ApiClient, ApiError, ApiResult
 from storyloom.config import WINDOW_SIZE, DEFAULT_MODEL
 from storyloom.core.context_manager import ContextManager
-from storyloom.io.display import Display
 from storyloom.core.game_loop import GameLoop, GameState, RoundResult, RoundRecord
 from storyloom.core.prompt_builder import PromptBuilder
 from storyloom.core.save_manager import SaveManager
+from storyloom.core.session import GameSession
 from storyloom.core.ui_interface import UiInterface
 from storyloom.parser.xml_parser import XmlParser, ParsedOutput, ParseError, Segment
 
@@ -16,8 +16,8 @@ __all__ = [
     "ApiResult",
     "ContextManager",
     "DEFAULT_MODEL",
-    "Display",
     "GameLoop",
+    "GameSession",
     "GameState",
     "ParsedOutput",
     "ParseError",
