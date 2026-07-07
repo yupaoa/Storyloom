@@ -573,7 +573,7 @@ class CoCreateFlow:
         Step 3: Single LLM call generates story_config + variables + outline.
     """
 
-    def __init__(self, api_client: ApiClient, ui: UiInterface):
+    def __init__(self, api_client: ApiClient, ui: UiInterface | None = None):
         self._api = api_client
         self._ui = ui
         self._messages: list[dict] = [
@@ -598,7 +598,14 @@ class CoCreateFlow:
 
         Raises:
             CoCreationAborted: If user chooses to abort.
+            RuntimeError: If ui is None (not set during construction).
         """
+        if self._ui is None:
+            raise RuntimeError(
+                "CoCreateFlow.run() requires a UiInterface. "
+                "Pass ui= at construction, or use the state machine API "
+                "(start()/send()) for UI-agnostic co-creation."
+            )
         self._step1_get_idea()
         self._step2_questioning()
         return self._step3_generate_all()

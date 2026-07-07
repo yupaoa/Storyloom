@@ -745,3 +745,30 @@ routes: （结局）"""
         flow = CoCreateFlow(mock_api, mock_display)
         result = flow.run()
         assert result.story_config["genre"] == "赛博朋克冒险"
+
+
+class TestCoCreateFlowUiOptional:
+    """Tests for ui=None support."""
+
+    def test_construct_without_ui(self):
+        """CoCreateFlow can be constructed with ui=None."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        assert flow._ui is None
+
+    def test_run_raises_without_ui(self):
+        """run() raises RuntimeError when ui is None."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        with pytest.raises(RuntimeError, match="requires a UiInterface"):
+            flow.run()
+
+    def test_construct_with_ui_still_works(self):
+        """Existing usage with ui= still works."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        ui = MockDisplay()
+        flow = CoCreateFlow(api, ui)
+        assert flow._ui is ui
