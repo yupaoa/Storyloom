@@ -602,6 +602,25 @@ class CoCreateFlow:
         """Result when phase == 'complete', None otherwise."""
         return self._result
 
+    def start(self) -> dict:
+        """Begin co-creation. Returns {phase: 'awaiting_idea', prompt: str}.
+
+        Must be called once before any send().
+
+        Raises:
+            RuntimeError: If already started.
+        """
+        if self._phase != "init":
+            raise RuntimeError(
+                f"Co-creation already started (phase: {self._phase})"
+            )
+        self._phase = "awaiting_idea"
+        return {
+            "phase": "awaiting_idea",
+            "prompt": _("Describe the story you'd like to play.\n"
+                         "e.g. 'A cyberpunk love story' or 'A wuxia adventure'"),
+        }
+
     def abort(self) -> None:
         """Abort co-creation immediately."""
         self._phase = "aborted"

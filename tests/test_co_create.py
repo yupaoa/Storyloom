@@ -796,8 +796,7 @@ class TestCoCreateFlowStateMachineProperties:
         from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient()
         flow = CoCreateFlow(api)
-        # start() not implemented yet, so manually set
-        flow._phase = "awaiting_idea"
+        flow.start()
         assert flow.phase == "awaiting_idea"
 
     def test_abort_changes_phase(self):
@@ -807,3 +806,33 @@ class TestCoCreateFlowStateMachineProperties:
         flow = CoCreateFlow(api)
         flow.abort()
         assert flow.phase == "aborted"
+
+
+class TestCoCreateFlowStart:
+    """Tests for start() method."""
+
+    def test_start_returns_awaiting_idea_event(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        event = flow.start()
+        assert event["phase"] == "awaiting_idea"
+        assert "prompt" in event
+        assert isinstance(event["prompt"], str)
+        assert len(event["prompt"]) > 0
+
+    def test_start_sets_phase(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        assert flow.phase == "init"
+        flow.start()
+        assert flow.phase == "awaiting_idea"
+
+    def test_start_raises_if_already_started(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        flow.start()
+        with pytest.raises(RuntimeError, match="already started"):
+            flow.start()
