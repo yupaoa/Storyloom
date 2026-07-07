@@ -1,6 +1,6 @@
 """Main narrative game loop, GameState, and result types.
 
-Coordinates all modules: PromptBuilder, ContextManager, ApiClient, XmlParser, Display.
+Coordinates all modules: PromptBuilder, ContextManager, ApiClient, XmlParser.
 Validates all LLM-suggested state changes (local source of truth).
 """
 
@@ -13,7 +13,6 @@ from typing import Callable
 
 from storyloom.io.api_client import ApiClient
 from storyloom.core.context_manager import ContextManager
-from storyloom.io.display import Display
 from storyloom.core.prompt_builder import PromptBuilder
 from storyloom.parser.xml_parser import (
     ParsedOutput,
@@ -230,13 +229,21 @@ class GameState:
         else:
             return SetResult(accepted=False, reason=f"Unknown op: {op}")
 
-        if new_val < self.NUMBER_MIN or new_val > self.NUMBER_MAX:
-            return SetResult(
-                accepted=False,
-                reason=f"{var_name} {new_val} out of range [{self.NUMBER_MIN}, {self.NUMBER_MAX}]",
-            )
+        # Per block-spec.md §5: out-of-range → clamp silently.
+        clamped = False
+        if new_val < self.NUMBER_MIN:
+            new_val = self.NUMBER_MIN
+            clamped = True
+        elif new_val > self.NUMBER_MAX:
+            new_val = self.NUMBER_MAX
+            clamped = True
 
         self._state_vars[var_name] = new_val
+        if clamped:
+            return SetResult(
+                accepted=True,
+                reason=f"{var_name} clamped to {new_val} (range [{self.NUMBER_MIN}, {self.NUMBER_MAX}])",
+            )
         return SetResult(accepted=True)
 
     def _apply_string_op(self, var_name: str, val: str) -> SetResult:
@@ -301,11 +308,12 @@ class GameState:
         operator = match.group(2)
         raw_value = match.group(3).strip()
 
-        # Try to get the variable value
-        if var_name in self._state_vars:
-            var_value = self._state_vars[var_name]
-        elif var_name in choice_dict:
+        # Try to get the variable value.
+        # Per block-spec.md §3: choice_dict > state_vars priority.
+        if var_name in choice_dict:
             var_value = choice_dict[var_name]
+        elif var_name in self._state_vars:
+            var_value = self._state_vars[var_name]
         else:
             return False
 
@@ -362,10 +370,10 @@ class GameLoop:
     """Main narrative game loop, coordinating all modules.
 
     Flow:
-    1. start_round1() -> Prompter -> API -> Parser -> display
+    1. start_round1() -> Prompter -> API -> Parser
     2. Player makes choice
     3. continue_round() -> apply state changes -> update outline ->
-       build context -> API -> Parser -> display
+       build context -> API -> Parser
     4. Repeat from step 2 until ending.
     """
 
@@ -374,10 +382,10 @@ class GameLoop:
         story_config: dict,
         outline_text: str,
         api_client: ApiClient,
-        display: Display | None = None,
         game_state: GameState | None = None,
         current_node: str | None = None,
         goal: str | None = None,
+        observers: list[Callable[[RoundRecord], None]] | None = None,
         observer: Callable[[RoundRecord], None] | None = None,
         outline_nodes: list[dict] | None = None,
     ):
@@ -387,26 +395,30 @@ class GameLoop:
             story_config: Story configuration dict.
             outline_text: Formatted outline text.
             api_client: API client for LLM calls.
-            display: Optional display for UI output.
             game_state: Optional GameState (created from story_config if omitted).
             current_node: Starting node ID (optional).
             goal: Starting node goal description (optional).
-            observer: Optional callback invoked after each round completes.
-                      Receives a RoundRecord. Observer failures are silently
-                      ignored (must not break the game loop).
+            observers: Optional list of observer callbacks invoked after each
+                       round completes. Each receives a RoundRecord.
+            observer: Deprecated. Single observer (use observers=list instead).
+            outline_nodes: Structured outline from co-creation (optional).
+
+        Observer failures are silently ignored (must not break the game loop).
         """
         self.story_config = story_config
         self.outline_text = outline_text
         self._outline_nodes = outline_nodes or []
         self.api_client = api_client
-        self.display = display or Display()
 
         # Internal modules
         self._prompter = PromptBuilder()
         self._context_mgr = ContextManager()
 
-        # Observer
-        self._observer = observer
+        # Observers — merge deprecated `observer` into list
+        obs_list = list(observers) if observers else []
+        if observer is not None:
+            obs_list.append(observer)
+        self._observers: list[Callable[[RoundRecord], None]] = obs_list
 
         # State
         self.game_state = game_state or GameState(story_config)
@@ -511,6 +523,9 @@ class GameLoop:
         # Store in context manager
         self._context_mgr.set_round1(r1_prompt, response)
 
+        # Clear previous format error on successful parse
+        self._format_error = None
+
         # Store parsed output
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
@@ -527,7 +542,7 @@ class GameLoop:
                     "accepted": result.accepted,
                     "reason": result.reason,
                 })
-                if not result.accepted and result.reason:
+                if result.reason:
                     self._rejected_changes.append(result.reason)
 
         if state_changes:
@@ -563,8 +578,8 @@ class GameLoop:
     def start_round1(self) -> RoundResult:
         """Build Round 1 prompt, call API, parse response.
 
-        CLI wrapper that consumes start_round1_stream() and routes
-        events to Display.
+        Convenience wrapper that consumes start_round1_stream().
+        For streaming/UI use, call start_round1_stream() directly.
 
         Returns:
             RoundResult with parsed output.
@@ -573,8 +588,6 @@ class GameLoop:
             RuntimeError: If round 1 was already started.
             ParseError: If parsing fails.
         """
-        self.display.show_wait_message("故事生成中...")
-
         for event in self.start_round1_stream():
             if event["type"] == "error":
                 from storyloom.parser.xml_parser import ParseError
@@ -585,13 +598,6 @@ class GameLoop:
         if self.last_parsed is None:
             from storyloom.parser.xml_parser import ParseError
             raise ParseError("Round 1 parse failed: unknown error")
-
-        self.display.show_segments(self.last_parsed.segments)
-
-        if self.last_parsed.choices:
-            last = self.last_parsed.choices[-1]
-            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
-            self.display.show_options(last["id"], last["branches"], labels)
 
         return RoundResult(parsed=self.last_parsed, round_number=1)
 
@@ -641,7 +647,7 @@ class GameLoop:
                 "accepted": result.accepted,
                 "reason": result.reason,
             })
-            if not result.accepted and result.reason:
+            if result.reason:
                 new_rejected.append(result.reason)
         self._rejected_changes = new_rejected
 
@@ -790,7 +796,7 @@ class GameLoop:
                     "accepted": result.accepted,
                     "reason": result.reason,
                 })
-                if not result.accepted and result.reason:
+                if result.reason:
                     self._rejected_changes.append(result.reason)
 
         if step9_changes:
@@ -851,8 +857,8 @@ class GameLoop:
     def continue_round(self, choice_key: str | None = None) -> RoundResult:
         """Process player choice, build context, call API, parse response.
 
-        CLI wrapper that consumes continue_round_stream() and routes
-        events to Display.
+        Convenience wrapper that consumes continue_round_stream().
+        For streaming/UI use, call continue_round_stream() directly.
 
         Args:
             choice_key: Player's choice (1-indexed string) or None if
@@ -865,8 +871,6 @@ class GameLoop:
             RuntimeError: If start_round1 hasn't been called.
             ParseError: If parsing fails.
         """
-        self.display.show_wait_message("故事生成中...")
-
         for event in self.continue_round_stream(choice_key):
             if event["type"] == "error":
                 from storyloom.parser.xml_parser import ParseError
@@ -881,13 +885,6 @@ class GameLoop:
                 f"Round {self._context_mgr.round_count + 1} parse "
                 f"failed: unknown error"
             )
-
-        self.display.show_segments(self.last_parsed.segments)
-
-        if self.last_parsed.choices:
-            last = self.last_parsed.choices[-1]
-            labels = last.get("labels", [f"选项{b}" for b in last["branches"]])
-            self.display.show_options(last["id"], last["branches"], labels)
 
         return RoundResult(
             parsed=self.last_parsed,
@@ -976,7 +973,6 @@ class GameLoop:
         cls,
         data: dict,
         api_client: "ApiClient",
-        display: "Display | None" = None,
     ) -> "GameLoop":
         """Restore GameLoop from save data."""
         story_config = data["story_config"]
@@ -1011,7 +1007,6 @@ class GameLoop:
             story_config=story_config,
             outline_text=outline_text,
             api_client=api_client,
-            display=display,
             game_state=game_state,
             current_node=current_node or None,
             goal=goal or None,
@@ -1051,17 +1046,16 @@ class GameLoop:
     # ── Observer ──────────────────────────────────────────────────
 
     def _notify(self, record: RoundRecord) -> None:
-        """Notify the observer of a completed round.
+        """Notify all observers of a completed round.
 
         Observer failures are silently ignored — they must not break
         the game loop.
         """
-        if self._observer is None:
-            return
-        try:
-            self._observer(record)
-        except Exception:
-            pass
+        for obs in self._observers:
+            try:
+                obs(record)
+            except Exception:
+                pass
 
     def _get_selected_branch(self, choice_key: str | None) -> str | None:
         """Determine the branch name from a player's choice key.
@@ -1140,16 +1134,43 @@ class GameLoop:
         return self._evaluate_routes(choice_dict)
 
     def _evaluate_routes(self, choice_dict: dict[str, int]) -> str | None:
-        """Evaluate route conditions from last parsed output."""
+        """Evaluate route conditions from last parsed output.
+
+        Per data-model.md §2 step 4:
+        - First matching condition wins.
+        - All conditions fail → fall back to first route's target.
+        - No routes → advance to next node in outline sequence.
+        """
         if not self.last_parsed:
             return None
-        for route in self.last_parsed.routes:
+
+        routes = self.last_parsed.routes
+        for route in routes:
             if route.condition is None:
                 return route.target
             if self.game_state.evaluate_condition(
                 route.condition, choice_dict
             ):
                 return route.target
+
+        # Fallback 1: conditions exist but none matched → first route.
+        if routes:
+            return routes[0].target
+
+        # Fallback 2: no routes → next node in outline sequence.
+        return self._next_outline_node()
+
+    def _next_outline_node(self) -> str | None:
+        """Return the next node in outline sequence after current_node.
+
+        Returns None if current_node is the last node or not found.
+        """
+        if not self._outline_nodes or not self.current_node:
+            return None
+        for i, node in enumerate(self._outline_nodes):
+            nid = node.get("id", "")
+            if nid == self.current_node and i + 1 < len(self._outline_nodes):
+                return self._outline_nodes[i + 1].get("id")
         return None
 
     # ── Adventure Log ─────────────────────────────────────────────

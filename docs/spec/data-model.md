@@ -168,13 +168,14 @@ load_save(filepath):
 
 ## §A 可配置常量参考
 
-> 以下常量集中在 `config.py` 中定义。所有模块引用常量名，不硬编码数值。参考值可根据实际运行调整。
+> 以下常量集中在 `config.py` 中定义。所有模块引用常量名，不硬编码数值。
+> **当前值以 `config.py` 为准**——本文档反映最近一次审计（2026-07-07）时的状态。
 
 ### A.1 路径常量
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `SAVE_DIR` | `saves/` | 存档目录 |
+| `SAVE_DIR` | `saves/` | 存档目录（在 `SaveManager` 构造时传入，非 `config.py` 常量） |
 
 ### A.2 共创阶段
 
@@ -183,35 +184,62 @@ load_save(filepath):
 | `MAX_RETRIES` | 2 | 格式解析/校验失败后的最大重试次数（所有 LLM 调用共用） |
 | `STORY_LABEL_MIN_CHARS` | 5 | 故事标签最短字符数 |
 | `STORY_LABEL_MAX_CHARS` | 15 | 故事标签最长字符数 |
+| `VARIABLE_CAP` | 3 | 变量总数上限（per 2026-07-05 variable-cap spec） |
+| `VARIABLE_NUMERIC_CAP` | 2 | number 型变量上限 |
+| `VARIABLE_LABEL_CAP` | 1 | string/list 型变量上限 |
 
 ### A.3 故事规模档位
 
-> 共创阶段由用户选择或 LLM 判断，写入 `story_config.tier`（`short` / `medium` / `long`）。影响大纲节点数和总轮数推荐。每轮段数和 bridge 位置由 `SEGMENTS_PER_ROUND_*` 控制，不随档位变化。
+> 共创阶段由用户选择或 LLM 判断，写入 `story_config.tier`（`short` / `medium` / `long`）。影响大纲节点数和总轮数推荐。每轮行数和 bridge 位置由 `LINES_PER_ROUND_*` 控制，不随档位变化。
 
-| 档位 | 适用 | 推荐大纲节点数 | 预估总轮数 |
-|-----------|------|--------------|----------|
-| `STORY_TIER_SHORT` | 短篇 | 3-5 | 5-10 |
-| `STORY_TIER_MEDIUM` | 中篇 | 5-8 | 15-20 |
-| `STORY_TIER_LONG` | 长篇 | 8-15 | 25-50 |
+| 常量 | 参考值 | 说明 |
+|------|--------|------|
+| `OUTLINE_NODE_RANGES` | `{"short": (3,5), "medium": (5,8), "long": (8,15)}` | 各档位大纲节点数范围 |
 
 档位选定后在 Prompt 中注入对应指引。**通过限制轮次来控制总长，而非限制每段字数。**
 
-### A.4 叙事段控制
+### A.4 叙事行控制
+
+> **架构说明**：Prompt 输出格式经历了两次迭代——
+> 1. 初版：`<seg n="N">` 编号段（`SEGMENTS_PER_ROUND_*`，60-120 段，bridge 40%）
+> 2. 2026-07-05 实验优化：`<seg n="N">` 增至 120-200 段，bridge 移至 75%（见 memory `segment-length-ttft-optimization`）
+> 3. 行号迁移（`ce5a776`）：改为 `NNN|` 行号前缀格式，`LINES_PER_ROUND_*` 替代 `SEGMENTS_PER_ROUND_*`。每段消耗约 1.25 行（XML tag + 行号前缀），故行数 ≈ 段数 × 1.25 + headroom。
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `SEGMENTS_PER_ROUND_MIN` | 60 | 每轮最少叙事段数 |
-| `SEGMENTS_PER_ROUND_MAX` | 120 | 每轮最多叙事段数。硬上限同此值，超过截断 |
-| `BRIDGE_SEGMENT_RATIO` | 0.4 | bridge 插入位置（段数比例）。值越低 bridge 越靠前，尾部缓冲越长 |
+| `LINES_PER_ROUND_MIN` | 150 | 每轮最少行数（含 NNN\| 前缀和 XML 标签） |
+| `LINES_PER_ROUND_MAX` | 300 | 每轮最多行数。Prompt 建议上限，LLM 可少于此值 |
+| `BRIDGE_POSITION_RATIO` | 0.75 | bridge 前比例（pre-bridge 占总行数比）。75% 经 2026-07-05 实验验证为最优 |
+| `MIN_TAIL_LINES` | 25 | bridge 后每个 `<branch>` 最少行数 |
+| `LANGUAGE_SEG_LIMITS` | `{"zh-CN": {narration:40, dialogue:50}, "en": {narration:120, dialogue:160}}` | 各语言每段字数上限（注入 Round 1 Prompt） |
 
-### A.5 叙事与运行时
+### A.5 对话窗口与上下文
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `STREAM_STALL_TIMEOUT_SEC` | 3 | 流式输出停顿超时秒数 |
-| `MIN_NARRATION_CHARS` | 200 | 截取内容最低字符数，低于此值判定异常 |
-| `AUTO_ADVANCE_DELAY_MS` | 500 | 自动展示模式下段间延迟（毫秒） |
-| `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏 |
+| `WINDOW_SIZE` | 3 | 保留的完整历史轮数 |
+| `FIRST_COMPRESSION_AT` | 5 | 首次触发压缩的轮次 |
+| `MAX_CONTEXT_TOKENS` | 50_000 | 上下文 token 预算上限（目标值，非硬限制） |
+
+### A.6 API 与运行时
+
+| 常量 | 参考值 | 说明 |
+|------|--------|------|
+| `DEFAULT_MODEL` | `"deepseek-v4-pro"` | 默认模型标识。可通过 `.env` 的 `DEEPSEEK_MODEL` 覆盖 |
+| `STREAM_STALL_TIMEOUT_SEC` | 180 | 流式输出停顿超时秒数。当前 context ~50K tokens 时 TTFT 通常 10-30s，180s 提供充足 margin |
+| `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏（当前硬编码在 `save_manager.py`，待提取到 `config.py`） |
+
+### A.7 已废弃常量
+
+> 以下常量在初版 spec 中定义，因架构变更不再使用。
+
+| 常量 | 原值 | 废弃原因 |
+|------|------|---------|
+| `SEGMENTS_PER_ROUND_MIN` | 60 | 迁移到 `LINES_PER_ROUND_*`（行号格式） |
+| `SEGMENTS_PER_ROUND_MAX` | 120 | 迁移到 `LINES_PER_ROUND_*`（行号格式） |
+| `BRIDGE_SEGMENT_RATIO` | 0.4 | 重命名为 `BRIDGE_POSITION_RATIO`，值更新为 0.75 |
+| `MIN_NARRATION_CHARS` | 200 | 行号格式下每行即一段，字数由 Prompt 端 `LANGUAGE_SEG_LIMITS` 约束 |
+| `AUTO_ADVANCE_DELAY_MS` | 500 | CLI 显示专用。CLI 已降级为测试工具，Web UI 自行控制展示节奏 |
 
 ---
 

@@ -178,22 +178,26 @@ class TestGameStateApplySet:
         assert result.accepted
         assert gs.state_vars["体力"] == 0
 
-    def test_rejects_out_of_range_high(self):
-        """Number variables should be clamped/rejected outside [0,100]."""
+    def test_clamps_out_of_range_high(self):
+        """Number variables out of range [0,100] should be clamped silently.
+
+        Per block-spec.md §5: out-of-range → clamp to boundary, accepted=True.
+        """
         gs = GameState(SAMPLE_STORY_CONFIG)
         op = SetOperation(var="体力", op="+", val="50", condition=None)
         result = gs.apply_set(op, {})
-        assert not result.accepted
-        # Value should remain unchanged
-        assert gs.state_vars["体力"] == 80
+        assert result.accepted
+        assert "clamped" in (result.reason or "")
+        assert gs.state_vars["体力"] == 100
 
-    def test_rejects_out_of_range_low(self):
-        """Number variables below 0 should be rejected."""
+    def test_clamps_out_of_range_low(self):
+        """Number variables below 0 should be clamped to 0."""
         gs = GameState(SAMPLE_STORY_CONFIG)
         op = SetOperation(var="体力", op="-", val="200", condition=None)
         result = gs.apply_set(op, {})
-        assert not result.accepted
-        assert gs.state_vars["体力"] == 80
+        assert result.accepted
+        assert "clamped" in (result.reason or "")
+        assert gs.state_vars["体力"] == 0
 
     def test_evaluates_condition_true(self):
         """Condition should be evaluated against choice_dict."""
@@ -340,8 +344,8 @@ class TestGameStateConditionEval:
 # ── GameLoop Tests ────────────────────────────────────────────────
 
 class TestGameLoopInit:
-    def test_initializes_without_display(self):
-        """GameLoop should initialize without a display."""
+    def test_initializes_with_defaults(self):
+        """GameLoop should initialize with minimal arguments."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
@@ -349,19 +353,41 @@ class TestGameLoopInit:
         )
         assert loop.round_count == 0
         assert loop.story_config is SAMPLE_STORY_CONFIG
+        assert loop.current_node is None
 
-    def test_initializes_with_display(self):
-        """GameLoop should initialize with a display."""
-        import io
-        from storyloom.io.display import Display
-        d = Display(output=io.StringIO())
+    def test_initializes_with_observers(self):
+        """GameLoop should accept observers list and deprecated observer."""
+        calls = []
+
+        def obs(record):
+            calls.append(record)
+
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
-            display=d,
+            observers=[obs],
         )
-        assert loop.display is d
+        assert len(loop._observers) == 1
+
+        # Deprecated single observer also works
+        loop2 = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+            observer=obs,
+        )
+        assert len(loop2._observers) == 1
+
+        # Both merged
+        loop3 = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+            observers=[obs],
+            observer=obs,
+        )
+        assert len(loop3._observers) == 2
 
     def test_initial_node_is_none(self):
         """The current_node should start as None."""
