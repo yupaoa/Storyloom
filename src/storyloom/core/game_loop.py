@@ -698,6 +698,20 @@ class GameLoop:
         if self.last_parsed is None:
             raise RuntimeError("No last result - call start_round1 first")
 
+        # ── Guard: ending already triggered ─────────────────────────
+        # Per exec-flow.md §5.2 the adventure log is yielded as an
+        # "ending" event and the game loop stops.  If the caller issues
+        # another continue_round_stream() anyway (e.g. UI auto-advance),
+        # short-circuit with a no-op done event.
+        if self.ending_flag:
+            yield {
+                "type": "done",
+                "round": self._context_mgr.round_count,
+                "node": "end",
+                "state": self.game_state.state_vars,
+            }
+            return
+
         # ── Fast path: consume pre-fetched API response ────────────
         prefetch = self._take_prefetch(choice_key)
         if prefetch is not None:
@@ -782,39 +796,7 @@ class GameLoop:
                 cp_valid = True  # no outline loaded → accept provisionally
 
             if cp_valid:
-                if cp_summary:
-                    self._checkpoint_summaries.append(cp_summary)
-
-                # Resolve title from _outline_nodes. For the "end" sentinel,
-                # fall back to the last outline node's title.
-                cp_title = cp_node
-                if self._outline_nodes:
-                    if cp_node == "end":
-                        last = self._outline_nodes[-1]
-                        cp_title = last.get("title", "ending") or "ending"
-                    else:
-                        for node in self._outline_nodes:
-                            if node.get("id") == cp_node:
-                                cp_title = node.get("title", cp_node)
-                                break
-
-                self._checkpoint_history.append({
-                    "node": cp_node,
-                    "title": cp_title,
-                    "summary": cp_summary,
-                    "round": self._context_mgr.round_count,
-                })
-
-                self._checkpoint_snapshots[cp_node] = copy.deepcopy(
-                    self.game_state.state_vars
-                )
-
-                # Trigger auto-save if SaveManager is configured
-                if self._save_manager is not None:
-                    try:
-                        self._save_manager.save(self.to_save_dict())
-                    except Exception:
-                        pass
+                self._accumulate_checkpoint(cp_node, cp_summary)
 
         # ── Step 3.6: Ending detection ──────────────────────────────
         if self.last_parsed.checkpoint_node == "end":
@@ -879,6 +861,17 @@ class GameLoop:
             yield {"type": "error", "message": str(e)}
             return
 
+        # ── Post-parse: handle "end" checkpoint from THIS round ─────
+        # Per exec-flow.md §5.2 the adventure log must be requested at
+        # bridge time and run concurrently with bridge_text display.
+        # Process the "end" checkpoint immediately — it does not depend
+        # on deferred choice_dict resolution.
+        if parsed.checkpoint_node == "end":
+            self._accumulate_checkpoint("end", parsed.checkpoint_summary or "")
+            self.ending_flag = True
+            if "end" not in self._completed_nodes:
+                self._completed_nodes.append("end")
+
         # ── Step 8: Store round in context manager ──────────────────
         self._context_mgr.add_round(rn_context, response, selected_branch)
 
@@ -908,15 +901,34 @@ class GameLoop:
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
 
+        # ── Launch adventure log in background if ending ───────────
+        # Per exec-flow.md §5.2: submit adventure log at bridge time
+        # so the API call runs concurrently with bridge_text display.
+        # The segment emission below acts as the latency buffer.
+        _adventure_thread: threading.Thread | None = None
+        _adventure_result: dict = {}
+        if self.ending_flag:
+            def _fetch_adventure() -> None:
+                try:
+                    _adventure_result["text"] = self.run_adventure_log()
+                except Exception:
+                    _adventure_result["text"] = None
+            _adventure_thread = threading.Thread(
+                target=_fetch_adventure, daemon=True
+            )
+            _adventure_thread.start()
+
         # ── Yield structured events ─────────────────────────────────
         yield from self._emit_parsed(parsed, self._current_branch)
 
         # ── Check for ending after emitting parsed content ──
         if self.ending_flag:
-            try:
-                adventure_log = self.run_adventure_log()
-            except Exception:
-                adventure_log = None
+            # Join the background adventure-log thread (it started
+            # before segment emission, so most of the API latency is
+            # already absorbed by display time).
+            if _adventure_thread is not None:
+                _adventure_thread.join(timeout=30)
+            adventure_log = _adventure_result.get("text")
 
             yield {
                 "type": "ending",
@@ -1147,32 +1159,7 @@ class GameLoop:
             elif not cp_valid and not self._outline_nodes:
                 cp_valid = True
             if cp_valid:
-                if cp_summary:
-                    self._checkpoint_summaries.append(cp_summary)
-                cp_title = cp_node
-                if self._outline_nodes:
-                    if cp_node == "end":
-                        last = self._outline_nodes[-1]
-                        cp_title = last.get("title", "ending") or "ending"
-                    else:
-                        for node in self._outline_nodes:
-                            if node.get("id") == cp_node:
-                                cp_title = node.get("title", cp_node)
-                                break
-                self._checkpoint_history.append({
-                    "node": cp_node,
-                    "title": cp_title,
-                    "summary": cp_summary,
-                    "round": self._context_mgr.round_count,
-                })
-                self._checkpoint_snapshots[cp_node] = copy.deepcopy(
-                    self.game_state.state_vars
-                )
-                if self._save_manager is not None:
-                    try:
-                        self._save_manager.save(self.to_save_dict())
-                    except Exception:
-                        pass
+                self._accumulate_checkpoint(cp_node, cp_summary)
 
         # ── Step 3.6: ending detection ─────────────────────────────
         if self.last_parsed.checkpoint_node == "end":
@@ -1318,6 +1305,13 @@ class GameLoop:
             yield {"type": "error", "message": str(e)}
             return
 
+        # ── Post-parse: handle "end" checkpoint from THIS round ─────
+        if parsed.checkpoint_node == "end":
+            self._accumulate_checkpoint("end", parsed.checkpoint_summary or "")
+            self.ending_flag = True
+            if "end" not in self._completed_nodes:
+                self._completed_nodes.append("end")
+
         # ── Step 8: store round in context manager ─────────────────
         self._context_mgr.add_round(
             prefetch["user_content"],
@@ -1351,15 +1345,28 @@ class GameLoop:
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
 
+        # ── Launch adventure log in background if ending ───────────
+        _adventure_thread: threading.Thread | None = None
+        _adventure_result: dict = {}
+        if self.ending_flag:
+            def _fetch_adventure() -> None:
+                try:
+                    _adventure_result["text"] = self.run_adventure_log()
+                except Exception:
+                    _adventure_result["text"] = None
+            _adventure_thread = threading.Thread(
+                target=_fetch_adventure, daemon=True
+            )
+            _adventure_thread.start()
+
         # ── Yield structured events ───────────────────────────────
         yield from self._emit_parsed(parsed, self._current_branch)
 
         # ── Ending check ───────────────────────────────────────────
         if self.ending_flag:
-            try:
-                adventure_log = self.run_adventure_log()
-            except Exception:
-                adventure_log = None
+            if _adventure_thread is not None:
+                _adventure_thread.join(timeout=30)
+            adventure_log = _adventure_result.get("text")
             yield {
                 "type": "ending",
                 "adventure_log": adventure_log,
@@ -1663,6 +1670,48 @@ class GameLoop:
             if nid == self.current_node and i + 1 < len(self._outline_nodes):
                 return self._outline_nodes[i + 1].get("id")
         return None
+
+    def _accumulate_checkpoint(self, cp_node: str, cp_summary: str) -> None:
+        """Accumulate checkpoint data and trigger auto-save.
+
+        Centralised helper shared by the deferred checkpoint path
+        (Step 3.5 in ``continue_round_stream`` / ``_launch_prefetch``)
+        and the immediate post-parse path for the ``"end"`` sentinel.
+
+        Side effects on: ``_checkpoint_summaries``,
+        ``_checkpoint_history``, ``_checkpoint_snapshots``,
+        ``_save_manager``.
+        """
+        if cp_summary:
+            self._checkpoint_summaries.append(cp_summary)
+
+        cp_title = cp_node
+        if self._outline_nodes:
+            if cp_node == "end":
+                last = self._outline_nodes[-1]
+                cp_title = last.get("title", "ending") or "ending"
+            else:
+                for node in self._outline_nodes:
+                    if node.get("id") == cp_node:
+                        cp_title = node.get("title", cp_node)
+                        break
+
+        self._checkpoint_history.append({
+            "node": cp_node,
+            "title": cp_title,
+            "summary": cp_summary,
+            "round": self._context_mgr.round_count,
+        })
+
+        self._checkpoint_snapshots[cp_node] = copy.deepcopy(
+            self.game_state.state_vars
+        )
+
+        if self._save_manager is not None:
+            try:
+                self._save_manager.save(self.to_save_dict())
+            except Exception:
+                pass
 
     # ── Adventure Log ─────────────────────────────────────────────
 
