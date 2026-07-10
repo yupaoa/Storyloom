@@ -132,6 +132,10 @@ def run_game(
     if game_loop.ending_flag:
         return
 
+    # If Round 1 parse failed, last_parsed is None; cannot continue
+    if game_loop.last_parsed is None:
+        return
+
     # Continue rounds
     while True:
         options = game_loop.get_available_options()
@@ -174,7 +178,7 @@ def _handle_event(ui: TerminalUi, event: dict) -> None:
         pass  # minimal mode — skip per-token display
 
     elif etype == "segment":
-        ui.write(event["text"])
+        ui.write(event.get("text", ""))
         time.sleep(0.5)
 
     elif etype == "options":
@@ -184,7 +188,7 @@ def _handle_event(ui: TerminalUi, event: dict) -> None:
         pass  # state changes are recorded by observer, not displayed
 
     elif etype == "error":
-        ui.show_error(event["message"])
+        ui.show_error(event.get("message", ""))
 
     elif etype == "ending":
         # Game over — show adventure log
