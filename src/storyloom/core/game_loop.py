@@ -5,12 +5,15 @@ Validates all LLM-suggested state changes (local source of truth).
 """
 
 import copy
+import queue
 import re
+import threading
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Callable
 
+from storyloom.config import STREAM_STALL_TIMEOUT_SEC
 from storyloom.io.api_client import ApiClient
 from storyloom.core.context_manager import ContextManager
 from storyloom.core.prompt_builder import PromptBuilder
@@ -442,6 +445,12 @@ class GameLoop:
         self._save_manager = None
         self._created_at: str | None = None
 
+        # Bridge pre-fetch state (background API call for auto-advance rounds).
+        # Protects _prefetch_data — game loop runs on main thread, pre-fetch
+        # API call runs on daemon thread.
+        self._prefetch_lock = threading.Lock()
+        self._prefetch_data: dict | None = None
+
     # ── Properties ─────────────────────────────────────────────────
 
     @property
@@ -688,6 +697,12 @@ class GameLoop:
         """
         if self.last_parsed is None:
             raise RuntimeError("No last result - call start_round1 first")
+
+        # ── Fast path: consume pre-fetched API response ────────────
+        prefetch = self._take_prefetch(choice_key)
+        if prefetch is not None:
+            yield from self._stream_from_prefetch(prefetch)
+            return
 
         # ── Step 1: Build choice_dict ───────────────────────────────
         choice_dict: dict[str, int] = {}
@@ -938,11 +953,23 @@ class GameLoop:
             selected_branch=selected_branch,
         ))
 
+        # Capture state *before* pre-fetch mutates it for the next round.
+        done_state = self.game_state.state_vars
+        done_node = self.current_node
+        done_round = self._context_mgr.round_count
+
+        # ── Bridge pre-fetch: fire next API call for auto-advance ─
+        # Per exec-flow.md §4.7 the next round's prompt is assembled at
+        # <bridge/> time so the post-bridge segments (bridge_text) act as
+        # a display buffer that hides the API latency.
+        if not parsed.choices and not self.ending_flag:
+            self._launch_prefetch(choice_key)
+
         yield {
             "type": "done",
-            "round": self._context_mgr.round_count,
-            "node": self.current_node,
-            "state": self.game_state.state_vars,
+            "round": done_round,
+            "node": done_node,
+            "state": done_state,
         }
 
     def continue_round(self, choice_key: str | None = None) -> RoundResult:
@@ -1026,6 +1053,353 @@ class GameLoop:
                 "type": "options",
                 "choices": parsed.choices,
             }
+
+    # ── Bridge Pre-fetch ──────────────────────────────────────────
+
+    def _take_prefetch(self, choice_key: str | None) -> dict | None:
+        """Atomically check and clear pre-fetched data for the given choice_key.
+
+        Returns the pre-fetch dict if one is available AND its choice_key
+        matches, otherwise returns None.  The pre-fetch is cleared on
+        match so it is consumed at most once.
+        """
+        with self._prefetch_lock:
+            data = self._prefetch_data
+            if data is None:
+                return None
+            if data.get("choice_key") != choice_key:
+                # Mismatch — e.g. a choice round arrived when we
+                # pre-fetched for auto-advance.  Discard.
+                self._prefetch_data = None
+                return None
+            self._prefetch_data = None
+            return data
+
+    def _launch_prefetch(self, choice_key: str | None) -> None:
+        """Start background pre-fetch of the next round's API response.
+
+        Called after the current round has been fully processed (parsed,
+        state applied, last_parsed updated).  Only safe when the current
+        round has *no* player choices — the next call to
+        ``continue_round_stream()`` is guaranteed to be an auto-advance
+        with the same ``choice_key``.
+
+        Side effects:
+        - Applies the *current* round's deferred sets (Step 2 for the
+          next call) and evaluates routes (Step 3) — this mutates
+          ``game_state``, ``current_node``, ``goal``, and
+          ``completed_nodes``.
+        - Builds the next round's messages array and starts a daemon
+          thread that streams API chunks into a ``queue.Queue``.
+        - Stores everything in ``_prefetch_data`` behind the lock.
+        """
+        if self.last_parsed is None:
+            return
+
+        # ── Step 2 (deferred): apply current round's sets ─────────
+        # These are the sets from *this* round's parsed output, deferred
+        # to the next call.  For auto-advance choice_dict is empty so
+        # only unconditional sets and state-var-conditional sets apply.
+        choice_dict: dict[str, int] = {}
+        step2_changes: list[dict] = []
+        new_rejected: list[str] = []
+        for set_op in self.last_parsed.sets:
+            result = self.game_state.apply_set(set_op, choice_dict)
+            step2_changes.append({
+                "var": set_op.var,
+                "op": set_op.op,
+                "val": set_op.val,
+                "accepted": result.accepted,
+                "reason": result.reason,
+            })
+            if result.reason:
+                new_rejected.append(result.reason)
+        self._rejected_changes = new_rejected
+
+        # ── Step 3: evaluate routes ────────────────────────────────
+        old_node = self.current_node
+        route = self._evaluate_routes(choice_dict)
+        if route:
+            if old_node and old_node not in self._completed_nodes:
+                self._completed_nodes.append(old_node)
+            self.current_node = route
+            self.goal = self._node_goals.get(route, self.goal or "")
+        elif not self.last_parsed.routes:
+            if old_node and old_node not in self._completed_nodes:
+                self._completed_nodes.append(old_node)
+
+        # ── Step 3.5: accumulate checkpoint data ───────────────────
+        if self.last_parsed.checkpoint_node:
+            cp_node = self.last_parsed.checkpoint_node
+            cp_summary = self.last_parsed.checkpoint_summary or ""
+            cp_valid = (cp_node == "end")
+            if not cp_valid and self._outline_nodes:
+                valid_ids = {n.get("id", "") for n in self._outline_nodes}
+                cp_valid = cp_node in valid_ids
+            elif not cp_valid and not self._outline_nodes:
+                cp_valid = True
+            if cp_valid:
+                if cp_summary:
+                    self._checkpoint_summaries.append(cp_summary)
+                cp_title = cp_node
+                if self._outline_nodes:
+                    if cp_node == "end":
+                        last = self._outline_nodes[-1]
+                        cp_title = last.get("title", "ending") or "ending"
+                    else:
+                        for node in self._outline_nodes:
+                            if node.get("id") == cp_node:
+                                cp_title = node.get("title", cp_node)
+                                break
+                self._checkpoint_history.append({
+                    "node": cp_node,
+                    "title": cp_title,
+                    "summary": cp_summary,
+                    "round": self._context_mgr.round_count,
+                })
+                self._checkpoint_snapshots[cp_node] = copy.deepcopy(
+                    self.game_state.state_vars
+                )
+                if self._save_manager is not None:
+                    try:
+                        self._save_manager.save(self.to_save_dict())
+                    except Exception:
+                        pass
+
+        # ── Step 3.6: ending detection ─────────────────────────────
+        if self.last_parsed.checkpoint_node == "end":
+            self.ending_flag = True
+            if "end" not in self._completed_nodes:
+                self._completed_nodes.append("end")
+            return  # do not pre-fetch past the ending
+
+        # ── Step 4: build Round N context ──────────────────────────
+        compressed_summaries = (
+            self._context_mgr.get_compressed_summaries() or None
+        )
+        selected_branch = self._get_selected_branch(choice_key)
+        self._current_branch = selected_branch or "main"
+
+        # Derive bridge_text for the *next* round from the current
+        # round's parsed output, filtered by the branch the player
+        # chose (or "main" for auto-advance).
+        bridge_text = self._context_mgr.get_last_bridge_text()
+
+        rn_context = self._prompter.build_round_n(
+            current_node=self.current_node or "",
+            goal=self.goal or "",
+            completed_nodes=self._completed_nodes,
+            state_vars=self.game_state.state_vars,
+            bridge_text=bridge_text,
+            compressed_summaries=compressed_summaries,
+            rejected_changes=(
+                self._rejected_changes if self._rejected_changes else None
+            ),
+            format_error=self._format_error,
+        )
+
+        # ── Step 5: assemble messages ──────────────────────────────
+        messages = self._context_mgr.get_messages()
+        messages.append({"role": "user", "content": rn_context})
+
+        # ── Step 6: fire API call in background ────────────────────
+        result_queue: queue.Queue = queue.Queue()
+
+        def _fetch() -> None:
+            try:
+                for chunk in self.api_client.stream_chat_iter(messages):
+                    result_queue.put(chunk)
+            except Exception as exc:
+                result_queue.put({"__prefetch_error__": str(exc)})
+
+        thread = threading.Thread(target=_fetch, daemon=True)
+        thread.start()
+
+        with self._prefetch_lock:
+            self._prefetch_data = {
+                "choice_key": choice_key,
+                "queue": result_queue,
+                "thread": thread,
+                "messages": messages,
+                "user_content": rn_context,
+                "state_events": [
+                    {
+                        "type": "state",
+                        "vars": self.game_state.state_vars,
+                        "changes": step2_changes,
+                    }
+                ] if step2_changes else [],
+                "selected_branch": selected_branch,
+            }
+
+    def _stream_from_prefetch(self, prefetch: dict) -> Iterator[dict]:
+        """Yield events from a pre-fetched API response.
+
+        The pre-fetch already applied Steps 1-5 (state changes, route
+        evaluation, context building).  This method collects the
+        background API response and continues from Step 7 (parse).
+
+        Args:
+            prefetch: The dict previously stored by ``_launch_prefetch``.
+
+        Yields:
+            Same event types as ``continue_round_stream()``.
+        """
+        # ── Yield deferred state events (computed during prefetch) ─
+        yield from prefetch["state_events"]
+
+        # ── Wait for the background thread ─────────────────────────
+        prefetch["thread"].join(timeout=STREAM_STALL_TIMEOUT_SEC)
+        if prefetch["thread"].is_alive():
+            # Thread is still running — API stalled.  We cannot recover
+            # gracefully here, so surface the error to the caller.
+            yield {
+                "type": "error",
+                "message": (
+                    "Pre-fetched API call timed out after "
+                    f"{STREAM_STALL_TIMEOUT_SEC}s"
+                ),
+            }
+            return
+
+        # ── Collect chunks from the queue ──────────────────────────
+        collected: list[str] = []
+        ttft: float | None = None
+        tokens: dict | None = None
+
+        while True:
+            try:
+                chunk = prefetch["queue"].get_nowait()
+            except queue.Empty:
+                break
+
+            if "__prefetch_error__" in chunk:
+                yield {
+                    "type": "error",
+                    "message": f"Pre-fetch API error: {chunk['__prefetch_error__']}",
+                }
+                return
+
+            if chunk.get("done"):
+                tokens = chunk.get("usage")
+            else:
+                if chunk.get("ttft") is not None:
+                    ttft = chunk["ttft"]
+                collected.append(chunk["delta"])
+                yield {"type": "token", "text": chunk["delta"]}
+
+        response = "".join(collected)
+
+        # ── Step 7: parse ──────────────────────────────────────────
+        self._format_error = None
+        try:
+            parsed = XmlParser.parse(response)
+        except Exception as e:
+            self._format_error = str(e)
+            self._notify(RoundRecord(
+                round_number=self._context_mgr.round_count + 1,
+                messages_sent=prefetch["messages"],
+                raw_response=response,
+                parsed=None,
+                ttft=ttft,
+                tokens=tokens,
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                node=self.current_node,
+                selected_branch=prefetch.get("selected_branch"),
+            ))
+            yield {"type": "error", "message": str(e)}
+            return
+
+        # ── Step 8: store round in context manager ─────────────────
+        self._context_mgr.add_round(
+            prefetch["user_content"],
+            response,
+            prefetch.get("selected_branch"),
+        )
+
+        # ── Step 9: apply this round's unconditional sets ──────────
+        step9_changes: list[dict] = []
+        for set_op in parsed.sets:
+            if not set_op.condition:
+                result = self.game_state.apply_set(set_op, {})
+                step9_changes.append({
+                    "var": set_op.var,
+                    "op": set_op.op,
+                    "val": set_op.val,
+                    "accepted": result.accepted,
+                    "reason": result.reason,
+                })
+                if result.reason:
+                    self._rejected_changes.append(result.reason)
+
+        if step9_changes:
+            yield {
+                "type": "state",
+                "vars": self.game_state.state_vars,
+                "changes": step9_changes,
+            }
+
+        # Update stored state
+        self.last_parsed = parsed
+        self._last_bridge_text = parsed.bridge_text
+
+        # ── Yield structured events ───────────────────────────────
+        yield from self._emit_parsed(parsed)
+
+        # ── Ending check ───────────────────────────────────────────
+        if self.ending_flag:
+            try:
+                adventure_log = self.run_adventure_log()
+            except Exception:
+                adventure_log = None
+            yield {
+                "type": "ending",
+                "adventure_log": adventure_log,
+                "final_state": self.game_state.state_vars,
+                "summary": self.last_parsed.checkpoint_summary,
+            }
+            yield {
+                "type": "done",
+                "round": self._context_mgr.round_count,
+                "node": "end",
+                "state": self.game_state.state_vars,
+            }
+            self._notify(RoundRecord(
+                round_number=self._context_mgr.round_count,
+                messages_sent=prefetch["messages"],
+                raw_response=response,
+                parsed=parsed,
+                ttft=ttft,
+                tokens=tokens,
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                node="end",
+                selected_branch=prefetch.get("selected_branch"),
+            ))
+            return
+
+        # ── Notify observer ────────────────────────────────────────
+        self._notify(RoundRecord(
+            round_number=self._context_mgr.round_count,
+            messages_sent=prefetch["messages"],
+            raw_response=response,
+            parsed=parsed,
+            ttft=ttft,
+            tokens=tokens,
+            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            node=self.current_node,
+            selected_branch=prefetch.get("selected_branch"),
+        ))
+
+        yield {
+            "type": "done",
+            "round": self._context_mgr.round_count,
+            "node": self.current_node,
+            "state": self.game_state.state_vars,
+        }
+
+        # ── Chain pre-fetch for next auto-advance round ────────────
+        if not parsed.choices and not self.ending_flag:
+            self._launch_prefetch(prefetch["choice_key"])
 
     # ── Save / Restore ─────────────────────────────────────────────
 
