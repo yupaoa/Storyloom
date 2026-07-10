@@ -46,6 +46,7 @@ def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | No
         if user_input == "":
             continue
 
+        ui.write("[...]")
         event = flow.send(user_input)
 
         phase = event["phase"]
@@ -85,6 +86,7 @@ def run_game(
         game_loop._observers.append(dev_observer.record_round)
 
     # Start round 1
+    ui.write("[Generating...]")
     try:
         events = list(game_loop.start_round1_stream())
     except Exception as e:
