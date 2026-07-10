@@ -1,4 +1,5 @@
 """DevObserver — writes raw prompt/response/check data to files."""
+import json
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -17,7 +18,6 @@ class DevObserver:
     def __init__(self, output_dir: str = "dev_output"):
         self._dir = Path(output_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._co_create_started = False
 
     # ── Game round ──
 
@@ -81,11 +81,10 @@ class DevObserver:
                 if p.checkpoint_summary:
                     lines.append(f"  Summary: {p.checkpoint_summary}")
             if p.sets:
-                set_lines = []
+                lines.append("Sets:")
                 for s in p.sets:
                     cond = f" [if {s.condition}]" if s.condition else ""
-                    set_lines.append(f"  {s.var} {s.op} {s.val}{cond}")
-                lines.append("Sets:\n" + "\n".join(set_lines))
+                    lines.append(f"  {s.var} {s.op} {s.val}{cond}")
             if p.choices:
                 c = p.choices[-1]
                 lines.append(
@@ -122,7 +121,6 @@ class DevObserver:
 
     def record_co_create_result(self, story_config: dict, outline_text: str) -> None:
         """Record the final generated story setup."""
-        import json
         self._append(
             "checks.txt",
             "══ Co-Create Result ══\n"

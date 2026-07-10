@@ -45,7 +45,11 @@ def run_co_create(
         dev_observer.record_co_create_start()
 
     # Step 1: start
-    event = flow.start()
+    try:
+        event = flow.start()
+    except RuntimeError as e:
+        ui.show_error(f"Co-creation failed to start: {e}")
+        return None
     ui.write(event["prompt"])
 
     # Step 2: Q&A loop
@@ -63,6 +67,9 @@ def run_co_create(
             event = flow.send(user_input)
         except KeyboardInterrupt:
             ui.write("\n[Interrupted]")
+            return None
+        except RuntimeError as e:
+            ui.show_error(f"Co-creation error: {e}")
             return None
 
         phase = event["phase"]
@@ -161,7 +168,7 @@ def run_game(
 
 def _handle_event(ui: TerminalUi, event: dict) -> None:
     """Handle a single stream event."""
-    etype = event["type"]
+    etype = event.get("type", "")
 
     if etype == "token":
         pass  # minimal mode — skip per-token display
