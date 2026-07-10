@@ -559,6 +559,17 @@ class GameLoop:
             parsed = XmlParser.parse(response)
         except Exception as e:
             self._format_error = str(e)
+            self._notify(RoundRecord(
+                round_number=1,
+                messages_sent=messages,
+                raw_response=response,
+                parsed=None,
+                ttft=ttft,
+                tokens=tokens,
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                node=self.current_node,
+                selected_branch=None,
+            ))
             yield {"type": "error", "message": str(e)}
             return
 
