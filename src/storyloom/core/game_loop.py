@@ -410,7 +410,7 @@ class GameLoop:
         """
         self.story_config = story_config
         self.outline_text = outline_text
-        self._outline_nodes = outline_nodes or []
+        self._outline_nodes = self._normalize_outline_nodes(outline_nodes or [])
         self.api_client = api_client
 
         # Internal modules
@@ -1594,6 +1594,45 @@ class GameLoop:
     # ── Outline ───────────────────────────────────────────────────
 
     @staticmethod
+    def _normalize_outline_nodes(nodes: list[dict]) -> list[dict]:
+        """Normalize outline nodes to a single consistent internal format.
+
+        The internal ``_outline_nodes`` can arrive in two shapes depending
+        on creation path:
+
+        * **Fresh** (``CoCreateParser.parse_outline``):
+          ``{id, title, goal, routes: [{condition, target}]}``
+        * **Loaded** (``from_save_dict`` → save-file ``outline``):
+          ``{node_id, title, goal, status, branches: [str]}``
+
+        This method normalises both into the fresh format so that every
+        downstream access site (checkpoint validation, ``to_save_dict``,
+        ``_next_outline_node``, ``_accumulate_checkpoint``) works with a
+        single key layout.
+
+        Returns a **new** list — does not mutate the input.
+        """
+        normalized = []
+        for node in nodes:
+            nid = node.get("id") or node.get("node_id", "")
+            routes = node.get("routes")
+            if routes is None:
+                # Loaded format: branches is a list of target strings.
+                branches = node.get("branches", [])
+                routes = [
+                    {"condition": None, "target": b}
+                    for b in branches
+                    if b
+                ]
+            normalized.append({
+                "id": nid,
+                "title": node.get("title", ""),
+                "goal": node.get("goal", ""),
+                "routes": routes,
+            })
+        return normalized
+
+    @staticmethod
     def _parse_outline_goals(outline_text: str) -> dict[str, str]:
         """Extract {node_id: goal_description} from outline text."""
         goals: dict[str, str] = {}
@@ -1729,6 +1768,7 @@ class GameLoop:
             checkpoint_summaries=self._checkpoint_summaries,
             checkpoint_history=self._checkpoint_history,
         )
-        messages = self._context_mgr.get_messages()
-        messages.append({"role": "user", "content": prompt})
-        return self.api_client.chat(messages)
+        # Per exec-flow.md §5.4: independent LLM call — not part of the
+        # narrative loop.  Send only the adventure-log prompt, not the
+        # full conversation context (~50K tokens).
+        return self.api_client.chat([{"role": "user", "content": prompt}])
