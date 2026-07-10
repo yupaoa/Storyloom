@@ -65,7 +65,11 @@ class TestDevObserver:
         record = MagicMock()
         record.round_number = 1
         record.timestamp = "2026-07-10T12:00:00Z"
-        record.messages_sent = [{"role": "user", "content": "test prompt"}]
+        record.messages_sent = [
+            {"role": "system", "content": "System prompt."},
+            {"role": "user", "content": "test prompt"},
+            {"role": "assistant", "content": "Previous response."},
+        ]
         record.raw_response = "<story>test response</story>"
         record.ttft = 2.5
         record.tokens = {"prompt": 100, "completion": 200, "total": 300}
@@ -92,7 +96,12 @@ class TestDevObserver:
 
         prompts = (out / "prompts.txt").read_text()
         assert "Round 1" in prompts
+        assert "[system]" in prompts
+        assert "System prompt." in prompts
+        assert "[user]" in prompts
         assert "test prompt" in prompts
+        assert "[assistant]" in prompts
+        assert "Previous response." in prompts
 
         responses = (out / "responses.txt").read_text()
         assert "Round 1" in responses
@@ -140,24 +149,32 @@ class TestDevObserver:
 
 
     def test_record_co_create_writes_to_files(self, tmp_path):
-        """Co-create recording writes user input and LLM response."""
+        """Co-create recording writes full messages array and LLM response."""
         out = tmp_path / "co_create_test"
         obs = DevObserver(str(out))
 
-        obs.record_co_create_start()
-        obs.record_co_create_prompt("A cyberpunk love story")
-        obs.record_co_create_response("What time period should this be set in?")
+        messages = [
+            {"role": "system", "content": "You are a co-creation partner."},
+            {"role": "user", "content": "A cyberpunk love story"},
+            {"role": "assistant", "content": "What time period?"},
+        ]
+        obs.record_co_create_messages("awaiting_answer", messages)
+        obs.record_co_create_response("What time period?")
         obs.record_co_create_result(
             {"label": "test", "genre": "cyberpunk", "tier": "short", "variables": []},
             "ch1 [active] — test",
         )
 
         prompts = (out / "prompts.txt").read_text()
-        assert "Co-Create Session" in prompts
+        assert "awaiting_answer" in prompts
+        assert "[system]" in prompts
+        assert "You are a co-creation partner" in prompts
+        assert "[user]" in prompts
         assert "A cyberpunk love story" in prompts
+        assert "[assistant]" in prompts
 
         responses = (out / "responses.txt").read_text()
-        assert "Co-Create Session" in responses
+        assert "Co-Create" in responses
         assert "What time period" in responses
 
         checks = (out / "checks.txt").read_text()

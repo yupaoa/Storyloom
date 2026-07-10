@@ -41,9 +41,6 @@ def run_co_create(
     """Drive the co-creation Q&A loop. Returns None if user quits."""
     flow = session.new_co_create()
 
-    if dev_observer is not None:
-        dev_observer.record_co_create_start()
-
     # Step 1: start
     try:
         event = flow.start()
@@ -58,9 +55,6 @@ def run_co_create(
         if user_input == "":
             continue
 
-        if dev_observer is not None:
-            dev_observer.record_co_create_prompt(user_input)
-
         ui.write("[...]")
         sys.stdout.flush()
         try:
@@ -73,6 +67,10 @@ def run_co_create(
             return None
 
         phase = event["phase"]
+
+        # Record full messages array for all phases (prompts.txt)
+        if dev_observer is not None:
+            dev_observer.record_co_create_messages(phase, flow.messages)
 
         if phase == "awaiting_idea":
             ui.write(event["prompt"])

@@ -10,7 +10,7 @@ class DevObserver:
     """Records per-round raw data to dev_output/ files (append mode).
 
     Creates three files:
-      - prompts.txt   — full user messages sent to LLM
+      - prompts.txt   — full messages array sent to LLM (all roles)
       - responses.txt — raw LLM response text
       - checks.txt    — parsed summary (segments, bridge, sets, etc.)
     """
@@ -26,18 +26,53 @@ class DevObserver:
         ts = record.timestamp or datetime.now(timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        self._append_prompts(record, ts)
+        self._append_messages(record, ts)
         self._append_response(record, ts)
         self._append_checks(record, ts)
 
-    # ── private helpers ──
+    # ── Co-creation ──
 
-    def _append_prompts(self, record: RoundRecord, ts: str) -> None:
+    def record_co_create_messages(self, phase: str, messages: list[dict]) -> None:
+        """Record the full messages array at a co-creation step."""
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        lines = [f"══ Co-Create [{phase}] ══ {now}"]
+        for msg in messages:
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            lines.append(f"[{role}]")
+            lines.append(content)
+            lines.append("")
+        self._append("prompts.txt", "\n".join(lines))
+
+    def record_co_create_response(self, text: str) -> None:
+        """Record LLM response during co-creation Q&A."""
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._append("responses.txt", f"── Co-Create ── {now} ──\n{text}\n\n")
+
+    def record_co_create_result(self, story_config: dict, outline_text: str) -> None:
+        """Record the final generated story setup."""
+        self._append(
+            "checks.txt",
+            "══ Co-Create Result ══\n"
+            f"Label: {story_config.get('label', '?')}\n"
+            f"Genre: {story_config.get('genre', '?')}\n"
+            f"Tier: {story_config.get('tier', '?')}\n"
+            f"Outline:\n{outline_text}\n"
+            f"Variables: {json.dumps(story_config.get('variables', []), ensure_ascii=False, indent=2)}\n"
+            "\n",
+        )
+
+    # ── Private ──
+
+    def _append_messages(self, record: RoundRecord, ts: str) -> None:
+        """Record the full messages array (all roles) sent to the LLM."""
         lines = [f"── Round {record.round_number} ── {ts} ──"]
         for msg in record.messages_sent:
-            if msg.get("role") == "user":
-                lines.append(msg.get("content", ""))
-        lines.append("")
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            lines.append(f"[{role}]")
+            lines.append(content)
+            lines.append("")
         self._append("prompts.txt", "\n".join(lines))
 
     def _append_response(self, record: RoundRecord, ts: str) -> None:
@@ -101,38 +136,6 @@ class DevObserver:
             )
         lines.append("")
         self._append("checks.txt", "\n".join(lines))
-
-    # ── Co-creation ──
-
-    def record_co_create_start(self) -> None:
-        """Mark the start of a co-creation session in prompts/responses."""
-        header = "══ Co-Create Session ══\n"
-        self._append("prompts.txt", header)
-        self._append("responses.txt", header)
-
-    def record_co_create_prompt(self, user_input: str) -> None:
-        """Record user input sent during co-creation Q&A."""
-        self._append("prompts.txt", f"[User]\n{user_input}\n\n")
-
-    def record_co_create_response(self, text: str) -> None:
-        """Record LLM response during co-creation Q&A."""
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self._append("responses.txt", f"── {now} ──\n{text}\n\n")
-
-    def record_co_create_result(self, story_config: dict, outline_text: str) -> None:
-        """Record the final generated story setup."""
-        self._append(
-            "checks.txt",
-            "══ Co-Create Result ══\n"
-            f"Label: {story_config.get('label', '?')}\n"
-            f"Genre: {story_config.get('genre', '?')}\n"
-            f"Tier: {story_config.get('tier', '?')}\n"
-            f"Outline:\n{outline_text}\n"
-            f"Variables: {json.dumps(story_config.get('variables', []), ensure_ascii=False, indent=2)}\n"
-            "\n",
-        )
-
-    # ── I/O ──
 
     def _append(self, filename: str, content: str) -> None:
         path = self._dir / filename
