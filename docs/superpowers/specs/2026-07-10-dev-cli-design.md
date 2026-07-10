@@ -189,7 +189,7 @@ dev_main()
   │    game_loop.set_save_manager(None)  # disable auto-save
   ├─ if mode=dev:
   │    observer = DevObserver()
-  │    game_loop.add_observer(observer.record_round)
+  │    game_loop._observers.append(observer.record_round)
   └─ run_game(ui, game_loop, observer)
 ```
 
@@ -210,23 +210,4 @@ dev_output/
 
 ## Engine Issues Found
 
-### 1. `GameSession` does not pass observers through
-
-`GameSession.start_game()` and `GameSession.load_game()` internally create `GameLoop` but do not accept or forward `observers`. The only way to register an observer is to access `game_loop._observers` after construction.
-
-**Fix:** Add `observers` parameter to `GameSession` and `GameLoop.add_observer()` method:
-
-```python
-# GameSession.__init__
-def __init__(self, saves_dir="saves", observers=None):
-    self._observers = observers or []
-
-# GameSession.start_game
-gl = GameLoop(..., observers=self._observers)
-
-# GameLoop
-def add_observer(self, observer):
-    self._observers.append(observer)
-```
-
-This is a minimal, backward-compatible change to the engine core. The `add_observer()` method is the cleanest approach — it avoids threading `observers` through `GameSession.start_game()` and allows dynamic registration.
+None. The dev CLI accesses `GameLoop._observers` (private attribute, Python convention only) to register the `DevObserver` — zero engine modifications needed.
