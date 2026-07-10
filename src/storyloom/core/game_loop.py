@@ -621,7 +621,7 @@ class GameLoop:
         # Yield segments first, then state changes — narrative should
         # reach the player before they see the mechanical consequences
         # (per exec-flow.md §4.1: display → state validation).
-        yield from self._emit_parsed(parsed)
+        yield from self._emit_parsed(parsed, self._current_branch)
 
         if state_changes:
             yield {
@@ -717,10 +717,15 @@ class GameLoop:
         selected_branch = self._get_selected_branch(choice_key)
         self._current_branch = selected_branch or "main"
 
-        # ── Step 2: Apply last round's sets (with choice_dict) ──────
+        # ── Step 2: Apply last round's conditional sets ─────────────
+        # Unconditional sets were already applied in Step 9 of their own
+        # round.  Only conditional sets (those with an `if` attribute)
+        # are deferred — they may depend on the player's choice_dict.
         step2_changes: list[dict] = []
         new_rejected: list[str] = []
         for set_op in self.last_parsed.sets:
+            if not set_op.condition:
+                continue  # unconditional — already applied in its own round
             result = self.game_state.apply_set(set_op, choice_dict)
             step2_changes.append({
                 "var": set_op.var,
@@ -904,7 +909,7 @@ class GameLoop:
         self._last_bridge_text = parsed.bridge_text
 
         # ── Yield structured events ─────────────────────────────────
-        yield from self._emit_parsed(parsed)
+        yield from self._emit_parsed(parsed, self._current_branch)
 
         # ── Check for ending after emitting parsed content ──
         if self.ending_flag:
@@ -1096,14 +1101,17 @@ class GameLoop:
         if self.last_parsed is None:
             return
 
-        # ── Step 2 (deferred): apply current round's sets ─────────
-        # These are the sets from *this* round's parsed output, deferred
-        # to the next call.  For auto-advance choice_dict is empty so
-        # only unconditional sets and state-var-conditional sets apply.
+        # ── Step 2 (deferred): apply current round's CONDITIONAL sets
+        # Unconditional sets were already applied in Step 9 of their own
+        # round (in continue_round_stream or _stream_from_prefetch).
+        # Only conditional sets are deferred — they may depend on
+        # choice_dict (empty for auto-advance) or current state_vars.
         choice_dict: dict[str, int] = {}
         step2_changes: list[dict] = []
         new_rejected: list[str] = []
         for set_op in self.last_parsed.sets:
+            if not set_op.condition:
+                continue  # unconditional — already applied in its own round
             result = self.game_state.apply_set(set_op, choice_dict)
             step2_changes.append({
                 "var": set_op.var,
@@ -1344,7 +1352,7 @@ class GameLoop:
         self._last_bridge_text = parsed.bridge_text
 
         # ── Yield structured events ───────────────────────────────
-        yield from self._emit_parsed(parsed)
+        yield from self._emit_parsed(parsed, self._current_branch)
 
         # ── Ending check ───────────────────────────────────────────
         if self.ending_flag:

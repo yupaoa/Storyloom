@@ -463,17 +463,13 @@ messages = [
 
 **流式接收与 bridge 时序**：
 
-bridge 机制依赖流式 API（`stream=True`）。程序不需要等待 LLM 完整响应——只需**首个可用段落**在尾部缓冲播完前到达即可。流式模式下，LLM 逐 token 输出，程序边接收边解析：当积累到第一个完整的编号叙事段（`N. 文本...`）时，即可开始展示。
+bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>` 时，对于无选项（auto-advance）的轮次，立即通过 **bridge pre-fetch** 在后台线程发起下一轮 API 调用 — 同时继续展示 post-bridge 段落（bridge_text）。后台响应在 bridge_text 展示期间到达并缓冲，用户体感上无段边界停顿。
 
-这意味着 bridge 机制的真正时限不是 LLM 总生成时间，而是：
-
-```
-首段到达时间 = TTFT（首个 token 延迟）+ 首段生成时间
-```
-
-只要 `首段到达时间 ≤ tail_segments × AUTO_ADVANCE_DELAY_MS`，用户就感知不到段边界。后续段落可在展示过程中持续到达。
+这意味着 bridge 机制的真正时限不是 LLM 总生成时间，而是后台 API 调用的 TTFT + 生成时间 vs. bridge_text 的展示时长。
 
 > **关键**：TTFT 主要受 Prompt 大小（输入 tokens 数）影响，而非输出长度。精简 System Prompt 可显著缩短 TTFT。
+>
+> **实现**：bridge pre-fetch 在 `GameLoop._launch_prefetch()` 中实现 — daemon 线程通过 `queue.Queue` 流式传输 API chunks。仅对无选项轮次触发（choice 轮次无法预计算下一轮的 messages 数组）。详见 `game_loop.py`。
 
 **流程**：
 
