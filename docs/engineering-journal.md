@@ -8,6 +8,36 @@
 
 ## 2026-07-11（周六）
 
+### StreamingXmlParser 恢复与集成 —— 流式解析落地
+
+**背景**：经过时序缺陷讨论（见下一条），确认 `StreamingXmlParser` 必须恢复。同时明确了三个架构认知：
+1. 三条流（LLM 生成、程序解析、用户显示）是**时序顺序**关系而非速度关系——不可逆的先后依赖 + bridge 时刻的时间重叠
+2. 双线处理（预处理建索引 + 实际处理做决策）在当前规模下无必要——分支过滤仅需 5 μs，O(1) 跳转无实际收益
+3. 流式解析 ≠ 双线处理——前者解决"何时处理"，后者解决"几遍处理"。上一个 Agent 将二者混淆是删除 StreamingXmlParser 的关键原因
+
+**决策**：
+1. 从 git 历史恢复 `StreamingXmlParser`（commit `6697f47^`），修复 5 个 bug：
+   - `m.lastindex` 脆弱逻辑 → 显式 group 索引
+   - `_RE_SEG` 未捕获 n 属性 → 添加捕获组
+   - Choice 合并逻辑错误 → `feed_line()` 中累积 `_pending_choices`
+   - 自闭合 `<checkpoint/>` 不识别 → 新增 regex
+   - SEGMENT 事件缺 `branch_name` → 从状态机设置
+2. 移除双线预处理索引（`branch_ranges`、`_branch_start_line`）——单遍解析
+3. 新增 `LineBuffer` 适配器：token chunks → 完整行
+4. `_stream_from_prefetch()` 重写：`thread.join()` + 一次性 drain 替换为增量 `queue.get_nowait()` + `LineBuffer` → `StreamingXmlParser.feed_line()`。Segment 事件在行完成时即时产出
+5. Pre-fetch 触发时机修复：`_launch_prefetch()` 从 `_emit_parsed()` 之后移至之前，`done_state` 在调用前捕获
+6. 保留 `XmlParser.parse()` 用于非 pre-fetch 路径（Round 1、choice 轮次、ContextManager）
+7. 45 个流式解析器测试 + 7 个一致性测试（vs XmlParser）
+
+**依据**：
+- commit `56cb7ee` — `feat(parser): restore StreamingXmlParser with streaming pre-fetch integration`
+- [[2026-07-11-streaming-parser-restoration]]（完整变更记录）
+- [[2026-07-11-streaming-parser-timing-flaw]]（动机分析）
+- `docs/superpowers/specs/2026-07-05-narrative-flow-refactor-design.md` §2.2-2.5（设计依据）
+- 303 passed, 24 skipped, 0 failed
+
+**后续**：全量解析（`XmlParser.parse()`）将被流式解析彻底平替。当前流式解析仅用于 pre-fetch 路径；下一步在 `start_round1_stream()` 和 `continue_round_stream()` 慢路径中也使用 `StreamingXmlParser`，最终移除 `_emit_parsed()`。
+
 ### StreamingXmlParser 删除决定推翻 —— Bridge Pre-Fetch 时序缺陷
 
 **背景**：2026-07-10 的架构分析（[[2026-07-10-adventure-log-and-parser-architecture]]）认为 `StreamingXmlParser` 的流式解析不必要，因为 `ElementTree` 全量解析仅需 234 μs。该模块被删除（commit `6697f47`）。2026-07-11 的深入讨论发现该分析存在根本性错误。
