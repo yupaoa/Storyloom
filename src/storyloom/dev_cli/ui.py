@@ -1,6 +1,7 @@
 """TerminalUi — minimal CLI implementing UiInterface + game flow driver."""
 import json
 import sys
+import time
 from pathlib import Path
 
 from storyloom.core.session import GameSession
@@ -167,6 +168,7 @@ def _handle_event(ui: TerminalUi, event: dict) -> None:
 
     elif etype == "segment":
         ui.write(event["text"])
+        time.sleep(0.5)
 
     elif etype == "options":
         pass  # handled separately via get_available_options()
