@@ -113,12 +113,12 @@ def run_game(
             for opt in options:
                 idx = opt["index"]
                 branch = opt["branch"]
-                print(f"  [{idx}] {branch}")
-            print("  [q] Quit")
+                ui.write(f"  [{idx}] {branch}")
+            ui.write("  [q] Quit")
 
         # Get player choice
         if options:
-            choice = _get_choice(len(options))
+            choice = _get_choice(ui, len(options))
             if choice is None:
                 # User quit
                 _handle_quit(game_loop, ui)
@@ -171,14 +171,13 @@ def _handle_event(ui: TerminalUi, event: dict) -> None:
         pass  # round boundary — observer already notified by engine
 
 
-def _get_choice(num_options: int) -> str | None:
+def _get_choice(ui: TerminalUi, num_options: int) -> str | None:
     """Get player choice. Returns choice_key (1-indexed str) or None for quit."""
     while True:
-        try:
-            raw = input("> ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return None
+        raw = ui.ask("> ").lower()
+
+        if raw == "":
+            continue
 
         if raw in ("q", "quit", "exit"):
             return None
@@ -186,7 +185,7 @@ def _get_choice(num_options: int) -> str | None:
             n = int(raw)
             if 1 <= n <= num_options:
                 return raw
-        print(f"  Enter 1-{num_options}, or q to quit")
+        ui.write(f"  Enter 1-{num_options}, or q to quit")
 
 
 def _handle_quit(game_loop: GameLoop, ui: TerminalUi) -> None:
