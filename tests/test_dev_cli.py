@@ -137,3 +137,60 @@ class TestDevObserver:
         assert prompts.count("── Round") == 3
         assert "prompt 0" in prompts
         assert "prompt 2" in prompts
+
+
+class TestTerminalUi:
+    def test_implements_ui_interface(self):
+        """TerminalUi satisfies the UiInterface protocol."""
+        from storyloom.dev_cli.ui import TerminalUi
+
+        ui = TerminalUi()
+        assert hasattr(ui, "write")
+        assert hasattr(ui, "show_error")
+        assert hasattr(ui, "ask")
+        assert callable(ui.write)
+        assert callable(ui.show_error)
+        assert callable(ui.ask)
+
+    def test_write_to_stdout(self, capsys):
+        from storyloom.dev_cli.ui import TerminalUi
+
+        ui = TerminalUi()
+        ui.write("hello")
+        captured = capsys.readouterr()
+        assert "hello" in captured.out
+
+    def test_show_error_to_stderr(self, capsys):
+        from storyloom.dev_cli.ui import TerminalUi
+
+        ui = TerminalUi()
+        ui.show_error("fail")
+        captured = capsys.readouterr()
+        assert "fail" in captured.err
+        assert "[Error]" in captured.err
+
+    def test_ask_returns_input(self, monkeypatch):
+        from storyloom.dev_cli.ui import TerminalUi
+
+        ui = TerminalUi()
+        monkeypatch.setattr("builtins.input", lambda _: "  answer  ")
+        result = ui.ask("Question?")
+        assert result == "answer"
+
+    def test_ask_eof_returns_empty(self, monkeypatch):
+        from storyloom.dev_cli.ui import TerminalUi
+
+        ui = TerminalUi()
+        monkeypatch.setattr("builtins.input", lambda _: (_ for _ in ()).throw(EOFError))
+        result = ui.ask("Question?")
+        assert result == ""
+
+    def test_ask_keyboard_interrupt_returns_empty(self, monkeypatch):
+        from storyloom.dev_cli.ui import TerminalUi
+
+        ui = TerminalUi()
+        monkeypatch.setattr(
+            "builtins.input", lambda _: (_ for _ in ()).throw(KeyboardInterrupt)
+        )
+        result = ui.ask("Question?")
+        assert result == ""
