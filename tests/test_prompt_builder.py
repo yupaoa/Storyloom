@@ -184,7 +184,7 @@ class TestAdventureLogPrompt:
 
         prompt = pb.build_adventure_log_prompt(config, state_vars, summaries, history)
         assert "霓虹深渊" in prompt
-        assert "冒险回顾" in prompt
+        assert "Adventure Recap" in prompt
 
     def test_build_adventure_log_prompt_includes_chapter_sections(self):
         pb = PromptBuilder()
@@ -195,7 +195,7 @@ class TestAdventureLogPrompt:
 
         prompt = pb.build_adventure_log_prompt(config, state_vars, summaries, history)
         assert "开始" in prompt
-        assert "最终状态" in prompt
+        assert "Final State" in prompt
         assert "魔力" in prompt
 
     def test_build_adventure_log_prompt_empty_history(self):
@@ -203,6 +203,6 @@ class TestAdventureLogPrompt:
         config = {"label": "test"}
         state_vars = {}
         prompt = pb.build_adventure_log_prompt(config, state_vars, [], [])
-        assert "冒险回顾" in prompt
-        assert "最终状态" in prompt
-        assert "无章节记录" in prompt
+        assert "Adventure Recap" in prompt
+        assert "Final State" in prompt
+        assert "No chapter records" in prompt

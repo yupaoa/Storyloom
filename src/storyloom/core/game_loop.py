@@ -735,7 +735,7 @@ class GameLoop:
             if self._outline_nodes:
                 if cp_node == "end":
                     last = self._outline_nodes[-1]
-                    cp_title = last.get("title", "结局") or "结局"
+                    cp_title = last.get("title", "ending") or "ending"
                 else:
                     for node in self._outline_nodes:
                         if node.get("id") == cp_node:
@@ -860,7 +860,7 @@ class GameLoop:
             try:
                 adventure_log = self.run_adventure_log()
             except Exception:
-                adventure_log = "（冒险日志生成失败）"
+                adventure_log = None
 
             yield {
                 "type": "ending",

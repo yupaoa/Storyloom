@@ -347,43 +347,45 @@ class PromptBuilder:
         Returns:
             Prompt string for adventure log generation.
         """
-        story_label = story_config.get("label", "未命名冒险")
+        story_label = story_config.get("label", "Untitled Adventure")
+        language = story_config.get("language", "zh-CN")
 
         # Build chapter sections from history
         chapter_sections = []
         for i, cp in enumerate(checkpoint_history, 1):
-            title = cp.get("title", f"第{i}章")
+            title = cp.get("title", f"Chapter {i}")
             summary = cp.get("summary", "")
             chapter_sections.append(
-                f"### 第{i}章：{title}\n（根据以下摘要扩写：{summary}）"
+                f"### Chapter {i}: {title}\n"
+                f"(Expand based on this summary: {summary})"
             )
-        chapters_text = "\n\n".join(chapter_sections) if chapter_sections else "（无章节记录）"
+        chapters_text = "\n\n".join(chapter_sections) if chapter_sections else "(No chapter records)"
 
         # Format state vars
         state_lines = []
         for name, value in state_vars.items():
-            state_lines.append(f"- {name}：{value}")
-        state_text = "\n".join(state_lines) if state_lines else "（无状态变量）"
+            state_lines.append(f"- {name}: {value}")
+        state_text = "\n".join(state_lines) if state_lines else "(No state variables)"
 
-        prompt = f"""你是冒险回顾作者。为刚完成的文字冒险游戏撰写冒险日志。
+        prompt = f"""You are an adventure log author. Write a player-facing recap for a completed text adventure game.
 
-用 Markdown 格式：
+Use Markdown format. Write in the story's language ({language}).
 
-## 冒险回顾：{story_label}
+## Adventure Recap: {story_label}
 
 {chapters_text}
 
-### 结局
-（根据上述章节摘要，为故事写一段温暖的结局收束）
+## Ending
+(Write a warm, satisfying conclusion based on the chapter summaries above.)
 
-### 最终状态
+## Final State
 {state_text}
-（对每个变量写一句简短评语，如"体力仅剩25——主角一路走来遍体鳞伤"）
+(For each variable, write a brief one-sentence reflection, e.g. "Health: 25 — battered and bruised, but still standing.")
 
-要求：
-- 面向玩家口吻（"你选择了……""你最终……"）
-- 纯文本，不加区块分隔符
-- 500-1000 字"""
+Requirements:
+- Address the player directly ("You chose...", "In the end you...")
+- Plain text only, no XML or block separators
+- 500-1000 words"""
 
         return prompt
 
