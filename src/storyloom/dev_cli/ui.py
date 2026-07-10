@@ -47,6 +47,7 @@ def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | No
             continue
 
         ui.write("[...]")
+        sys.stdout.flush()
         try:
             event = flow.send(user_input)
         except KeyboardInterrupt:
@@ -91,14 +92,13 @@ def run_game(
 
     # Start round 1
     ui.write("[Generating...]")
+    sys.stdout.flush()
     try:
-        events = list(game_loop.start_round1_stream())
+        for event in game_loop.start_round1_stream():
+            _handle_event(ui, event)
     except Exception as e:
         ui.show_error(f"Round 1 failed: {e}")
         return
-
-    for event in events:
-        _handle_event(ui, event)
 
     if game_loop.ending_flag:
         return
@@ -127,13 +127,11 @@ def run_game(
 
         # Continue round
         try:
-            events = list(game_loop.continue_round_stream(choice_key=choice))
+            for event in game_loop.continue_round_stream(choice_key=choice):
+                _handle_event(ui, event)
         except Exception as e:
             ui.show_error(f"Round failed: {e}")
             return
-
-        for event in events:
-            _handle_event(ui, event)
 
         if game_loop.ending_flag:
             return
