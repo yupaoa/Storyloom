@@ -47,7 +47,11 @@ def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | No
             continue
 
         ui.write("[...]")
-        event = flow.send(user_input)
+        try:
+            event = flow.send(user_input)
+        except KeyboardInterrupt:
+            ui.write("\n[Interrupted]")
+            return None
 
         phase = event["phase"]
 
@@ -116,7 +120,7 @@ def run_game(
             choice = _get_choice(ui, len(options))
             if choice is None:
                 # User quit
-                _handle_quit(game_loop, ui)
+                _handle_quit(ui)
                 return
         else:
             choice = None
@@ -165,6 +169,9 @@ def _handle_event(ui: TerminalUi, event: dict) -> None:
     elif etype == "done":
         pass  # round boundary — observer already notified by engine
 
+    else:
+        ui.write(f"[Unknown event: {etype}]")
+
 
 def _get_choice(ui: TerminalUi, num_options: int) -> str | None:
     """Get player choice. Returns choice_key (1-indexed str) or None for quit."""
@@ -183,7 +190,7 @@ def _get_choice(ui: TerminalUi, num_options: int) -> str | None:
         ui.write(f"  Enter 1-{num_options}, or q to quit")
 
 
-def _handle_quit(game_loop: GameLoop, ui: TerminalUi) -> None:
+def _handle_quit(ui: TerminalUi) -> None:
     """Handle graceful quit."""
     ui.write("\n[Quit]")
 
@@ -203,38 +210,46 @@ def dev_main(argv: list[str] | None = None) -> None:
     # Game session
     session = GameSession()
 
-    # Co-creation (or skip)
-    if args.story_file:
-        # Load CoCreationResult from JSON
-        story_path = Path(args.story_file)
-        if not story_path.exists():
-            ui.show_error(f"Story file not found: {args.story_file}")
-            sys.exit(1)
-        data = json.loads(story_path.read_text(encoding="utf-8"))
-        result = CoCreationResult(
-            story_config=data["story_config"],
-            outline_text=data["outline_text"],
-            outline_nodes=data.get("outline_nodes", []),
-        )
-    else:
-        result = run_co_create(ui, session)
-        if result is None:
-            sys.exit(0)
+    try:
+        # Co-creation (or skip)
+        if args.story_file:
+            story_path = Path(args.story_file)
+            if not story_path.exists():
+                ui.show_error(f"Story file not found: {args.story_file}")
+                sys.exit(1)
+            try:
+                data = json.loads(story_path.read_text(encoding="utf-8"))
+                result = CoCreationResult(
+                    story_config=data["story_config"],
+                    outline_text=data["outline_text"],
+                    outline_nodes=data.get("outline_nodes", []),
+                )
+            except (json.JSONDecodeError, KeyError) as e:
+                ui.show_error(f"Invalid story file: {e}")
+                sys.exit(1)
+        else:
+            result = run_co_create(ui, session)
+            if result is None:
+                sys.exit(0)
 
-    # Start game
-    game_loop = session.start_game(result)
+        # Start game
+        game_loop = session.start_game(result)
 
-    if args.no_save:
-        game_loop.set_save_manager(None)
+        if args.no_save:
+            game_loop.set_save_manager(None)
 
-    # Observer
-    observer = None
-    if args.mode == "dev":
-        from storyloom.dev_cli.observer import DevObserver
+        # Observer
+        observer = None
+        if args.mode == "dev":
+            from storyloom.dev_cli.observer import DevObserver
 
-        observer = DevObserver()
+            observer = DevObserver()
 
-    # Run
-    run_game(ui, game_loop, observer)
+        # Run
+        run_game(ui, game_loop, observer)
 
-    ui.write("\n[Game over]")
+        ui.write("\n[Game over]")
+
+    except KeyboardInterrupt:
+        ui.write("\n[Interrupted]")
+        sys.exit(0)
