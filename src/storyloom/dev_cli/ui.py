@@ -12,12 +12,19 @@ from storyloom.config import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
 
 from storyloom.dev_cli.args import parse_args
 
+_DELAYS = {"instant": 0, "fast": 0.1, "normal": 0.5, "slow": 1.0}
+
 
 class TerminalUi:
     """Minimal CLI UI implementing the UiInterface protocol."""
 
     def write(self, text: str) -> None:
         print(text)
+
+    def write_raw(self, text: str) -> None:
+        """Write without trailing newline (streaming tokens)."""
+        sys.stdout.write(text)
+        sys.stdout.flush()
 
     def show_error(self, text: str) -> None:
         print(f"[Error] {text}", file=sys.stderr)
@@ -30,18 +37,14 @@ class TerminalUi:
             return ""
 
 
-# ── Game flow drivers ────────────────────────────────────────────
-
+# ── Co-creation driver ──────────────────────────────────────────
 
 def run_co_create(
-    ui: TerminalUi,
-    session: GameSession,
-    dev_observer=None,
+    ui: TerminalUi, session: GameSession, observer=None
 ) -> CoCreationResult | None:
     """Drive the co-creation Q&A loop. Returns None if user quits."""
     flow = session.new_co_create()
 
-    # Step 1: start
     try:
         event = flow.start()
     except RuntimeError as e:
@@ -49,7 +52,6 @@ def run_co_create(
         return None
     ui.write(event["prompt"])
 
-    # Step 2: Q&A loop
     while True:
         user_input = ui.ask("")
         if user_input == "":
@@ -68,28 +70,26 @@ def run_co_create(
 
         phase = event["phase"]
 
-        # Record full messages array for all phases (prompts.txt)
-        if dev_observer is not None:
-            dev_observer.record_co_create_messages(phase, flow.messages)
+        if observer is not None:
+            observer.record_co_create_messages(phase, flow.messages)
 
         if phase == "awaiting_idea":
             ui.write(event["prompt"])
 
         elif phase == "awaiting_answer":
             ui.write(event["question"])
-            if dev_observer is not None:
-                dev_observer.record_co_create_response(event["question"])
+            if observer is not None:
+                observer.record_co_create_response(event["question"])
 
         elif phase == "complete":
             result = event["result"]
-            if dev_observer is not None:
-                dev_observer.record_co_create_result(
+            if observer is not None:
+                observer.record_co_create_result(
                     result.story_config, result.outline_text
                 )
             ui.write(f"\n[Story created: {result.story_config.get('label', '?')}]")
             ui.write(f"[Genre: {result.story_config.get('genre', '?')}]")
-            ui.write(f"[Outline: {len(result.outline_nodes)} nodes]")
-            ui.write("")
+            ui.write(f"[Outline: {len(result.outline_nodes)} nodes]\n")
             return result
 
         elif phase == "aborted":
@@ -106,60 +106,53 @@ def run_co_create(
             return None
 
 
+# ── Game driver ──────────────────────────────────────────────────
+
 def run_game(
     ui: TerminalUi,
     game_loop: GameLoop,
-    dev_observer=None,
+    observer=None,
+    speed: str = "normal",
 ) -> None:
-    """Drive the game loop. Consume stream events, display narrative + choices."""
-    # Register observer (private attribute access — dev tool only)
-    if dev_observer is not None:
-        game_loop._observers.append(dev_observer.record_round)
+    """Drive the game loop — stream events, show narrative, handle choices."""
+    if observer is not None:
+        game_loop._observers.append(observer.record_round)
 
-    # Start round 1
+    # Round 1
     ui.write("[Generating round 1...]")
     sys.stdout.flush()
     try:
         for event in game_loop.start_round1_stream():
-            _handle_event(ui, event)
+            _handle_event(ui, event, speed)
     except Exception as e:
         ui.show_error(f"Round 1 failed: {e}")
         return
 
-    # Round 1 never sets ending_flag, but check defensively
-    if game_loop.ending_flag:
-        return
-
-    # If Round 1 parse failed, last_parsed is None; cannot continue
-    if game_loop.last_parsed is None:
+    if game_loop.ending_flag or game_loop.last_parsed is None:
         return
 
     # Continue rounds
     while True:
         options = game_loop.get_available_options()
-
-        # Show options
         if options:
             for opt in options:
-                idx = opt["index"]
-                branch = opt["branch"]
-                ui.write(f"  [{idx}] {branch}")
-            ui.write("  [q] Quit")
+                ui.write(f"  [{opt['index']}] {opt['branch']}")
+            ui.write("  [p] Pause  [q] Quit")
 
-        # Get player choice
         if options:
             choice = _get_choice(ui, len(options))
             if choice is None:
-                # User quit
                 _handle_quit(ui)
                 return
+            if choice == "pause":
+                _handle_pause(ui)
+                continue
         else:
             choice = None
 
-        # Continue round
         try:
             for event in game_loop.continue_round_stream(choice_key=choice):
-                _handle_event(ui, event)
+                _handle_event(ui, event, speed)
         except Exception as e:
             ui.show_error(f"Round failed: {e}")
             return
@@ -168,28 +161,33 @@ def run_game(
             return
 
 
-def _handle_event(ui: TerminalUi, event: dict) -> None:
-    """Handle a single stream event."""
+# ── Event handler ────────────────────────────────────────────────
+
+def _handle_event(ui: TerminalUi, event: dict, speed: str) -> None:
     etype = event.get("type", "")
+    delay = _DELAYS.get(speed, 0.5)
+    instant = speed == "instant"
 
     if etype == "token":
-        pass  # minimal mode — skip per-token display
+        if instant:
+            ui.write_raw(event.get("text", ""))
 
     elif etype == "segment":
+        if instant:
+            ui.write_raw("\n")
         ui.write(event.get("text", ""))
-        time.sleep(0.5)
+        if delay:
+            time.sleep(delay)
 
-    elif etype == "options":
-        pass  # handled separately via get_available_options()
-
-    elif etype == "state":
-        pass  # state changes are recorded by observer, not displayed
+    elif etype in ("options", "state"):
+        pass  # options handled via get_available_options(); state via observer
 
     elif etype == "error":
         ui.show_error(event.get("message", ""))
 
     elif etype == "ending":
-        # Game over — show adventure log
+        if instant:
+            ui.write_raw("\n")
         log = event.get("adventure_log")
         if log:
             ui.write("\n" + "=" * 40)
@@ -197,58 +195,68 @@ def _handle_event(ui: TerminalUi, event: dict) -> None:
             ui.write("=" * 40 + "\n")
 
     elif etype == "done":
-        pass  # round boundary — observer already notified by engine
+        if instant:
+            ui.write_raw("\n")
 
     else:
         ui.write(f"[Unknown event: {etype}]")
 
 
+# ── Input helpers ────────────────────────────────────────────────
+
 def _get_choice(ui: TerminalUi, num_options: int) -> str | None:
-    """Get player choice. Returns choice_key (1-indexed str) or None for quit."""
+    """Returns choice_key, "pause", or None (quit)."""
     while True:
         raw = ui.ask("> ").lower()
-
         if raw == "":
             continue
-
         if raw in ("q", "quit", "exit"):
             return None
-        if raw.isdigit():
-            n = int(raw)
-            if 1 <= n <= num_options:
-                return raw
-        ui.write(f"  Enter 1-{num_options}, or q to quit")
+        if raw == "p":
+            return "pause"
+        if raw.isdigit() and 1 <= int(raw) <= num_options:
+            return raw
+        ui.write(f"  Enter 1-{num_options}, p to pause, or q to quit")
+
+
+def _handle_pause(ui: TerminalUi) -> None:
+    """Block until Enter — dev_output/ files frozen at current round."""
+    ui.write(
+        "\n⏸  Paused — dev_output/ is at current round.\n"
+        "   Safe to inspect prompts.txt / responses.txt / checks.txt.\n"
+        "   Press Enter to continue."
+    )
+    try:
+        ui.ask("")
+    except KeyboardInterrupt:
+        pass
+    ui.write("▶  Resuming...\n")
 
 
 def _handle_quit(ui: TerminalUi) -> None:
-    """Handle graceful quit."""
     ui.write("\n[Quit]")
 
+
+# ── Entry point ──────────────────────────────────────────────────
 
 def dev_main(argv: list[str] | None = None) -> None:
     """Entry point for the dev CLI."""
     args = parse_args(argv)
 
-    # i18n
     lang = args.lang
     if lang not in SUPPORTED_LANGUAGES:
         lang = DEFAULT_LANGUAGE
     init_i18n(lang)
 
     ui = TerminalUi()
-
-    # Game session
     session = GameSession()
 
     try:
-        # Observer (created before co-creation so it can record Q&A)
         observer = None
         if args.mode == "dev":
             from storyloom.dev_cli.observer import DevObserver
-
             observer = DevObserver()
 
-        # Co-creation (or skip)
         if args.story_file:
             story_path = Path(args.story_file)
             if not story_path.exists():
@@ -269,15 +277,11 @@ def dev_main(argv: list[str] | None = None) -> None:
             if result is None:
                 sys.exit(0)
 
-        # Start game
         game_loop = session.start_game(result)
-
         if args.no_save:
             game_loop.set_save_manager(None)
 
-        # Run
-        run_game(ui, game_loop, observer)
-
+        run_game(ui, game_loop, observer, speed=args.speed)
         ui.write("\n[Game over]")
 
     except KeyboardInterrupt:

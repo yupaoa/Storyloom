@@ -17,6 +17,7 @@ python -m storyloom.dev_cli
 --story FILE         JSON 故事配置，跳过共创
 --no-save            禁用自动存档
 --lang zh-CN|en      默认 zh-CN
+--speed instant|fast|normal|slow  默认 normal（输出速度）
 ```
 
 ## 示例
@@ -39,13 +40,14 @@ python -m storyloom.dev_cli --no-save
 
 `dev_output/` 目录（已 gitignore）：
 
-| 文件 | 内容 |
-|------|------|
-| `prompts.txt` | 每轮发送给 LLM 的完整 prompt |
-| `responses.txt` | LLM 返回的原始文本（含 ttft / token 统计） |
-| `checks.txt` | 解析摘要（segments、bridge、checkpoint、sets、choices） |
+| 文件 | 内容 | 写入模式 |
+|------|------|---------|
+| `prompts.txt` | 当前轮发送给 LLM 的完整 messages 数组 | 覆盖 |
+| `responses.txt` | LLM 返回的原始文本（含 ttft / token 统计） | 覆盖 |
+| `checks.txt` | 解析摘要（segments、bridge、checkpoint、sets、choices） | 追加 |
 
-所有文件追加写入，跨游戏会话不覆盖。自行清理。
+`prompts.txt` 和 `responses.txt` 每次写入覆盖，始终只保留最新一轮数据。
+`checks.txt` 追加写入，跨轮累积。自行清理。
 
 ## 故事配置文件格式
 

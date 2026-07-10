@@ -13,6 +13,7 @@ class TestParseArgs:
         assert args.story_file is None
         assert args.no_save is False
         assert args.lang == "zh-CN"
+        assert args.speed == "normal"
 
     def test_mode_normal(self):
         args = parse_args(["--mode", "normal"])
@@ -49,6 +50,14 @@ class TestParseArgs:
     def test_invalid_lang_rejected(self):
         with pytest.raises(SystemExit):
             parse_args(["--lang", "fr"])
+
+    def test_speed_instant(self):
+        args = parse_args(["--speed", "instant"])
+        assert args.speed == "instant"
+
+    def test_invalid_speed_rejected(self):
+        with pytest.raises(SystemExit):
+            parse_args(["--speed", "ultra"])
 
 
 class TestDevObserver:
@@ -113,7 +122,8 @@ class TestDevObserver:
         assert "Node: ch1" in checks
         assert "Segments: 10 total (pre=7, post=3)" in checks
 
-    def test_append_mode_across_rounds(self, tmp_path):
+    def test_overwrite_mode_prompts_and_responses(self, tmp_path):
+        """prompts.txt and responses.txt overwrite each round; checks.txt appends."""
         out = tmp_path / "test_output"
         obs = DevObserver(str(out))
 
@@ -142,14 +152,25 @@ class TestDevObserver:
 
             obs.record_round(record)
 
+        # prompts.txt overwrites each round — only last round
         prompts = (out / "prompts.txt").read_text()
-        assert prompts.count("── Round") == 3
-        assert "prompt 0" in prompts
+        assert prompts.count("── Round") == 1
         assert "prompt 2" in prompts
+        assert "prompt 0" not in prompts
+
+        # responses.txt overwrites each round — only last round
+        responses = (out / "responses.txt").read_text()
+        assert responses.count("── Round") == 1
+        assert "response 2" in responses
+        assert "response 0" not in responses
+
+        # checks.txt appends across rounds
+        checks = (out / "checks.txt").read_text()
+        assert checks.count("── Round") == 3
 
 
     def test_record_co_create_writes_to_files(self, tmp_path):
-        """Co-create recording writes full messages array and LLM response."""
+        """Co-create: user/system go to prompts, assistant excluded, responses recorded."""
         out = tmp_path / "co_create_test"
         obs = DevObserver(str(out))
 
@@ -171,7 +192,10 @@ class TestDevObserver:
         assert "You are a co-creation partner" in prompts
         assert "[user]" in prompts
         assert "A cyberpunk love story" in prompts
-        assert "[assistant]" in prompts
+        # Assistant messages are filtered — LLM-generated content must
+        # not leak into prompts.txt.
+        assert "[assistant]" not in prompts
+        assert "What time period?" not in prompts
 
         responses = (out / "responses.txt").read_text()
         assert "Co-Create" in responses

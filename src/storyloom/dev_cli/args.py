@@ -9,6 +9,7 @@ class DevCliArgs:
     story_file: str | None
     no_save: bool
     lang: str          # "zh-CN" | "en"
+    speed: str         # "instant" | "fast" | "normal" | "slow"
 
 
 def parse_args(argv: list[str] | None = None) -> DevCliArgs:
@@ -39,6 +40,14 @@ def parse_args(argv: list[str] | None = None) -> DevCliArgs:
         default="zh-CN",
         help="UI language (default: zh-CN)",
     )
+    parser.add_argument(
+        "--speed",
+        choices=["instant", "fast", "normal", "slow"],
+        default="normal",
+        help="Output speed: instant (real-time streaming), "
+        "fast (0.1s delay), normal (0.5s), slow (1.0s) "
+        "(default: normal)",
+    )
 
     ns = parser.parse_args(argv)
     return DevCliArgs(
@@ -46,4 +55,5 @@ def parse_args(argv: list[str] | None = None) -> DevCliArgs:
         story_file=ns.story,
         no_save=ns.no_save,
         lang=ns.lang,
+        speed=ns.speed,
     )
