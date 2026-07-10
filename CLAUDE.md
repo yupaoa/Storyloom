@@ -6,11 +6,14 @@
 
 Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward. It is a **single Python application** (not client-server) — the core engine is UI-agnostic via the `UiInterface` protocol, with a terminal CLI on `main` and a web interface under active parallel development.
 
-**Status (2026-07-07):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Web interface (FastAPI + SSE) under active development on parallel branch — dual-developer collaboration; the UI layer was prioritized ahead of the original phased roadmap. Terminal CLI is retained as a test/maintenance tool.
+**Status (2026-07-10):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Bridge pre-fetch implemented for auto-advance rounds. Dev CLI (`src/storyloom/dev_cli/`) replaces old `main.py` as the CLI test harness — zero engine changes. Web interface (FastAPI + SSE) under active development on parallel branch.
 
-**Key migrations (2026-07-04):**
-1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters — see `src/storyloom/parser/xml_parser.py`.
-2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts — see `src/storyloom/core/context_manager.py` and `src/storyloom/core/prompt_builder.py`.
+**Key migrations:**
+1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters (2026-07-04) — see `src/storyloom/parser/xml_parser.py`.
+2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts (2026-07-04) — see `src/storyloom/core/context_manager.py` and `src/storyloom/core/prompt_builder.py`.
+3. **Line-number format** (`NNN| ` prefix) replaced `<seg n="N">` attribute numbering (2026-07-05) — see `tests/prompt_lab/data/prompts/round1-linenum.txt`.
+4. **Bridge pre-fetch** — daemon thread + `queue.Queue` for auto-advance rounds (2026-07-10) — see `src/storyloom/core/game_loop.py` `_launch_prefetch()`.
+5. **StreamingXmlParser deleted** (2026-07-10) — bridge pre-fetch + `ElementTree` full parse proved sufficient. See `docs/engineering-journal.md`.
 
 ## Core Design Concepts
 
@@ -47,6 +50,7 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `docs/spec/block-spec.md` | XML element syntax, branch routing, state validation | **Authoritative** |
 | `docs/spec/prompt-design.md` | All Prompt templates, conversation architecture, constraints | **Authoritative** |
 | `docs/spec/data-model.md` | State, save system, constants | **Authoritative** |
+| `docs/engineering-journal.md` | Chronological design decision log (2026-07-02 → present) | Reference |
 | `docs/README.md` | Documentation index | — |
 | `docs/superpowers/specs/` | Feature design specs (archived by date) | Reference |
 | `docs/superpowers/plans/` | Implementation plans (archived by date) | Reference |
@@ -59,10 +63,11 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `src/storyloom/core/ui_interface.py` | UiInterface protocol (UI-agnostic abstraction) | Implementation |
 | `src/storyloom/parser/xml_parser.py` | LLM XML output parser (full document) | Implementation |
 | `src/storyloom/io/api_client.py` | OpenAI-compatible API client | Implementation |
+| `src/storyloom/dev_cli/` | Dev CLI — `TerminalUi`, `DevObserver`, argument parsing | Reference |
 | `src/storyloom/io/display.py` | Terminal display (CLI) — **DEPRECATED**, reference only | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
-| `tests/test_*.py` | Unit tests (mock, no API) — 257 tests (233 active + 24 skipped) | Test |
+| `tests/test_*.py` | Unit tests (mock, no API) — 282 tests | Test |
 | `tests/prompt_lab/` | Prompt design tools and LLM test harnesses (real API) | Tool |
 | `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
 
@@ -84,7 +89,6 @@ These files implement the narrative engine. UI imports them but never edits them
 | `src/storyloom/core/prompt_builder.py` | `PromptBuilder` — Round 1 / Round N prompts |
 | `src/storyloom/core/save_manager.py` | `SaveManager` — atomic JSON save/load/delete |
 | `src/storyloom/parser/xml_parser.py` | `XmlParser`, `ParsedOutput` |
-| `src/storyloom/parser/streaming_parser.py` | `StreamingXmlParser` |
 | `src/storyloom/io/api_client.py` | `ApiClient` — OpenAI-compatible API |
 | `src/storyloom/config.py` | Configurable constants |
 | `src/storyloom/i18n.py` | gettext i18n |
@@ -106,9 +110,10 @@ Engine code must never import from these files:
 
 | File | Contains |
 |------|----------|
-| `src/storyloom/main.py` | CLI test harness |
+| `src/storyloom/main.py` | CLI test harness (**legacy** — prefer `dev_cli`) |
 | `src/storyloom/cli_utils.py` | CLI observer utilities |
-| `src/storyloom/io/display.py` | Terminal `Display` (CLI-only) |
+| `src/storyloom/dev_cli/` | **Dev CLI** (current CLI tool) — `TerminalUi` + `DevObserver` |
+| `src/storyloom/io/display.py` | Terminal `Display` (CLI-only) — **DEPRECATED** |
 | `src/storyloom/web/` | **Web UI package** (FastAPI + SSE) — recommended location |
 
 ### 🧪 Tests

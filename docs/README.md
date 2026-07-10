@@ -8,6 +8,7 @@
 | [`spec/block-spec.md`](./spec/block-spec.md) | XML 元素语法、编号规范、分支路由、状态校验 | 开发者 | **权威** |
 | [`spec/data-model.md`](./spec/data-model.md) | GameState、存档系统、常量、约定 | 开发者 | **权威** |
 | [`spec/prompt-design.md`](./spec/prompt-design.md) | 全阶段 Prompt 模板、对话式消息数组架构 | 开发者、调试者 | **权威** |
+| [`engineering-journal.md`](./engineering-journal.md) | 工程日志——完整设计决策时间线（2026-07-02 → 至今） | 开发者、审查者 | 参考 |
 | [`cli.md`](./cli.md) | CLI 测试工具与观察者系统使用指南 | 维护者、调试者 | 参考 |
 | [`api/co-create.md`](./api/co-create.md) | 共创 API 参考（供界面层开发者） | 界面层开发者 | 参考 |
 | [`superpowers/specs/2026-07-07-api-audit-and-interface-design.md`](./superpowers/specs/2026-07-07-api-audit-and-interface-design.md) | API 审计与界面集成设计 | 界面层开发者 | 设计 |
@@ -30,7 +31,8 @@
 
 ### 审查设计
 1. [`spec/exec-flow.md`](./spec/exec-flow.md) + 配套 spec — 完整规范
-2. [`superpowers/specs/`](./superpowers/specs/) — 历史设计决策和演变过程
+2. [`engineering-journal.md`](./engineering-journal.md) — 按时间线追踪每个设计决策的背景与依据
+3. [`superpowers/specs/`](./superpowers/specs/) — 历史设计决策和演变过程
 
 ## 权威层级
 

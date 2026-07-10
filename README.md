@@ -2,7 +2,7 @@
 
 > AI-powered interactive text fiction game engine — the LLM narrates, the engine orchestrates.
 
-**Current status:** Phase 1 core implemented. Terminal CLI available on `main`. Web interface under active development on parallel branch — dual-developer collaboration; the UI layer was prioritized ahead of the original phased roadmap.
+**Current status:** Phase 1 core implemented (2026-07-10). Bridge pre-fetch, spec compliance audit complete. Dev CLI (`src/storyloom/dev_cli/`) is the current CLI test harness — zero engine changes. Web interface under active development on parallel branch.
 
 ## Architecture
 
@@ -36,9 +36,13 @@ any presentation layer via the `UiInterface` protocol.
 pip install -e .
 cp .env.example .env    # add your API key
 
-# Run
-storyloom
-# or: python -m storyloom.main
+# Run (dev CLI — recommended)
+python -m storyloom.dev_cli
+# or with a test story (skips co-creation):
+python -m storyloom.dev_cli --story tests/data/test_story.json
+
+# Legacy CLI (test/maintenance only)
+python -m storyloom.main
 ```
 
 ## How It Works
@@ -78,6 +82,7 @@ Each round:
 | `storyloom.core.save_manager` | Atomic JSON save/load/delete/list |
 | `storyloom.core.session` | `GameSession` lifecycle coordinator — UI integration API |
 | `storyloom.core.ui_interface` | `UiInterface` protocol for UI-agnostic design |
+| `storyloom.dev_cli` | Dev CLI — `TerminalUi`, `DevObserver`, argument parsing |
 | `storyloom.parser.xml_parser` | LLM XML output parsing (full document) |
 | `storyloom.io.api_client` | OpenAI-compatible API client (stream + non-stream) |
 | `storyloom.io.display` | Terminal display (CLI) — **deprecated**, reference only |
@@ -91,6 +96,7 @@ Each round:
 | [`docs/spec/block-spec.md`](./docs/spec/block-spec.md) | XML element syntax, branch routing, state validation |
 | [`docs/spec/prompt-design.md`](./docs/spec/prompt-design.md) | Prompt templates & conversation architecture |
 | [`docs/spec/data-model.md`](./docs/spec/data-model.md) | GameState, save system, constants |
+| [`docs/engineering-journal.md`](./docs/engineering-journal.md) | Design decision log (2026-07-02 → present) |
 | [`docs/README.md`](./docs/README.md) | Full documentation index |
 
 ## Tech Stack
@@ -104,14 +110,16 @@ Each round:
 ## Development
 
 ```bash
-# Run tests (mock — no API key needed; skips 9 API tests that require .env)
+# Run tests (mock — no API key needed)
 pytest --ignore=tests/test_api_client.py
 
 # Run all tests including API tests (requires .env with valid API key)
 pytest
 
-# CLI with per-round debug output
-python -m storyloom.main --debug
+# Dev CLI — playable game + developer inspection
+python -m storyloom.dev_cli                  # normal mode
+python -m storyloom.dev_cli --mode dev       # record raw data to dev_output/
+python -m storyloom.dev_cli --story tests/data/test_story.json  # skip co-creation
 
 # Run a specific test file
 pytest tests/test_game_loop.py -v
