@@ -175,7 +175,6 @@ Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single pa
 
 **Outline:**
 {outline_text}
-[completed]=已完成 [active]=当前 [pending]=待推进
 
 **Active Node:** {active_node} — {node_goal}
 

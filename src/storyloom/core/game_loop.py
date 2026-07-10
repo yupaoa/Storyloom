@@ -531,7 +531,7 @@ class GameLoop:
         if self._last_bridge_text:
             r1_prompt += (
                 "\n\n---\n"
-                "继续从这里开始：\n"
+                "Continue from here:\n"
                 + self._last_bridge_text
             )
 

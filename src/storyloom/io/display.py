@@ -82,7 +82,7 @@ class Display:
             labels: List of user-facing option text labels.
         """
         self.output.write(_("────────────────────────────────────\n"))
-        self.output.write("【选择】\n\n")
+        self.output.write(_("Choices") + "\n\n")
         for i, (branch, label) in enumerate(zip(branches, labels)):
             self.output.write(f"  [{i + 1}] {label}\n")
         self.output.write("\n")

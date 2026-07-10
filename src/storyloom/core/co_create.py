@@ -125,14 +125,14 @@ class CoCreateParser:
         return result
 
     VAR_LINE_RE = re.compile(
-        r"^([^:]+):\s*(\S+),\s*初始\s+(.+)$"
+        r"^([^:]+):\s*(\S+),\s*(.+)$"
     )
 
     @staticmethod
     def parse_variables(text: str) -> list[dict]:
         """Parse variables block into list of {name, type, initial} dicts.
 
-        Format: 变量名: 类型, 初始 值
+        Format: ``<name>: <type>, <value>`` (var names in story language).
 
         Args:
             text: Raw text of the variables block.
@@ -156,7 +156,7 @@ class CoCreateParser:
             if not m:
                 raise ValueError(
                     f"Cannot parse variable line: '{line}'. "
-                    f"Expected format: 变量名: 类型, 初始 值"
+                    f"Expected format: <name>: <type>, <value>"
                 )
 
             name = m.group(1)
@@ -454,7 +454,7 @@ When asked to generate the full setup, output ALL THREE sections below in order.
 === story_config ===
 genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
 tier: {short / medium / long}
-label: {5-15 Chinese characters, unique story identifier for save files}
+label: {unique story identifier for save files}
 setting: {one sentence: era, location, key world facts}
 protagonist_name: {name}
 protagonist_identity: {one sentence}
@@ -473,7 +473,6 @@ Design state variables for this story. Rules:
 - Numeric: range [0, 100]. Use for health, trust, sanity, etc.
 - String: for status markers, faction affiliation, etc.
 - List: elements are strings. For inventory, clues, skills, etc.
-- Variable names in Chinese, 2-5 characters.
 - Fewer is better. Only create variables that will drive branching or gate choices.
 
 Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
@@ -485,9 +484,9 @@ Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
 
 ```
 === variables ===
-体力: number, 初始 80
-信任度: number, 初始 10
-所属势力: string, 初始 自由佣兵
+体力: number, 80
+信任度: number, 10
+所属势力: string, 自由佣兵
 ```
 
 ## Section 3: outline
@@ -915,7 +914,7 @@ class CoCreateFlow:
         )
 
     def _build_var_names_hint(self) -> str:
-        return "由你根据故事设计（≤3个，≤2 numeric + ≤1 string/list）"
+        return "Design per story context (≤3 vars, ≤2 numeric + ≤1 string/list)"
 
     def _generate_with_retry(self) -> str:
         """Call LLM for generation. Handle API errors."""
@@ -977,7 +976,7 @@ class CoCreateFlow:
                                f"Please fix and regenerate the outline block."}
                 )
                 self._ui.write(
-                    _("Fixing {block}... (attempt {n})").format(block="大纲", n=attempt + 1)
+                    _("Fixing outline... (attempt {n})").format(n=attempt + 1)
                 )
                 response = self._generate_with_retry()
                 self._messages.append({"role": "assistant", "content": response})

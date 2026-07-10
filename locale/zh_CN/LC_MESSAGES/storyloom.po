@@ -137,3 +137,11 @@ msgstr "生成失败: {error}"
 
 msgid "Outline validation failed ({errors})."
 msgstr "大纲校验失败（{errors}）。"
+
+# ── In-game UI ──
+msgid "Choices"
+msgstr "【选择】"
+
+# ── Co-creation retry (outline-specific) ──
+msgid "Fixing outline... (attempt {n})"
+msgstr "修正大纲中...（第{n}次重试）"

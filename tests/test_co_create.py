@@ -14,7 +14,7 @@ genre: fantasy
 tier: short
 
 === variables ===
-hp: number, 初始 80
+hp: number, 80
 
 === outline ===
 [node]
@@ -48,7 +48,7 @@ note: use === sparingly
 tier: short
 
 === variables ===
-hp: number, 初始 80
+hp: number, 80
 
 === outline ===
 [node]
@@ -158,9 +158,9 @@ characters:
 class TestParseVariables:
     """Tests for parse_variables."""
 
-    VALID_VARS = """体力: number, 初始 80
-信任度: number, 初始 10
-所属势力: string, 初始 自由佣兵"""
+    VALID_VARS = """体力: number, 80
+信任度: number, 10
+所属势力: string, 自由佣兵"""
 
     def test_parse_three_valid_variables(self):
         result = CoCreateParser.parse_variables(self.VALID_VARS)
@@ -170,18 +170,18 @@ class TestParseVariables:
         assert result[2] == {"name": "所属势力", "type": "string", "initial": "自由佣兵"}
 
     def test_parse_list_type_empty(self):
-        text = "物品: list, 初始 []"
+        text = "物品: list, []"
         result = CoCreateParser.parse_variables(text)
         assert result[0]["type"] == "list"
         assert result[0]["initial"] == []
 
     def test_parse_list_type_with_elements(self):
-        text = "线索: list, 初始 芯片, 密钥"
+        text = "线索: list, 芯片, 密钥"
         result = CoCreateParser.parse_variables(text)
         assert result[0]["initial"] == ["芯片", "密钥"]
 
     def test_parse_single_variable(self):
-        text = "理智值: number, 初始 50"
+        text = "理智值: number, 50"
         result = CoCreateParser.parse_variables(text)
         assert len(result) == 1
         assert result[0]["name"] == "理智值"
@@ -196,17 +196,17 @@ class TestParseVariables:
             CoCreateParser.parse_variables(text)
 
     def test_unknown_type_raises_parse_error(self):
-        text = "体力: boolean, 初始 true"
+        text = "体力: boolean, true"
         with pytest.raises(ValueError, match="Unknown type"):
             CoCreateParser.parse_variables(text)
 
     def test_number_initial_not_integer_raises_parse_error(self):
-        text = "体力: number, 初始 high"
+        text = "体力: number, high"
         with pytest.raises(ValueError, match="integer"):
             CoCreateParser.parse_variables(text)
 
     def test_name_with_illegal_colon_raises_parse_error(self):
-        text = "体:力: number, 初始 80"
+        text = "体:力: number, 80"
         with pytest.raises(ValueError, match="Cannot parse variable"):
             CoCreateParser.parse_variables(text)
 
@@ -559,9 +559,9 @@ characters:
   美智子 | 荒坂安全主管 | 前上司
 
 === variables ===
-体力: number, 初始 80
-信任度: number, 初始 10
-所属势力: string, 初始 自由佣兵
+体力: number, 80
+信任度: number, 10
+所属势力: string, 自由佣兵
 
 === outline ===
 [node]
@@ -673,7 +673,7 @@ characters:
   Mouse | spy | friend
 
 === variables ===
-hp: number, 初始 80
+hp: number, 80
 
 === outline ===
 [node]
@@ -706,7 +706,7 @@ genre: fantasy
 label: test-story
 
 === variables ===
-hp: number, 初始 80
+hp: number, 80
 
 === outline ===
 [node]
@@ -915,7 +915,7 @@ class TestCoCreateFlowSend:
             "setting: Test\nprotagonist_name: T\n"
             "protagonist_identity: Tester\nprotagonist_traits: Brave\n"
             "tone: Dark\nconflict: Test\ncharacters:\n  Foo | ally\n"
-            "=== variables ===\n体力: number, 初始 80\n"
+            "=== variables ===\n体力: number, 80\n"
             "=== outline ===\n[node]\nid: ch1\n"
             "title: Start\ngoal: Begin\nroutes: → ch2\n"
             "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes: （结局）\n"
@@ -1092,10 +1092,10 @@ class TestGenerateAllValidation:
             "protagonist_identity: Tester\nprotagonist_traits: Brave\n"
             "tone: Dark\nconflict: Test\ncharacters:\n  Foo | ally\n"
             "=== variables ===\n"
-            "a: number, 初始 80\n"
-            "b: number, 初始 50\n"
-            "c: number, 初始 30\n"
-            "d: string, 初始 foo\n"
+            "a: number, 80\n"
+            "b: number, 50\n"
+            "c: number, 30\n"
+            "d: string, foo\n"
             "=== outline ===\n"
             "[node]\nid: ch1\ntitle: Start\ngoal: Begin\nroutes: → ch2\n"
             "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes: （结局）\n"
