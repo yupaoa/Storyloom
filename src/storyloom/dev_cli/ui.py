@@ -32,9 +32,16 @@ class TerminalUi:
 # ── Game flow drivers ────────────────────────────────────────────
 
 
-def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | None:
+def run_co_create(
+    ui: TerminalUi,
+    session: GameSession,
+    dev_observer=None,
+) -> CoCreationResult | None:
     """Drive the co-creation Q&A loop. Returns None if user quits."""
     flow = session.new_co_create()
+
+    if dev_observer is not None:
+        dev_observer.record_co_create_start()
 
     # Step 1: start
     event = flow.start()
@@ -45,6 +52,9 @@ def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | No
         user_input = ui.ask("")
         if user_input == "":
             continue
+
+        if dev_observer is not None:
+            dev_observer.record_co_create_prompt(user_input)
 
         ui.write("[...]")
         sys.stdout.flush()
@@ -61,9 +71,15 @@ def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | No
 
         elif phase == "awaiting_answer":
             ui.write(event["question"])
+            if dev_observer is not None:
+                dev_observer.record_co_create_response(event["question"])
 
         elif phase == "complete":
             result = event["result"]
+            if dev_observer is not None:
+                dev_observer.record_co_create_result(
+                    result.story_config, result.outline_text
+                )
             ui.write(f"\n[Story created: {result.story_config.get('label', '?')}]")
             ui.write(f"[Genre: {result.story_config.get('genre', '?')}]")
             ui.write(f"[Outline: {len(result.outline_nodes)} nodes]")
@@ -209,6 +225,13 @@ def dev_main(argv: list[str] | None = None) -> None:
     session = GameSession()
 
     try:
+        # Observer (created before co-creation so it can record Q&A)
+        observer = None
+        if args.mode == "dev":
+            from storyloom.dev_cli.observer import DevObserver
+
+            observer = DevObserver()
+
         # Co-creation (or skip)
         if args.story_file:
             story_path = Path(args.story_file)
@@ -226,7 +249,7 @@ def dev_main(argv: list[str] | None = None) -> None:
                 ui.show_error(f"Invalid story file: {e}")
                 sys.exit(1)
         else:
-            result = run_co_create(ui, session)
+            result = run_co_create(ui, session, observer)
             if result is None:
                 sys.exit(0)
 
@@ -235,13 +258,6 @@ def dev_main(argv: list[str] | None = None) -> None:
 
         if args.no_save:
             game_loop.set_save_manager(None)
-
-        # Observer
-        observer = None
-        if args.mode == "dev":
-            from storyloom.dev_cli.observer import DevObserver
-
-            observer = DevObserver()
 
         # Run
         run_game(ui, game_loop, observer)

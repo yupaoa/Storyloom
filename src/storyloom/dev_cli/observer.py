@@ -17,6 +17,9 @@ class DevObserver:
     def __init__(self, output_dir: str = "dev_output"):
         self._dir = Path(output_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
+        self._co_create_started = False
+
+    # ── Game round ──
 
     def record_round(self, record: RoundRecord) -> None:
         """Called after each round completes. Appends to all three files."""
@@ -99,6 +102,39 @@ class DevObserver:
             )
         lines.append("")
         self._append("checks.txt", "\n".join(lines))
+
+    # ── Co-creation ──
+
+    def record_co_create_start(self) -> None:
+        """Mark the start of a co-creation session in prompts/responses."""
+        header = "══ Co-Create Session ══\n"
+        self._append("prompts.txt", header)
+        self._append("responses.txt", header)
+
+    def record_co_create_prompt(self, user_input: str) -> None:
+        """Record user input sent during co-creation Q&A."""
+        self._append("prompts.txt", f"[User]\n{user_input}\n\n")
+
+    def record_co_create_response(self, text: str) -> None:
+        """Record LLM response during co-creation Q&A."""
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self._append("responses.txt", f"── {now} ──\n{text}\n\n")
+
+    def record_co_create_result(self, story_config: dict, outline_text: str) -> None:
+        """Record the final generated story setup."""
+        import json
+        self._append(
+            "checks.txt",
+            "══ Co-Create Result ══\n"
+            f"Label: {story_config.get('label', '?')}\n"
+            f"Genre: {story_config.get('genre', '?')}\n"
+            f"Tier: {story_config.get('tier', '?')}\n"
+            f"Outline:\n{outline_text}\n"
+            f"Variables: {json.dumps(story_config.get('variables', []), ensure_ascii=False, indent=2)}\n"
+            "\n",
+        )
+
+    # ── I/O ──
 
     def _append(self, filename: str, content: str) -> None:
         path = self._dir / filename

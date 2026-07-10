@@ -139,6 +139,32 @@ class TestDevObserver:
         assert "prompt 2" in prompts
 
 
+    def test_record_co_create_writes_to_files(self, tmp_path):
+        """Co-create recording writes user input and LLM response."""
+        out = tmp_path / "co_create_test"
+        obs = DevObserver(str(out))
+
+        obs.record_co_create_start()
+        obs.record_co_create_prompt("A cyberpunk love story")
+        obs.record_co_create_response("What time period should this be set in?")
+        obs.record_co_create_result(
+            {"label": "test", "genre": "cyberpunk", "tier": "short", "variables": []},
+            "ch1 [active] — test",
+        )
+
+        prompts = (out / "prompts.txt").read_text()
+        assert "Co-Create Session" in prompts
+        assert "A cyberpunk love story" in prompts
+
+        responses = (out / "responses.txt").read_text()
+        assert "Co-Create Session" in responses
+        assert "What time period" in responses
+
+        checks = (out / "checks.txt").read_text()
+        assert "Co-Create Result" in checks
+        assert "test" in checks
+
+
 class TestTerminalUi:
     def test_implements_ui_interface(self):
         """TerminalUi satisfies the UiInterface protocol."""
