@@ -2,9 +2,7 @@
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
-from storyloom.core.ui_interface import UiInterface
 from storyloom.core.session import GameSession
 from storyloom.core.co_create import CoCreationResult
 from storyloom.core.game_loop import GameLoop
@@ -44,12 +42,7 @@ def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | No
 
     # Step 2: Q&A loop
     while True:
-        try:
-            user_input = ui.ask("")
-        except (EOFError, KeyboardInterrupt):
-            print("\n[Quit]")
-            return None
-
+        user_input = ui.ask("")
         if user_input == "":
             continue
 
@@ -84,7 +77,7 @@ def run_co_create(ui: TerminalUi, session: GameSession) -> CoCreationResult | No
 def run_game(
     ui: TerminalUi,
     game_loop: GameLoop,
-    dev_observer: Any | None = None,
+    dev_observer=None,
 ) -> None:
     """Drive the game loop. Consume stream events, display narrative + choices."""
     # Register observer (private attribute access — dev tool only)
@@ -190,10 +183,7 @@ def _get_choice(ui: TerminalUi, num_options: int) -> str | None:
 
 def _handle_quit(game_loop: GameLoop, ui: TerminalUi) -> None:
     """Handle graceful quit."""
-    if game_loop._save_manager is not None:
-        ui.write("\n[Quit — game state not saved. Use --no-save to suppress auto-save.]")
-    else:
-        ui.write("\n[Quit]")
+    ui.write("\n[Quit]")
 
 
 def dev_main(argv: list[str] | None = None) -> None:
