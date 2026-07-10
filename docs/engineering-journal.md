@@ -6,6 +6,61 @@
 
 ---
 
+## 2026-07-11（周六）
+
+### StreamingXmlParser 删除决定推翻 —— Bridge Pre-Fetch 时序缺陷
+
+**背景**：2026-07-10 的架构分析（[[2026-07-10-adventure-log-and-parser-architecture]]）认为 `StreamingXmlParser` 的流式解析不必要，因为 `ElementTree` 全量解析仅需 234 μs。该模块被删除（commit `6697f47`）。2026-07-11 的深入讨论发现该分析存在根本性错误。
+
+**核心发现**：Bridge pre-fetch 的时序约束不是"解析速度"，而是"**首段可展示内容的就绪时间**"。
+
+**全量解析模型**（当前）：
+- 下一轮内容可展示的前提：TTFT + **全部行**生成完毕 + XmlParser.parse()
+- bridge_text 阅读时间（10-20s）需覆盖 TTFT + 完整生成时间（35-80s）
+- **结论：不可能。** bridge_text 太短，pre-fetch 大概率无法在阅读期间完成
+- 后果：用户在自动推进轮次之间经历 15-70 秒空白等待
+
+**流式解析模型**（删除的 StreamingXmlParser）：
+- 下一轮内容可展示的前提：TTFT + **第 1 行**生成完毕 + feed_line()
+- bridge_text 阅读时间（10-20s）仅需覆盖 TTFT（10-30s）
+- **结论：可行。** 在大多数场景下可实现无缝衔接
+
+**之前分析为何错误**：
+- 错误指标：已完成的 XML 字符串的解析耗时（234 μs）
+- 正确指标：**从 pre-fetch 启动到首个可展示内容就绪的墙上时间**
+- 差距不是 234 μs，而是**整个生成时间（25-50 秒）**
+
+**附加发现**：`_launch_prefetch()` 在 `yield from self._emit_parsed()` 之后才调用。终端 UI 同步消费 segment 事件（含 `time.sleep`），导致 generator 阻塞——pre-fetch 在所有 segment 显示完毕后才能启动。bridge_text 实际提供了**零秒缓冲**。
+
+**决策**：推翻 07-10 的删除决定。需要恢复 `StreamingXmlParser`（从 commit `7fe2278`）并正确集成到 pre-fetch 路径：
+1. 移动 pre-fetch 触发点到 `_emit_parsed()` 之前
+2. 后台线程中逐行 feed 到 StreamingXmlParser
+3. ParseEvent 实时转发给 UI（segment 逐段展示，不等完整响应）
+4. `XmlParser.parse()` 保留用于非 pre-fetch 路径（choice 轮次、Round 1）
+
+**依据**：
+- [[2026-07-11-streaming-parser-timing-flaw]]（完整时序分析）
+- [[2026-07-10-adventure-log-and-parser-architecture]]（部分分析被推翻）
+- `docs/superpowers/specs/2026-07-05-narrative-flow-refactor-design.md` §2.5-2.6（原始设计正确）
+- exec-flow.md §4.3："bridge 机制的真正时限不是 LLM 总生成时间，而是后台 API 调用的 TTFT + 生成时间 vs. bridge_text 的展示时长"
+
+### Adventure Log 时序修复
+
+**背景**：`exec-flow.md` §5.2 要求冒险日志在 bridge 时刻发起，与 bridge_text 展示并发执行。实际代码中 `run_adventure_log()` 在所有 segment 展示完毕后同步调用。
+
+**决策**：
+1. 提取 `_accumulate_checkpoint()` 辅助方法（消除 3 处重复）
+2. Post-parse "end" 检测——Step 7 后立即检查 `parsed.checkpoint_node == "end"`
+3. Adventure log 在 `_emit_parsed()` 前启动 daemon 线程，segment 展示期间并发执行
+4. Early-return guard 防止结局后被重复调用
+
+**依据**：
+- commit `980ec2f` — `fix(engine): adventure log now runs concurrently with bridge_text display`
+- [[2026-07-10-adventure-log-timing-fix]]
+- [[2026-07-10-spec-compliance-audit]]（10/10 全部修复）
+
+---
+
 ## 2026-07-10（周五）
 
 ### bridge pre-fetch 实现
@@ -88,61 +143,6 @@
 - commit `048ab53` — `refactor: purge Chinese from system prompts and format spec`
 - commit `77314b7` — `refactor: rewrite adventure log prompt in English`
 - prompt-design.md §1.1：英文 Prompt 原则
-
----
-
-## 2026-07-11（周六）
-
-### StreamingXmlParser 删除决定推翻 —— Bridge Pre-Fetch 时序缺陷
-
-**背景**：2026-07-10 的架构分析（[[2026-07-10-adventure-log-and-parser-architecture]]）认为 `StreamingXmlParser` 的流式解析不必要，因为 `ElementTree` 全量解析仅需 234 μs。该模块被删除（commit `6697f47`）。2026-07-11 的深入讨论发现该分析存在根本性错误。
-
-**核心发现**：Bridge pre-fetch 的时序约束不是"解析速度"，而是"**首段可展示内容的就绪时间**"。
-
-**全量解析模型**（当前）：
-- 下一轮内容可展示的前提：TTFT + **全部行**生成完毕 + XmlParser.parse()
-- bridge_text 阅读时间（10-20s）需覆盖 TTFT + 完整生成时间（35-80s）
-- **结论：不可能。** bridge_text 太短，pre-fetch 大概率无法在阅读期间完成
-- 后果：用户在自动推进轮次之间经历 15-70 秒空白等待
-
-**流式解析模型**（删除的 StreamingXmlParser）：
-- 下一轮内容可展示的前提：TTFT + **第 1 行**生成完毕 + feed_line()
-- bridge_text 阅读时间（10-20s）仅需覆盖 TTFT（10-30s）
-- **结论：可行。** 在大多数场景下可实现无缝衔接
-
-**之前分析为何错误**：
-- 错误指标：已完成的 XML 字符串的解析耗时（234 μs）
-- 正确指标：**从 pre-fetch 启动到首个可展示内容就绪的墙上时间**
-- 差距不是 234 μs，而是**整个生成时间（25-50 秒）**
-
-**附加发现**：`_launch_prefetch()` 在 `yield from self._emit_parsed()` 之后才调用。终端 UI 同步消费 segment 事件（含 `time.sleep`），导致 generator 阻塞——pre-fetch 在所有 segment 显示完毕后才能启动。bridge_text 实际提供了**零秒缓冲**。
-
-**决策**：推翻 07-10 的删除决定。需要恢复 `StreamingXmlParser`（从 commit `7fe2278`）并正确集成到 pre-fetch 路径：
-1. 移动 pre-fetch 触发点到 `_emit_parsed()` 之前
-2. 后台线程中逐行 feed 到 StreamingXmlParser
-3. ParseEvent 实时转发给 UI（segment 逐段展示，不等完整响应）
-4. `XmlParser.parse()` 保留用于非 pre-fetch 路径（choice 轮次、Round 1）
-
-**依据**：
-- [[2026-07-11-streaming-parser-timing-flaw]]（完整时序分析）
-- [[2026-07-10-adventure-log-and-parser-architecture]]（部分分析被推翻）
-- `docs/superpowers/specs/2026-07-05-narrative-flow-refactor-design.md` §2.5-2.6（原始设计正确）
-- exec-flow.md §4.3："bridge 机制的真正时限不是 LLM 总生成时间，而是后台 API 调用的 TTFT + 生成时间 vs. bridge_text 的展示时长"
-
-### Adventure Log 时序修复
-
-**背景**：`exec-flow.md` §5.2 要求冒险日志在 bridge 时刻发起，与 bridge_text 展示并发执行。实际代码中 `run_adventure_log()` 在所有 segment 展示完毕后同步调用。
-
-**决策**：
-1. 提取 `_accumulate_checkpoint()` 辅助方法（消除 3 处重复）
-2. Post-parse "end" 检测——Step 7 后立即检查 `parsed.checkpoint_node == "end"`
-3. Adventure log 在 `_emit_parsed()` 前启动 daemon 线程，segment 展示期间并发执行
-4. Early-return guard 防止结局后被重复调用
-
-**依据**：
-- commit `980ec2f` — `fix(engine): adventure log now runs concurrently with bridge_text display`
-- [[2026-07-10-adventure-log-timing-fix]]
-- [[2026-07-10-spec-compliance-audit]]（10/10 全部修复）
 
 ---
 
