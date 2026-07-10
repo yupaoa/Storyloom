@@ -281,7 +281,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 > **条件语法规则**：
 > - 变量名引用顺序：`choice_dict`（当前轮选项结果）> `state_vars`
-> - 运算符：`==` `>=` `<=` `>` `<` `has`
+> - 运算符：`==` `!=` `>=` `<=` `>` `<`
 > - 组合：最多一次 `and` 或一次 `or`，不允许混合
 
 ### `<checkpoint>`

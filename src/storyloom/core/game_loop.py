@@ -431,6 +431,7 @@ class GameLoop:
         self._rejected_changes: list[str] = []
         self._format_error: str | None = None
         self._round1_started = False
+        self._current_branch: str = "main"  # active branch from player's last choice
 
         # Checkpoint and save accumulators
         self._temperature = getattr(api_client, "temperature", None)
@@ -494,6 +495,16 @@ class GameLoop:
     def completed_nodes(self) -> list[str]:
         """List of completed node IDs."""
         return list(self._completed_nodes)
+
+    @property
+    def current_branch(self) -> str:
+        """Active branch name from the player's last choice.
+
+        Defaults to ``"main"`` per block-spec.md §3.  UI layers use
+        this to select which post-bridge ``<branch name="...">``
+        content to display.
+        """
+        return self._current_branch
 
     # ── Round 1 ───────────────────────────────────────────────────
 
@@ -598,15 +609,17 @@ class GameLoop:
                 if result.reason:
                     self._rejected_changes.append(result.reason)
 
+        # Yield segments first, then state changes — narrative should
+        # reach the player before they see the mechanical consequences
+        # (per exec-flow.md §4.1: display → state validation).
+        yield from self._emit_parsed(parsed)
+
         if state_changes:
             yield {
                 "type": "state",
                 "vars": self.game_state.state_vars,
                 "changes": state_changes,
             }
-
-        # Yield structured events from parsed output
-        yield from self._emit_parsed(parsed)
 
         # Notify observer
         self._notify(RoundRecord(
@@ -687,6 +700,7 @@ class GameLoop:
 
         # Determine selected branch from the player's choice
         selected_branch = self._get_selected_branch(choice_key)
+        self._current_branch = selected_branch or "main"
 
         # ── Step 2: Apply last round's sets (with choice_dict) ──────
         step2_changes: list[dict] = []
@@ -737,39 +751,50 @@ class GameLoop:
             cp_node = self.last_parsed.checkpoint_node
             cp_summary = self.last_parsed.checkpoint_summary or ""
 
-            if cp_summary:
-                self._checkpoint_summaries.append(cp_summary)
+            # Validate checkpoint node exists in outline (data-model.md §2
+            # step 2).  "end" is always valid.  Unknown node IDs — likely
+            # LLM hallucinations — are silently ignored (no crash, no save).
+            cp_valid = (cp_node == "end")
+            if not cp_valid and self._outline_nodes:
+                valid_ids = {n.get("id", "") for n in self._outline_nodes}
+                cp_valid = cp_node in valid_ids
+            elif not cp_valid and not self._outline_nodes:
+                cp_valid = True  # no outline loaded → accept provisionally
 
-            # Resolve title from _outline_nodes. For the "end" sentinel,
-            # fall back to the last outline node's title.
-            cp_title = cp_node
-            if self._outline_nodes:
-                if cp_node == "end":
-                    last = self._outline_nodes[-1]
-                    cp_title = last.get("title", "ending") or "ending"
-                else:
-                    for node in self._outline_nodes:
-                        if node.get("id") == cp_node:
-                            cp_title = node.get("title", cp_node)
-                            break
+            if cp_valid:
+                if cp_summary:
+                    self._checkpoint_summaries.append(cp_summary)
 
-            self._checkpoint_history.append({
-                "node": cp_node,
-                "title": cp_title,
-                "summary": cp_summary,
-                "round": self._context_mgr.round_count,
-            })
+                # Resolve title from _outline_nodes. For the "end" sentinel,
+                # fall back to the last outline node's title.
+                cp_title = cp_node
+                if self._outline_nodes:
+                    if cp_node == "end":
+                        last = self._outline_nodes[-1]
+                        cp_title = last.get("title", "ending") or "ending"
+                    else:
+                        for node in self._outline_nodes:
+                            if node.get("id") == cp_node:
+                                cp_title = node.get("title", cp_node)
+                                break
 
-            self._checkpoint_snapshots[cp_node] = copy.deepcopy(
-                self.game_state.state_vars
-            )
+                self._checkpoint_history.append({
+                    "node": cp_node,
+                    "title": cp_title,
+                    "summary": cp_summary,
+                    "round": self._context_mgr.round_count,
+                })
 
-            # Trigger auto-save if SaveManager is configured
-            if self._save_manager is not None:
-                try:
-                    self._save_manager.save(self.to_save_dict())
-                except Exception:
-                    pass
+                self._checkpoint_snapshots[cp_node] = copy.deepcopy(
+                    self.game_state.state_vars
+                )
+
+                # Trigger auto-save if SaveManager is configured
+                if self._save_manager is not None:
+                    try:
+                        self._save_manager.save(self.to_save_dict())
+                    except Exception:
+                        pass
 
         # ── Step 3.6: Ending detection ──────────────────────────────
         if self.last_parsed.checkpoint_node == "end":
@@ -960,16 +985,34 @@ class GameLoop:
     # ── Event Emission ───────────────────────────────────────────
 
     @staticmethod
-    def _emit_parsed(parsed: ParsedOutput) -> Iterator[dict]:
+    def _emit_parsed(
+        parsed: ParsedOutput,
+        current_branch: str = "main",
+    ) -> Iterator[dict]:
         """Yield structured events from parsed LLM output.
+
+        Filters pre-bridge segments by current_branch per block-spec.md
+        §3: bare <seg> (no branch) always passes (implicit "main").
+        <seg> inside <branch name="X"> passes only when X matches
+        current_branch.  Post-bridge segments are emitted unfiltered —
+        the UI layer selects the matching branch after the player
+        chooses (serial-architecture constraint; the bridge pre-fetch
+        refactor will move this filtering into the engine).
 
         Args:
             parsed: ParsedOutput from XmlParser.parse().
+            current_branch: Active branch name (default ``"main"``).
 
         Yields:
             segment and options events.
         """
         for seg in parsed.segments:
+            # Pre-bridge: filter by current_branch.  Bare segs (implicit
+            # "main") always pass.  Named-branch segs pass only on match.
+            # Post-bridge: emit everything — UI filters after choice.
+            if seg.position == "pre":
+                if seg.branch and seg.branch != current_branch:
+                    continue
             yield {
                 "type": "segment",
                 "text": seg.text,
