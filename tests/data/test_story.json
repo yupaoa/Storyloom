@@ -1,0 +1,29 @@
+{
+    "story_config": {
+        "genre": "赛博朋克冒险",
+        "tier": "medium",
+        "label": "霓虹深渊",
+        "setting": "2087年新东京地下城",
+        "protagonist_name": "林焰",
+        "protagonist_identity": "前荒坂公司安全顾问",
+        "protagonist_traits": "冷静、理性、道德灰色地带",
+        "tone": "黑暗冷峻",
+        "conflict": "一枚神秘生物芯片正在寻找宿主，各方势力暗中角逐",
+        "characters": "耗子（情报贩子）、美智子（安全主管）、老陈（地下医生）",
+        "variables": [
+            {"name": "体力", "type": "number", "initial": 80},
+            {"name": "信任度", "type": "number", "initial": 10},
+            {"name": "线索", "type": "number", "initial": 0},
+            {"name": "所属势力", "type": "string", "initial": "自由佣兵"},
+            {"name": "物品", "type": "list", "initial": []}
+        ]
+    },
+    "outline_text": "ch1_intro [active] — 霓虹深渊：深夜的地下城酒吧\n  → ch2_meeting [pending]\nch2_meeting [pending] — 接头：与神秘线人耗子会面\nch3_chase [pending] — 追逐：逃避荒坂的追捕\nch4_revelation [pending] — 真相：芯片的秘密逐渐揭开\nch5_ending [pending] — 结局：最终抉择",
+    "outline_nodes": [
+        {"id": "ch1_intro", "status": "active", "goal": "霓虹深渊：深夜的地下城酒吧"},
+        {"id": "ch2_meeting", "status": "pending", "goal": "接头：与神秘线人耗子会面"},
+        {"id": "ch3_chase", "status": "pending", "goal": "追逐：逃避荒坂的追捕"},
+        {"id": "ch4_revelation", "status": "pending", "goal": "真相：芯片的秘密逐渐揭开"},
+        {"id": "ch5_ending", "status": "pending", "goal": "结局：最终抉择"}
+    ]
+}
