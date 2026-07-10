@@ -55,7 +55,7 @@ def run_co_create(
         if user_input == "":
             continue
 
-        ui.write("[...]")
+        ui.write("[Waiting for LLM...]")
         sys.stdout.flush()
         try:
             event = flow.send(user_input)
@@ -117,7 +117,7 @@ def run_game(
         game_loop._observers.append(dev_observer.record_round)
 
     # Start round 1
-    ui.write("[Generating...]")
+    ui.write("[Generating round 1...]")
     sys.stdout.flush()
     try:
         for event in game_loop.start_round1_stream():
