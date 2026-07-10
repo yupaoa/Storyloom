@@ -22,6 +22,11 @@ from storyloom.parser.xml_parser import (
     SetOperation,
     XmlParser,
 )
+from storyloom.parser.streaming_parser import (
+    EventType,
+    LineBuffer,
+    StreamingXmlParser,
+)
 
 
 @dataclass
@@ -901,6 +906,21 @@ class GameLoop:
         self.last_parsed = parsed
         self._last_bridge_text = parsed.bridge_text
 
+        # Capture state *before* pre-fetch mutates it for the next round.
+        done_state = self.game_state.state_vars
+        done_node = self.current_node
+        done_round = self._context_mgr.round_count
+
+        # ── Bridge pre-fetch: fire next API call for auto-advance ─
+        # Per exec-flow.md §4.7 the next round's prompt is assembled at
+        # <bridge/> time so the post-bridge segments (bridge_text) act as
+        # a display buffer that hides the API latency.
+        # MUST be before _emit_parsed() — the background API call runs
+        # concurrently with segment display, so TTFT is absorbed by
+        # bridge_text reading time.
+        if not parsed.choices and not self.ending_flag:
+            self._launch_prefetch(choice_key)
+
         # ── Launch adventure log in background if ending ───────────
         # Per exec-flow.md §5.2: submit adventure log at bridge time
         # so the API call runs concurrently with bridge_text display.
@@ -969,18 +989,6 @@ class GameLoop:
             node=self.current_node,
             selected_branch=selected_branch,
         ))
-
-        # Capture state *before* pre-fetch mutates it for the next round.
-        done_state = self.game_state.state_vars
-        done_node = self.current_node
-        done_round = self._context_mgr.round_count
-
-        # ── Bridge pre-fetch: fire next API call for auto-advance ─
-        # Per exec-flow.md §4.7 the next round's prompt is assembled at
-        # <bridge/> time so the post-bridge segments (bridge_text) act as
-        # a display buffer that hides the API latency.
-        if not parsed.choices and not self.ending_flag:
-            self._launch_prefetch(choice_key)
 
         yield {
             "type": "done",
@@ -1228,11 +1236,14 @@ class GameLoop:
             }
 
     def _stream_from_prefetch(self, prefetch: dict) -> Iterator[dict]:
-        """Yield events from a pre-fetched API response.
+        """Yield events from a pre-fetched API response using streaming parse.
 
         The pre-fetch already applied Steps 1-5 (state changes, route
-        evaluation, context building).  This method collects the
-        background API response and continues from Step 7 (parse).
+        evaluation, context building).  This method consumes the
+        background API response **incrementally** — tokens are fed to a
+        ``LineBuffer`` / ``StreamingXmlParser`` so that segment events
+        can be yielded as soon as a complete line arrives, rather than
+        waiting for the full response.
 
         Args:
             prefetch: The dict previously stored by ``_launch_prefetch``.
@@ -1246,8 +1257,6 @@ class GameLoop:
         # ── Wait for the background thread ─────────────────────────
         prefetch["thread"].join(timeout=STREAM_STALL_TIMEOUT_SEC)
         if prefetch["thread"].is_alive():
-            # Thread is still running — API stalled.  We cannot recover
-            # gracefully here, so surface the error to the caller.
             yield {
                 "type": "error",
                 "message": (
@@ -1257,10 +1266,13 @@ class GameLoop:
             }
             return
 
-        # ── Collect chunks from the queue ──────────────────────────
+        # ── Drain queue with streaming parse ───────────────────────
+        lb = LineBuffer()
+        sp = StreamingXmlParser()
         collected: list[str] = []
         ttft: float | None = None
         tokens: dict | None = None
+        current_branch = self._current_branch
 
         while True:
             try:
@@ -1271,7 +1283,10 @@ class GameLoop:
             if "__prefetch_error__" in chunk:
                 yield {
                     "type": "error",
-                    "message": f"Pre-fetch API error: {chunk['__prefetch_error__']}",
+                    "message": (
+                        "Pre-fetch API error: "
+                        f"{chunk['__prefetch_error__']}"
+                    ),
                 }
                 return
 
@@ -1280,30 +1295,56 @@ class GameLoop:
             else:
                 if chunk.get("ttft") is not None:
                     ttft = chunk["ttft"]
-                collected.append(chunk["delta"])
-                yield {"type": "token", "text": chunk["delta"]}
+                delta = chunk["delta"]
+                collected.append(delta)
 
+                # Yield token event for typewriter effect
+                yield {"type": "token", "text": delta}
+
+                # Feed to line buffer → streaming parser
+                for line in lb.feed(delta):
+                    for event in sp.feed_line(line):
+                        if event.type == EventType.SEGMENT:
+                            # Pre-bridge filter (same logic as
+                            # _emit_parsed): bare segs always pass;
+                            # named-branch segs pass only on match.
+                            if (event.position == "pre"
+                                    and event.branch_name
+                                    and event.branch_name != current_branch):
+                                continue
+                            yield {
+                                "type": "segment",
+                                "text": event.text or "",
+                                "n": sp._seg_count,
+                                "position": event.position,
+                                "branch": event.branch_name,
+                            }
+
+        # ── Flush remaining partial line ───────────────────────────
+        remaining = lb.flush()
+        if remaining:
+            for event in sp.feed_line(remaining):
+                if event.type == EventType.SEGMENT:
+                    if (event.position == "pre"
+                            and event.branch_name
+                            and event.branch_name != current_branch):
+                        continue
+                    yield {
+                        "type": "segment",
+                        "text": event.text or "",
+                        "n": sp._seg_count,
+                        "position": event.position,
+                        "branch": event.branch_name,
+                    }
+
+        # ── Get complete parsed output ─────────────────────────────
         response = "".join(collected)
+        parsed = sp.get_result()
 
-        # ── Step 7: parse ──────────────────────────────────────────
-        self._format_error = None
-        try:
-            parsed = XmlParser.parse(response)
-        except Exception as e:
-            self._format_error = str(e)
-            self._notify(RoundRecord(
-                round_number=self._context_mgr.round_count + 1,
-                messages_sent=prefetch["messages"],
-                raw_response=response,
-                parsed=None,
-                ttft=ttft,
-                tokens=tokens,
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                node=self.current_node,
-                selected_branch=prefetch.get("selected_branch"),
-            ))
-            yield {"type": "error", "message": str(e)}
-            return
+        # Surface format errors detected by streaming parser
+        format_errors = sp.format_errors
+        if format_errors:
+            self._format_error = "; ".join(format_errors)
 
         # ── Post-parse: handle "end" checkpoint from THIS round ─────
         if parsed.checkpoint_node == "end":
@@ -1359,8 +1400,12 @@ class GameLoop:
             )
             _adventure_thread.start()
 
-        # ── Yield structured events ───────────────────────────────
-        yield from self._emit_parsed(parsed, self._current_branch)
+        # ── Yield options event (choices from complete parse) ──────
+        if parsed.choices:
+            yield {
+                "type": "options",
+                "choices": parsed.choices,
+            }
 
         # ── Ending check ───────────────────────────────────────────
         if self.ending_flag:

@@ -1,4 +1,4 @@
-"""Parsing layer — XML parser for LLM narrative output."""
+"""XML output parser package."""
 
 from storyloom.parser.xml_parser import (
     ParsedOutput,
@@ -7,11 +7,21 @@ from storyloom.parser.xml_parser import (
     SetOperation,
     XmlParser,
 )
+from storyloom.parser.streaming_parser import (
+    EventType,
+    LineBuffer,
+    ParseEvent,
+    StreamingXmlParser,
+)
 
 __all__ = [
-    "ParsedOutput",
+    "EventType",
     "ParseError",
+    "ParseEvent",
+    "ParsedOutput",
     "Segment",
     "SetOperation",
+    "StreamingXmlParser",
     "XmlParser",
+    "LineBuffer",
 ]
