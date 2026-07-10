@@ -3,8 +3,7 @@ import re
 from dataclasses import dataclass, field
 
 from storyloom.io.api_client import ApiClient
-from storyloom.core.ui_interface import UiInterface
-from storyloom.i18n import _, get_current_lang
+from storyloom.i18n import _
 from storyloom.config import (
     MAX_RETRIES,
     STORY_LABEL_MIN_CHARS,
@@ -575,9 +574,8 @@ class CoCreateFlow:
     _START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes", "go", "start", "begin", "ready"}
     _QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q", "stop", "abort"}
 
-    def __init__(self, api_client: ApiClient, ui: UiInterface | None = None):
+    def __init__(self, api_client: ApiClient):
         self._api = api_client
-        self._ui = ui
         self._messages: list[dict] = [
             {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
         ]
@@ -730,321 +728,123 @@ class CoCreateFlow:
         return {"phase": self._phase}
 
     def _generate_all(self) -> CoCreationResult:
-        """Generate full story setup without UI interaction.
+        """Generate full story setup with auto-retry on failure.
+
+        Retries API errors up to 3 times silently. On parse/validation
+        errors, appends a correction message to the conversation and
+        retries up to MAX_RETRIES times — no user interaction.
 
         Used by send() for the state machine API.
 
         Raises:
-            CoCreationAborted: If outline validation fails.
-            ValueError: If parsing fails (caught by send()).
+            CoCreationAborted: If all retries are exhausted.
         """
-        var_names = self._build_var_names_hint()
+        var_names = (
+            "Design per story context (≤3 vars, ≤2 numeric + ≤1 string/list)"
+        )
         gen_prompt = GENERATE_ALL_PROMPT.format(variable_names=var_names)
         self._messages.append({"role": "user", "content": gen_prompt})
 
-        response = self._api.chat(self._messages)
-        self._messages.append({"role": "assistant", "content": response})
-
-        blocks = CoCreateParser.split_blocks(response)
-
-        story_config = CoCreateParser.parse_story_config(blocks["story_config"])
-        variables = CoCreateParser.parse_variables(blocks["variables"])
-        var_errors = CoCreateParser.validate_variables(variables)
-        if var_errors:
-            raise CoCreationAborted()
-        outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
-
-        var_names_list = [v["name"] for v in variables]
-        outline_errors = CoCreateParser.validate_outline(outline_nodes, var_names_list)
-        if outline_errors:
-            raise CoCreationAborted()
-
-        story_config["variables"] = variables
-        outline_text = CoCreateParser.format_outline(outline_nodes)
-
-        return CoCreationResult(
-            story_config=story_config,
-            outline_text=outline_text,
-            outline_nodes=outline_nodes,
-        )
-
-    def run(self) -> CoCreationResult:
-        """Run the full co-creation flow.
-
-        Returns:
-            CoCreationResult with story_config (including variables)
-            and formatted outline_text.
-
-        Raises:
-            CoCreationAborted: If user chooses to abort.
-            RuntimeError: If ui is None (not set during construction).
-        """
-        if self._ui is None:
-            raise RuntimeError(
-                "CoCreateFlow.run() requires a UiInterface. "
-                "Pass ui= at construction, or use the state machine API "
-                "(start()/send()) for UI-agnostic co-creation."
-            )
-        self._step1_get_idea()
-        self._step2_questioning()
-        return self._step3_generate_all()
-
-    # ── Step 1 ──────────────────────────────────────────────────
-
-    def _step1_get_idea(self) -> None:
-        """Collect user's initial story idea."""
-        d = self._ui
-        d.write("\n")
-        d.write("━" * 50 + "\n")
-        d.write(_("[Co-Creation — Story Setup]") + "\n\n")
-        d.write(_("Describe the story you'd like to play.\ne.g. 'A cyberpunk love story' or 'A wuxia adventure'\n") + "\n")
-
-        for _attempt in range(20):
-            raw_idea = d.ask("> ")
-            if raw_idea and raw_idea.strip():
-                break
-            d.write(_("Please share some thoughts to begin.") + "\n")
-        else:
-            raise CoCreationAborted()
-
-        self._messages.append({"role": "user", "content": raw_idea.strip()})
-
-    # ── Step 2 ──────────────────────────────────────────────────
-
-    def _step2_questioning(self) -> None:
-        """Multi-turn Q&A loop with LLM.
-
-        LLM asks questions about 5 dimensions. User responds.
-        Loop exits when user types '开始'/'go' or equivalent.
-        """
-        d = self._ui
-        d.write("\n")
-        d.write("━" * 50 + "\n")
-        d.write(_("[Q&A Phase]") + "\n")
-        d.write(_("I'll ask a few questions to understand the story you want.\nWhen you're ready, type 'go' to generate the story setup.\nType 'quit' to return to the main menu.\n") + "\n")
-
-        if get_current_lang() == "zh-CN":
-            START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes"}
-            QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q"}
-        else:
-            START_KEYWORDS = {"go", "start", "begin", "yes", "ok", "OK", "ready", "开始"}
-            QUIT_KEYWORDS = {"quit", "exit", "q", "stop", "abort", "不玩了", "退出"}
-        MAX_QNA_ROUNDS = 15
-
-        for _round in range(MAX_QNA_ROUNDS):
-            d.write(_("Thinking..."))
+        # ── API call with silent retry (up to 3 attempts) ──────────
+        response = None
+        for _api_attempt in range(3):
             try:
                 response = self._api.chat(self._messages)
-            except Exception as e:
-                d.show_error(_("API call failed: {error}").format(error=e))
-                choice = d.ask(_("[R]etry / [M]enu: "))
-                if choice.upper() == 'M':
-                    raise CoCreationAborted()
-                continue
-
-            self._messages.append({"role": "assistant", "content": response})
-            d.write(f"\n{response}\n\n")
-
-            user_input = d.ask(
-                _("Your answer (or type 'go'/'quit')> ")
-            ).strip()
-
-            if not user_input:
-                continue
-
-            if user_input in START_KEYWORDS:
-                d.write("\n")
                 break
-
-            if user_input in QUIT_KEYWORDS:
-                confirm = d.ask(_("Abort co-creation and return to menu? (y/n): "))
-                if confirm.lower() in ("y", "yes", "是"):
+            except Exception:
+                if _api_attempt == 2:
                     raise CoCreationAborted()
                 continue
 
-            self._messages.append({"role": "user", "content": user_input})
-        else:
-            raise CoCreationAborted()
-
-    # ── Step 3 ──────────────────────────────────────────────────
-
-    def _step3_generate_all(self) -> CoCreationResult:
-        """Single LLM call → parse all three blocks → validate.
-
-        Returns:
-            CoCreationResult ready for GameLoop.
-
-        Raises:
-            CoCreationAborted: If user aborts after retry exhaustion.
-        """
-        var_names = self._build_var_names_hint()
-        gen_prompt = GENERATE_ALL_PROMPT.format(variable_names=var_names)
-        self._messages.append({"role": "user", "content": gen_prompt})
-
-        self._ui.write(_("Weaving your story world..."))
-        response = self._generate_with_retry()
         self._messages.append({"role": "assistant", "content": response})
 
-        blocks = CoCreateParser.split_blocks(response)
+        # ── Parse with auto-retry on validation failure ────────────
+        for _parse_attempt in range(MAX_RETRIES + 1):
+            blocks = CoCreateParser.split_blocks(response)
 
-        story_config = self._parse_story_config_with_retry(blocks["story_config"])
-        # Refresh blocks after potential retry — retry may have generated
-        # a new full response with updated content for all three sections.
-        blocks = CoCreateParser.split_blocks(self._messages[-1]["content"])
-        variables = self._parse_variables_with_retry(blocks["variables"])
-        blocks = CoCreateParser.split_blocks(self._messages[-1]["content"])
-        outline_nodes = self._parse_outline_with_retry(blocks["outline"])
-
-        var_names_list = [v["name"] for v in variables]
-        outline_errors = CoCreateParser.validate_outline(
-            outline_nodes, var_names_list
-        )
-        if outline_errors:
-            outline_nodes = self._retry_outline_validation(
-                outline_errors, var_names_list
-            )
-
-        story_config["variables"] = variables
-        outline_text = CoCreateParser.format_outline(outline_nodes)
-
-        return CoCreationResult(
-            story_config=story_config,
-            outline_text=outline_text,
-            outline_nodes=outline_nodes,
-        )
-
-    def _build_var_names_hint(self) -> str:
-        return "Design per story context (≤3 vars, ≤2 numeric + ≤1 string/list)"
-
-    def _generate_with_retry(self) -> str:
-        """Call LLM for generation. Handle API errors."""
-        d = self._ui
-        for _retry in range(10):
+            # story_config
             try:
-                return self._api.chat(self._messages)
-            except Exception as e:
-                d.show_error(_("Generation failed: {error}").format(error=e))
-                choice = d.ask(_("[R]etry / [M]enu: "))
-                if choice.upper() == 'M':
-                    raise CoCreationAborted()
-        raise CoCreationAborted()
-
-    def _parse_story_config_with_retry(self, text: str) -> dict:
-        return self._retry_block(
-            text=text,
-            block_name="story_config",
-            parse_fn=CoCreateParser.parse_story_config,
-            validate_fn=lambda d: (
-                [] if d.get("tier") in {"short", "medium", "long"}
-                else ["tier must be short/medium/long"]
-            ),
-        )
-
-    def _parse_variables_with_retry(self, text: str) -> list[dict]:
-        return self._retry_block(
-            text=text,
-            block_name="variables",
-            parse_fn=CoCreateParser.parse_variables,
-            validate_fn=CoCreateParser.validate_variables,
-        )
-
-    def _parse_outline_with_retry(self, text: str) -> list[dict]:
-        return self._retry_block(
-            text=text,
-            block_name="outline",
-            parse_fn=CoCreateParser.parse_outline,
-            validate_fn=lambda nodes: (
-                [] if nodes else ["No nodes found"]
-            ),
-        )
-
-    def _retry_outline_validation(
-        self, errors: list[str], var_names: list[str]
-    ) -> list[dict]:
-        """Handle outline validation errors with retry.
-
-        Uses a 2-level loop: inner loop auto-retries (MAX_RETRIES times),
-        outer loop handles user-requested retry cycles (max 3 cycles).
-        No recursion.
-        """
-        for _cycle in range(3):
-            for attempt in range(MAX_RETRIES + 1):
-                error_msg = "Outline errors: " + "; ".join(errors)
-                self._messages.append(
-                    {"role": "user",
-                     "content": f"Outline has errors. {error_msg}\n"
-                               f"Please fix and regenerate the outline block."}
+                story_config = CoCreateParser.parse_story_config(
+                    blocks["story_config"]
                 )
-                self._ui.write(
-                    _("Fixing outline... (attempt {n})").format(n=attempt + 1)
-                )
-                response = self._generate_with_retry()
-                self._messages.append({"role": "assistant", "content": response})
-
-                blocks = CoCreateParser.split_blocks(response)
-                try:
-                    nodes = CoCreateParser.parse_outline(blocks["outline"])
-                except ValueError as e:
-                    errors = [str(e)]
+            except ValueError as e:
+                if _parse_attempt < MAX_RETRIES:
+                    response = self._retry_generation(
+                        f"Previous story_config had errors: {e}"
+                    )
                     continue
-
-                errors = CoCreateParser.validate_outline(nodes, var_names)
-                if not errors:
-                    return nodes
-
-            choice = self._ui.ask(
-                _("Outline validation failed ({errors}).").format(errors="; ".join(errors))
-                + " " + _("[R]etry / [M]enu: ")
-            )
-            if choice.upper() != 'R':
                 raise CoCreationAborted()
-            self._messages = self._messages[:-2]
+
+            # variables
+            variables = CoCreateParser.parse_variables(blocks["variables"])
+            var_errors = CoCreateParser.validate_variables(variables)
+            if var_errors:
+                if _parse_attempt < MAX_RETRIES:
+                    response = self._retry_generation(
+                        f"Previous variables had errors: "
+                        f"{'; '.join(var_errors)}"
+                    )
+                    continue
+                raise CoCreationAborted()
+
+            # outline
+            try:
+                outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
+            except ValueError as e:
+                if _parse_attempt < MAX_RETRIES:
+                    response = self._retry_generation(
+                        f"Previous outline had errors: {e}"
+                    )
+                    continue
+                raise CoCreationAborted()
+
+            var_names_list = [v["name"] for v in variables]
+            outline_errors = CoCreateParser.validate_outline(
+                outline_nodes, var_names_list
+            )
+            if outline_errors:
+                if _parse_attempt < MAX_RETRIES:
+                    response = self._retry_generation(
+                        f"Outline has errors: "
+                        f"{'; '.join(outline_errors)}"
+                    )
+                    continue
+                raise CoCreationAborted()
+
+            # All validations passed
+            story_config["variables"] = variables
+            outline_text = CoCreateParser.format_outline(outline_nodes)
+
+            return CoCreationResult(
+                story_config=story_config,
+                outline_text=outline_text,
+                outline_nodes=outline_nodes,
+            )
+
         raise CoCreationAborted()
 
-    def _retry_block(self, text, block_name, parse_fn, validate_fn):
-        """Parse a block with retry on failure.
+    def _retry_generation(self, error_desc: str) -> str:
+        """Append a correction prompt and call the LLM again.
 
-        Uses a 2-level loop: inner loop auto-retries (MAX_RETRIES times),
-        outer loop handles user-requested retry cycles (max 3 cycles).
-        No recursion.
+        Args:
+            error_desc: Human-readable description of what was wrong.
+
+        Returns:
+            New LLM response string.
 
         Raises:
-            CoCreationAborted: If user aborts after retries.
+            CoCreationAborted: If the API call fails.
         """
-        for _cycle in range(3):
-            for attempt in range(MAX_RETRIES + 1):
-                try:
-                    parsed = parse_fn(text)
-                    errors = validate_fn(parsed)
-                    if not errors:
-                        return parsed
-                except ValueError as e:
-                    errors = [str(e)]
-
-                if attempt < MAX_RETRIES:
-                    error_msg = f"{block_name} errors: {'; '.join(errors)}"
-                    self._messages.append(
-                        {"role": "user",
-                         "content": f"Previous {block_name} had errors. "
-                                   f"{error_msg}\n"
-                                   f"Please fix and regenerate all three sections."}
-                    )
-                    self._ui.write(
-                        _("Fixing {block}... (attempt {n})").format(block=block_name, n=attempt + 1)
-                    )
-                    response = self._generate_with_retry()
-                    self._messages.append(
-                        {"role": "assistant", "content": response}
-                    )
-                    blocks = CoCreateParser.split_blocks(response)
-                    text = blocks.get(block_name, "")
-                    continue
-
-            choice = self._ui.ask(
-                _("{block} parsing failed ({errors}).").format(block=block_name, errors="; ".join(errors))
-                + " " + _("[R]etry / [M]enu: ")
-            )
-            if choice.upper() != 'R':
-                raise CoCreationAborted()
-            self._messages = self._messages[:-2]
-        raise CoCreationAborted()
+        self._messages.append({
+            "role": "user",
+            "content": (
+                f"{error_desc}\n"
+                f"Please fix and regenerate all three sections."
+            ),
+        })
+        try:
+            response = self._api.chat(self._messages)
+        except Exception:
+            raise CoCreationAborted()
+        self._messages.append({"role": "assistant", "content": response})
+        return response
