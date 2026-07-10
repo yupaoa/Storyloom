@@ -211,12 +211,12 @@ class TestTerminalUi:
         result = ui.ask("Question?")
         assert result == ""
 
-    def test_ask_keyboard_interrupt_returns_empty(self, monkeypatch):
+    def test_ask_keyboard_interrupt_propagates(self, monkeypatch):
         from storyloom.dev_cli.ui import TerminalUi
 
         ui = TerminalUi()
         monkeypatch.setattr(
             "builtins.input", lambda _: (_ for _ in ()).throw(KeyboardInterrupt)
         )
-        result = ui.ask("Question?")
-        assert result == ""
+        with pytest.raises(KeyboardInterrupt):
+            ui.ask("Question?")

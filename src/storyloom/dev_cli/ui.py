@@ -25,7 +25,7 @@ class TerminalUi:
         print(prompt)
         try:
             return input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             return ""
 
 
@@ -95,6 +95,10 @@ def run_co_create(
             if not event.get("recoverable", False):
                 return None
 
+        else:
+            ui.show_error(f"Unknown co-create phase: {phase}")
+            return None
+
 
 def run_game(
     ui: TerminalUi,
@@ -116,6 +120,7 @@ def run_game(
         ui.show_error(f"Round 1 failed: {e}")
         return
 
+    # Round 1 never sets ending_flag, but check defensively
     if game_loop.ending_flag:
         return
 
