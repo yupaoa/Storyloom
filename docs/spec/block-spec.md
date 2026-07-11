@@ -10,7 +10,7 @@
 
 ## §1 XML 元素速查
 
-LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `xml.etree.ElementTree` 解析。
+LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `StreamingXmlParser` 逐行流式解析（利用 `NNN| ` 行号前缀，每行自包含）。
 
 ### 1.1 根元素
 
@@ -89,43 +89,10 @@ LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `xml.etree.E
 
 ### 2.3 程序解析规则
 
-**XmlParser（xml_parser.py）解析流程**：
-
-```python
-# 使用 xml.etree.ElementTree 解析
-# 关键步骤：
-
-# 1. 提取 XML（去除 markdown 围栏）
-xml_str = extract_xml(text)
-
-# 2. 剥离行号前缀（NNN| ）——不是 XML 的一部分
-xml_str = re.sub(r'^\d{3}\| ', '', xml_str, flags=re.MULTILINE)
-
-# 3. 解析为 ElementTree
-root = ET.fromstring(xml_str)
-
-# 4. 找到 bridge 位置
-children = list(root)
-bridge_idx = [i for i, el in enumerate(children) if el.tag == "bridge"][0]
-
-# 5. 分离 pre/post
-pre_children = children[:bridge_idx]
-post_children = children[bridge_idx + 1:]
-
-# 6. 收集 <seg> 元素（包括 <branch> 内的嵌套 seg）
-#    n 属性可选（兼容旧格式），缺失时默认 0
-for el in pre_children:
-    if el.tag == "seg":
-        n = int(el.get("n", 0))  # n 可选，行号已由前缀提供
-        text = el.text.strip()
-        segments.append(Segment(n, text, "pre"))
-    elif el.tag == "branch":
-        for seg_el in el.findall("seg"):
-            n = int(seg_el.get("n", 0))
-            segments.append(Segment(n, seg_el.text.strip(), "pre", branch=el.get("name")))
-
-# 7. 同理处理 post_children
-```
+程序使用 `StreamingXmlParser` 逐行流式解析（详见 [`exec-flow.md` §4.4](./exec-flow.md)）。核心要点：
+- 剥离 `NNN| ` 行号前缀——不是 XML 的一部分
+- 每行是自包含的 XML 片段，逐行正则匹配，不等完整文档
+- 解析过程中同步累积结构化数据到 `ParsedOutput`
 
 **对话段识别**（可复用旧逻辑，XML 文本节点保持相同格式）：
 

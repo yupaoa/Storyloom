@@ -408,7 +408,7 @@ Round N 开始
 └─────────────────────────────┘
 ```
 
-> 以上 8 步每轮执行一次。LLM 响应使用 `XmlParser` 解析（非流式解析后一次性处理）。XML 元素语法、分支路由、状态校验的完整规则见 [`block-spec.md`](./block-spec.md)。节点推进与存档见 [`data-model.md`](./data-model.md)。
+> 以上 8 步每轮执行一次。LLM 响应使用 `StreamingXmlParser` 逐行流式解析（见 §4.4）。流式解析的必要性见 §4.3。XML 元素语法、分支路由、状态校验的完整规则见 [`block-spec.md`](./block-spec.md)。节点推进与存档见 [`data-model.md`](./data-model.md)。
 
 ### 4.2 每轮 Prompt 的组成
 
@@ -467,6 +467,8 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 这意味着 bridge 机制的真正时限不是 LLM 总生成时间，而是后台 API 调用的 TTFT + 生成时间 vs. bridge_text 的展示时长。
 
+> **流式解析要求**：所有轮次使用 `StreamingXmlParser` 逐行解析。全量 `ElementTree` 解析要求全部行生成完毕才能展示首段（TTFT + 生成 ≈ 35-80s），流式解析仅需首行（TTFT + 首行 ≈ 10-30s）。bridge_text 阅读时间（10-20s）可覆盖 TTFT 但不可覆盖完整生成——全量解析在 pre-fetch 路径下必然导致空白等待。
+
 > **关键**：TTFT 主要受 Prompt 大小（输入 tokens 数）影响，而非输出长度。精简 System Prompt 可显著缩短 TTFT。
 >
 > **实现**：bridge pre-fetch 在 `GameLoop._launch_prefetch()` 中实现 — daemon 线程通过 `queue.Queue` 流式传输 API chunks。仅对无选项轮次触发（choice 轮次无法预计算下一轮的 messages 数组）。详见 `game_loop.py`。
@@ -495,29 +497,25 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 ### 4.4 响应解析
 
-采用 `XmlParser`（`xml_parser.py`）解析 LLM 的 XML 输出。核心流程：
-
-**解析流程**：
+利用 `NNN| ` 行号前缀使每行成为自包含的 XML 片段，逐行正则匹配产出事件，不等完整文档。
 
 ```
-1. 预处理
-   → 去除 markdown 代码块围栏（```xml...```）
-   → 提取 <story>...</story> 内容
-   → 修复未转义的 & 符号
+1. 预处理：剥离 NNN| 前缀 → 跳过空行和注释
 
-2. XmlParser.parse(text)：
-   a. 使用 xml.etree.ElementTree 解析为 XML 树
-   b. 验证根元素为 <story>
-   c. 找到 <bridge/> 位置（恰好 1 个）
-   d. 分离 pre 子元素（bridge 前）和 post 子元素（bridge 后）
-   e. 验证 post 区域无 <choice>/<set>/<checkpoint>
+2. 逐行正则匹配 → ParseEvent：
+   <seg>text</seg>           → SEGMENT(text)
+   <choice id="X">           → CHOICE_BEGIN(id)
+   <opt key="1" branch="X">  → OPT(key, branch, text)
+   </choice>                 → CHOICE_END
+   <set var="X" op="+" .../> → SET(var, op, val, if)
+   <checkpoint node="X" ...> → CHECKPOINT(node, summary)
+   <route if="X" target="Y"/>→ ROUTE(if, target)
+   <bridge/>                 → BRIDGE（触发 pre-fetch）
+   <branch name="X">         → BRANCH_ENTER(name)
+   </branch>                 → BRANCH_EXIT
+   <story> / </story>        → STORY_BEGIN / STORY_END
 
-3. 提取结构化数据：
-   → <seg>：收集叙事段及其位置（pre/post）、所属 branch。n 属性可选（行号格式通过 NNN| 前缀标注，解析时已剥离）
-   → <choice>：提取 id 属性和各 <opt> 的 key/branch（key 为数字键 1/2/3/4）
-   → <set>：提取 var/op/val/if 属性
-   → <checkpoint>：提取 node/summary 属性及 <route> 子元素
-   → bridge_text：从 post 子元素的文本节点提取纯文本（按 current_branch 过滤）
+3. 解析过程中同步累积结构化数据 → get_result() 返回 ParsedOutput
 ```
 
 > **各元素语法**：见 [`block-spec.md`](./block-spec.md) §4。
