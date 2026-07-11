@@ -1456,7 +1456,10 @@ class GameLoop:
                 "title": node.get("title", ""),
                 "goal": node.get("goal", ""),
                 "status": status,
-                "branches": [r.get("target", "") for r in node.get("routes", [])],
+                "branches": [
+                    {"condition": r.get("condition"), "target": r.get("target", "")}
+                    for r in node.get("routes", [])
+                ],
             })
 
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -1627,7 +1630,9 @@ class GameLoop:
         * **Fresh** (``CoCreateParser.parse_outline``):
           ``{id, title, goal, routes: [{condition, target}]}``
         * **Loaded** (``from_save_dict`` → save-file ``outline``):
-          ``{node_id, title, goal, status, branches: [str]}``
+          ``{node_id, title, goal, status, branches: [str|dict]}``
+          (old saves: list of target strings; new saves: list of
+          ``{condition, target}`` dicts).
 
         This method normalises both into the fresh format so that every
         downstream access site (checkpoint validation, ``to_save_dict``,
@@ -1641,13 +1646,18 @@ class GameLoop:
             nid = node.get("id") or node.get("node_id", "")
             routes = node.get("routes")
             if routes is None:
-                # Loaded format: branches is a list of target strings.
+                # Loaded format: branches is a list of target strings
+                # (old saves) or {condition, target} dicts (new saves).
                 branches = node.get("branches", [])
-                routes = [
-                    {"condition": None, "target": b}
-                    for b in branches
-                    if b
-                ]
+                routes = []
+                for b in branches:
+                    if isinstance(b, dict):
+                        routes.append({
+                            "condition": b.get("condition"),
+                            "target": b.get("target", ""),
+                        })
+                    elif b:
+                        routes.append({"condition": None, "target": b})
             normalized.append({
                 "id": nid,
                 "title": node.get("title", ""),
