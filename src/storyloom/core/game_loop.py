@@ -646,6 +646,8 @@ class GameLoop:
         choice_dict: dict[str, int] = {}
         new_rejected: list[str] = []
         pending_cp: dict[str, str | None] = {"node": None, "summary": None}
+        self._format_error = None  # reset each round — errors are fed back
+        # via build_round_n() in Phase 5; must not persist into later rounds.
 
         # ── Phase 1-4: Streaming parse ──────────────────────────────
         # Per exec-flow.md §4.4: token chunks → LineBuffer complete
@@ -1230,7 +1232,7 @@ class GameLoop:
             node_id = stripped.split()[0] if stripped else ""
             if not node_id:
                 continue
-            for sep in ("：", "—"):
+            for sep in ("—", "："):
                 if sep in stripped:
                     goal_text = stripped.split(sep, 1)[1].strip()
                     # Remove status markers and route hints
@@ -1468,7 +1470,7 @@ class GameLoop:
             "node": cp_node,
             "title": cp_title,
             "summary": cp_summary,
-            "round": self._context_mgr.round_count,
+            "round": self._context_mgr.round_count + 1,
         })
 
         self._checkpoint_snapshots[cp_node] = copy.deepcopy(
