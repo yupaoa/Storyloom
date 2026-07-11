@@ -8,6 +8,70 @@
 
 ## 2026-07-11（周六）
 
+## 2026-07-11（周六）
+
+### Bridge 处理流程审计 —— 时序模型澄清与 Pipeline 缺口
+
+**背景**：2026-07-11 的 StreamingXmlParser 恢复（commit `56cb7ee`）和全面集成后，仍有遗留问题：`_stream_parse_chunk()` 丢弃 `EventType.BRIDGE`，pre-fetch 触发时机和时序模型存在理解偏差。本 session 对 bridge 处理全流程进行系统性审计。
+
+**时序模型澄清（关键认知修正）**：
+
+三层独立流模型：
+```
+LLM 生成流（token 产出）
+    ≥
+程序解析流（StreamingXmlParser 逐行解析）
+    ≥
+UI 展示流（用户阅读 / 自动推进）
+```
+
+**`<bridge/>` 的正确定位**：
+- 对 LLM：**结构约束**——标记交互区与叙事区硬分界
+- 对程序：**模式切换**——`_post_bridge = True`，后续快速解析（无 UI 反馈）、错误捕获、bridge_text 存储
+- Pre-fetch 的真正触发点是 **`</story>`（解析完成）**，不是 `<bridge/>`
+- Bridge→`</story>` 区间解析极快（纯叙事、无 UI 阻塞），两者几乎同时
+
+此澄清推翻了之前记忆文件中的部分结论——pre-fetch 不需要在 bridge 时刻立即触发，当前在解析完成处触发是正确设计。
+
+**标准每轮流程**（引擎视角）：
+
+```
+1. TTFT 等待 — UI 展示上一轮 bridge_text（首轮无）
+2. <story> 开始 — 解析生命周期入口
+3. 流式解析 — 逐行处理，向 UI 发送 segment，必要时等待 UI 反馈（选项）
+4. <bridge/> — 模式切换（非时序触发器）
+5. </story> — 打包数据 → 存储 → 组装 Prompt → 后台 API 调用
+6. 错误处理 — 严重（通知 UI、用户决策）/ 普通（程序内部处理、Prompt 反馈）
+```
+
+**修复内容**（commit `30a4a09`）：
+
+| 修复 | 说明 |
+|------|------|
+| BRIDGE 事件产出 | `_stream_parse_chunk()` 新增 `{"type": "bridge"}` yield |
+| 统一分支过滤 | 移除 `position == "pre"` 限制——post-bridge 命名 branch 同样按 `current_branch` 过滤 |
+| 规范：三层时序 | `exec-flow.md` §4.3 增加时序模型 + 流间同步规则 |
+| 规范：bridge 双重角色 | `exec-flow.md` §4.7 重写——分离"LLM 结构约束"和"程序模式切换" |
+| 规范：UI 队列缓冲 | `exec-flow.md` §4.5 增加推荐 UI 消费模式 |
+
+**剩余缺口**：
+
+代码侧：
+- `STORY_BEGIN` / `STORY_END` 事件被 `_stream_parse_chunk()` 丢弃——引擎无法感知解析生命周期边界（P1）
+- 错误处理不一致：API 错误用 `yield {"type": "error"}`，解析失败用 `raise ParseError`——调用者需两条路径（P1）
+- `continue_round_stream()` 与 `_stream_from_prefetch()` 共享 ~70 行重复逻辑——应抽取 `_process_round()`（P2）
+
+规范侧：
+- §4.1 8-step pipeline 混淆引擎/UI 职责（P1）
+- 缺少显式 TTFT 等待阶段描述（P2）
+- 缺少错误严重等级分类（P1）
+
+**依据**：
+- commit `30a4a09` — `fix(engine): surface BRIDGE events, unify branch filter across bridge boundary`
+- [[2026-07-11-bridge-processing-audit]]（完整审计记录）
+- [[2026-07-11-streaming-parser-timing-flaw]]（更新后状态）
+- [[streaming-parser-integration-2026-07-11]]（更新后状态）
+
 ### Bridge pre-fetch 时机缺陷 —— 未在 `<bridge/>` 处即时触发
 
 **背景**：2026-07-11 规范合规审查发现，`exec-flow.md` §4.3 明确要求：
