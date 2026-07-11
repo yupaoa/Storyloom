@@ -718,7 +718,6 @@ ch2_confrontation [active] — 地下交易：与耗子会面
 ch3_ally [pending] — 盟友之路：通过地下网络逃离
 ch3_betrayal [pending] — 背叛之路：杀出重围
 ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
-[completed]=已完成 [active]=当前 [pending]=待推进
 
 **Active Node:** ch2_confrontation — 与耗子完成交易
 
