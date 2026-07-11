@@ -72,6 +72,41 @@ UI 展示流（用户阅读 / 自动推进）
 - [[2026-07-11-streaming-parser-timing-flaw]]（更新后状态）
 - [[streaming-parser-integration-2026-07-11]]（更新后状态）
 
+### 叙事循环统一 —— 审计缺口全面修复
+
+**背景**：上一条审计发现 8 个缺口（4 代码 + 4 规范）。本 session 按照 6 阶段引擎视角标准流程，逐一修复。
+
+**决策**：
+
+**规范修复（3 项）**：
+| 修复 | 说明 |
+|------|------|
+| §4.1 8-step → 6-phase | 替换混淆引擎/UI 职责的旧管道，明确职责边界 |
+| §4.1.1 错误等级分类 | 正式定义两级错误：严重（通知 UI→用户决策）vs 普通（内部处理→Prompt 反馈） |
+| TTFT 等待阶段 | 6 阶段第 1 步显式描述 |
+
+**代码修复（5 项）**：
+| 修复 | 说明 |
+|------|------|
+| STORY_BEGIN / STORY_END 事件 | `_stream_parse_chunk()` 不再丢弃——引擎可感知解析生命周期边界 |
+| 提取 `_apply_deferred_step()` | Steps 2-3.6（延迟 set + 路由评估 + checkpoint 累积）在 `_launch_prefetch` 和 `continue_round_stream` 之间共享，消除重复 |
+| 提取 `_finalize_parsed_round()` | Post-parse 逻辑（format_errors → add_round → unconditional sets → adventure log → options/ending/done yield → notify）从两处 ~70 行重复变为一处 |
+| 删除 `_stream_from_prefetch` | 内联到 `continue_round_stream`——**单一续行入口**。Pre-fetch 降级为 API 响应来源的二选一（`queue.Queue` vs `api_client.stream_chat_iter`），不再有独立流程 |
+| 错误路径统一 | `XmlParser` 的 `raise ParseError` 路径已从生产流消除（核心引擎零引用），所有错误统一走 `yield {"type": "error"}` |
+
+**架构效果**：
+```
+continue_round_stream(choice_key)    ← 唯一续行入口
+  ├─ [pre-fetch hit]  从 queue 取 chunks（来源 B）
+  └─ [pre-fetch miss] 实时调用 API（来源 A）
+  └─ _finalize_parsed_round()        ← 统一完成出口
+```
+净变化：-96 行（394 insertions, 490 deletions），8 个审计缺口全部关闭。
+
+**依据**：
+- commit `640a862` — `refactor(engine): unify narrative loop into single continuation flow`
+- [[2026-07-11-bridge-processing-audit]]（缺口来源，状态更新为已关闭）
+
 ### Bridge pre-fetch 时机缺陷 —— 未在 `<bridge/>` 处即时触发
 
 **背景**：2026-07-11 规范合规审查发现，`exec-flow.md` §4.3 明确要求：
