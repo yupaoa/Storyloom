@@ -800,6 +800,8 @@ class GameLoop:
             # Validate checkpoint node exists in outline (data-model.md §2
             # step 2).  "end" is always valid.  Unknown node IDs — likely
             # LLM hallucinations — are silently ignored (no crash, no save).
+            # Invalid checkpoints are observable via the RoundRecord observer
+            # (parsed.checkpoint_node vs outline_nodes); no explicit log here.
             cp_valid = (cp_node == "end")
             if not cp_valid and self._outline_nodes:
                 valid_ids = {n.get("id", "") for n in self._outline_nodes}
