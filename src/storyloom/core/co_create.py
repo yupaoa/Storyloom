@@ -1,9 +1,10 @@
 """Co-creation phase: user input → Q&A loop → story setup generation."""
 import re
 from dataclasses import dataclass, field
+from string import Template
 
 from storyloom.io.api_client import ApiClient
-from storyloom.i18n import _
+from storyloom.i18n import _, get_current_lang
 from storyloom.config import (
     MAX_RETRIES,
     STORY_LABEL_MIN_CHARS,
@@ -12,6 +13,8 @@ from storyloom.config import (
     VARIABLE_NUMERIC_CAP,
     VARIABLE_LABEL_CAP,
     OUTLINE_NODE_RANGES,
+    DEFAULT_LANGUAGE,
+    SUPPORTED_LANGUAGES,
 )
 
 
@@ -416,9 +419,32 @@ class CoCreateParser:
         return "\n".join(lines)
 
 
+# ── Language metadata for LLM instructions (English — not user-visible) ──
+
+_LANG_META = {
+    "zh-CN": {
+        "instruction": (
+            "The user's language is Chinese (zh-CN). "
+            "Conduct the Q&A conversation in Chinese. "
+            "All questions, example answers, and the story title (label) must be in Chinese."
+        ),
+        "label_hint": "{a short Chinese title, 5-15 characters, used for save files}",
+    },
+    "en": {
+        "instruction": (
+            "The user's language is English (en). "
+            "Conduct the Q&A conversation in English. "
+            "All questions, example answers, and the story title (label) must be in English."
+        ),
+        "label_hint": "{unique story identifier for save files}",
+    },
+}
+
 # ── Prompt Templates ────────────────────────────────────────────────
 
-CO_CREATE_SYSTEM_PROMPT = """You are a warm and perceptive story co-creation partner. Your goal is to help the user discover the story they truly want to experience — by asking thoughtful questions, listening carefully, and guiding gently.
+CO_CREATE_SYSTEM_PROMPT = Template("""You are a warm and perceptive story co-creation partner. Your goal is to help the user discover the story they truly want to experience — by asking thoughtful questions, listening carefully, and guiding gently.
+
+$language_instruction
 
 # Questioning Phase
 
@@ -434,13 +460,13 @@ Ask one question at a time, focused on these five dimensions. Do NOT reveal spec
 [1] example answer one
 [2] example answer two
 [3] example answer three
-（或输入你自己的答案）
+$own_answer_hint
 ```
 
 Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.
 
 When you have enough information (usually 3-5 questions), end your reply with:
-"This should be enough — shall I start generating the story?"
+"$start_question"
 
 When the user indicates they are ready, I will ask you to generate the full setup.
 
@@ -454,7 +480,8 @@ When asked to generate the full setup, output ALL THREE sections below in order.
 === story_config ===
 genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
 tier: {short / medium / long}
-label: {unique story identifier for save files}
+label: $label_hint
+language: $language
 setting: {one sentence: era, location, key world facts}
 protagonist_name: {name}
 protagonist_identity: {one sentence}
@@ -533,7 +560,7 @@ goal: {narrative goal}
 routes:
 ```
 
-Output all three sections in a single response. Do not add commentary before or after."""
+Output all three sections in a single response. Do not add commentary before or after.""")
 
 
 GENERATE_ALL_PROMPT = """Based on our conversation above, generate the complete story setup.
@@ -575,10 +602,25 @@ class CoCreateFlow:
     _START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes", "go", "start", "begin", "ready"}
     _QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q", "stop", "abort"}
 
+    @staticmethod
+    def _build_system_prompt() -> str:
+        """Build the language-aware co-creation system prompt."""
+        lang = get_current_lang()
+        if lang not in SUPPORTED_LANGUAGES:
+            lang = DEFAULT_LANGUAGE
+        meta = _LANG_META[lang]
+        return CO_CREATE_SYSTEM_PROMPT.substitute(
+            language_instruction=meta["instruction"],
+            label_hint=meta["label_hint"],
+            own_answer_hint=_("(or write your own answer)"),
+            start_question=_("This should be enough — shall I start generating the story?"),
+            language=lang,
+        )
+
     def __init__(self, api_client: ApiClient):
         self._api = api_client
         self._messages: list[dict] = [
-            {"role": "system", "content": CO_CREATE_SYSTEM_PROMPT}
+            {"role": "system", "content": self._build_system_prompt()}
         ]
         self._phase: str = "init"
         self._result: CoCreationResult | None = None
