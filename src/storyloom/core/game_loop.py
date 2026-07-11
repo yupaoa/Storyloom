@@ -223,10 +223,14 @@ class GameState:
         else:
             val = set_op.val
 
-        # Step 4: Evaluate condition
+        # Step 4: Evaluate condition (per block-spec.md §5: condition
+        # not met → skip without rejection).
         if set_op.condition:
             if not self.evaluate_condition(set_op.condition, choice_dict):
-                return SetResult(accepted=True)  # Skipped, not rejected
+                return SetResult(
+                    accepted=True,
+                    reason="skipped: condition not met",
+                )
 
         # Step 5: Apply
         if var_type == "number":
@@ -467,6 +471,12 @@ class GameLoop:
         self.ending_flag: bool = False
         self._save_manager = None
         self._created_at: str | None = None
+
+        # Adventure log — launched in a daemon thread during Phase 5 of the
+        # final round (same pattern as _launch_api for regular pre-fetch).
+        # The UI calls get_adventure_log() to retrieve the result.
+        self._adv_thread: threading.Thread | None = None
+        self._adv_result: str | None = None
 
         # Pending API state — every round's Phase 5 launches the *next*
         # round's API call in a daemon thread and stores the result queue
@@ -791,7 +801,15 @@ class GameLoop:
         parsed = sp.get_result()
 
         # ── Format errors ───────────────────────────────────────────
-        format_errors = sp.format_errors
+        # Merge errors from two independent sources:
+        #   1. sp.format_errors — post-bridge violations detected by
+        #      the streaming parser.
+        #   2. self._format_error — errors set during Phase 3 by
+        #      _handle_checkpoint (e.g. unknown node ID).
+        # Both must be fed back to the LLM in the next round's prompt.
+        format_errors: list[str] = list(sp.format_errors)
+        if self._format_error:
+            format_errors.append(self._format_error)
         self._format_error = (
             "; ".join(format_errors) if format_errors else None
         )
@@ -821,22 +839,21 @@ class GameLoop:
         self._last_bridge_text = sp.get_bridge_text(current_branch)
 
         # ── Ending: launch adventure log (concurrent per §5.2) ──────
+        # Same pattern as bridge pre-fetch: launch daemon thread, yield
+        # immediately, let the UI retrieve the result at its own pace.
         if self.ending_flag:
-            adv_result: dict = {}
-
             def _fetch_adv() -> None:
                 try:
-                    adv_result["text"] = self.run_adventure_log()
+                    self._adv_result = self.run_adventure_log()
                 except Exception:
-                    adv_result["text"] = None
+                    self._adv_result = None
 
-            adv_thread = threading.Thread(target=_fetch_adv, daemon=True)
-            adv_thread.start()
-            adv_thread.join(timeout=30)
+            self._adv_thread = threading.Thread(target=_fetch_adv, daemon=True)
+            self._adv_thread.start()
 
             yield {
                 "type": "ending",
-                "adventure_log": adv_result.get("text"),
+                "adventure_log": None,  # UI calls get_adventure_log() to retrieve
                 "final_state": self.game_state.state_vars,
                 "summary": parsed.checkpoint_summary,
             }
@@ -975,13 +992,19 @@ class GameLoop:
         if self._created_at is None:
             self._created_at = now
 
+        # ContextManager.round_count tracks *completed* rounds.  Auto-save
+        # fires at checkpoint time (Phase 3), before add_round() increments
+        # the counter in Phase 5.  +1 accounts for the current in-progress
+        # round so that the save records the correct round number.
+        current_round = self._context_mgr.round_count + 1
+
         return {
             "version": SAVE_VERSION,
             "metadata": {
                 "label": label,
                 "created_at": self._created_at,
                 "updated_at": now,
-                "round_count": self._context_mgr.round_count,
+                "round_count": current_round,
             },
             "config": {
                 "temperature": getattr(self, "_temperature", None),
@@ -991,7 +1014,7 @@ class GameLoop:
             "outline": outline_for_save,
             "progress": {
                 "current_node": self.current_node or "",
-                "round_count": self._context_mgr.round_count,
+                "round_count": current_round,
                 "checkpoint_history": list(self._checkpoint_history),
                 "checkpoint_summaries": list(self._checkpoint_summaries),
                 "checkpoint_snapshots": copy.deepcopy(self._checkpoint_snapshots),
@@ -1009,15 +1032,38 @@ class GameLoop:
         story_config = data["story_config"]
         state_vars_data = {"state_vars": data["state_vars"]}
 
-        # Reconstruct outline text from nodes
+        # Reconstruct outline text from nodes, including branch
+        # connection lines (├→ / └→) that the original
+        # CoCreateParser.format_outline() produces.
         outline_nodes = data["outline"]
         outline_lines = []
+        # Build status lookup for branch targets
+        node_status: dict[str, str] = {}
+        for node in outline_nodes:
+            nid = node.get("node_id", node.get("id", ""))
+            node_status[nid] = node.get("status", "pending")
+
         for node in outline_nodes:
             nid = node.get("node_id", node.get("id", ""))
             status = node.get("status", "pending")
             title = node.get("title", "")
             goal = node.get("goal", "")
             outline_lines.append(f"{nid} [{status}] — {title}：{goal}")
+
+            # Branch connection lines
+            branches = node.get("branches", [])
+            if branches:
+                for j, branch in enumerate(branches):
+                    is_last = (j == len(branches) - 1)
+                    prefix = "  └→" if is_last else "  ├→"
+                    if isinstance(branch, dict):
+                        target = branch.get("target", "")
+                    else:
+                        target = branch  # old format: plain target string
+                    target_status = node_status.get(target, "pending")
+                    outline_lines.append(
+                        f"{prefix} {target} [{target_status}]"
+                    )
         outline_text = "\n".join(outline_lines)
 
         # Restore GameState
@@ -1206,8 +1252,9 @@ class GameLoop:
     ) -> dict | None:
         """Apply a SET event immediately during streaming parse.
 
-        Constructs a ``SetOperation`` from the event fields, applies it
-        via ``game_state.apply_set()``, and records any rejection reason.
+        Constructs a ``SetOperation`` from the event fields, delegates to
+        ``game_state.apply_set()`` for validation / condition evaluation /
+        application, and records any rejection reason.
 
         Returns a state-change dict suitable for yielding as a
         ``{"type": "state", ...}`` event, or ``None`` if the set was
@@ -1219,14 +1266,12 @@ class GameLoop:
             val=event.set_val or "",
             condition=event.set_if,
         )
-        # Evaluate condition BEFORE apply — avoids ambiguity between
-        # "condition not met (skipped)" and "condition met (applied)"
-        # that share the same SetResult shape.
-        if (set_op.condition
-                and not game_state.evaluate_condition(
-                    set_op.condition, choice_dict)):
-            return None  # condition not met — skip silently
         result = game_state.apply_set(set_op, choice_dict)
+
+        # Condition not met → skip silently, no event.
+        if result.reason and result.reason.startswith("skipped:"):
+            return None
+
         change = {
             "var": set_op.var,
             "op": set_op.op,
@@ -1234,6 +1279,8 @@ class GameLoop:
             "accepted": result.accepted,
             "reason": result.reason,
         }
+        # Report genuine rejections and silent corrections (clamp, etc.)
+        # to the LLM in the next round, but NOT skipped conditions.
         if result.reason:
             rejected.append(result.reason)
         return change
@@ -1412,14 +1459,10 @@ class GameLoop:
 
         cp_title = cp_node
         if self._outline_nodes:
-            if cp_node == "end":
-                last = self._outline_nodes[-1]
-                cp_title = last.get("title", "ending") or "ending"
-            else:
-                for node in self._outline_nodes:
-                    if node.get("id") == cp_node:
-                        cp_title = node.get("title", cp_node)
-                        break
+            for node in self._outline_nodes:
+                if node.get("id") == cp_node:
+                    cp_title = node.get("title", cp_node)
+                    break
 
         self._checkpoint_history.append({
             "node": cp_node,
@@ -1458,3 +1501,21 @@ class GameLoop:
         # narrative loop.  Send only the adventure-log prompt, not the
         # full conversation context (~50K tokens).
         return self.api_client.chat([{"role": "user", "content": prompt}])
+
+    def get_adventure_log(self, timeout: float = 30.0) -> str | None:
+        """Wait for the background adventure log thread and return the text.
+
+        Called by the UI after receiving the ``ending`` event.
+        The adventure log is fetched in a daemon thread (same pattern as
+        bridge pre-fetch) so the generator is never blocked.
+
+        Args:
+            timeout: Maximum seconds to wait for the API response.
+
+        Returns:
+            Adventure log markdown text, or ``None`` on timeout / error.
+        """
+        if self._adv_thread is None:
+            return None
+        self._adv_thread.join(timeout=timeout)
+        return self._adv_result

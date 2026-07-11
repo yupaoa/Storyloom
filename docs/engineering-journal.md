@@ -8,6 +8,29 @@
 
 ## 2026-07-11（周六）
 
+### Spec-vs-Code 审计 —— 6 项修复
+
+**背景**：在 `stream_round()` 统一重构后，对全部 4 份 spec 文档与核心源代码进行逐条对照审计，确认代码是否忠实落实规范流程与设计。本次是重构后首次全面审计。
+
+**发现与修复**：
+
+| # | 级别 | 问题 | 处理 |
+|---|------|------|------|
+| 1 | P1 | `to_save_dict` 的 `round_count` 差一：存档在 Phase 3 触发但 `add_round` 在 Phase 5 递增 | `to_save_dict` 使用 `round_count + 1` |
+| 2 | P1 | `from_save_dict` 重建 `outline_text` 丢失分支树（`├→`/`└→`） | 恢复分支连接行，兼容新旧保存格式 |
+| 3 | P1 | `_handle_checkpoint` 设置的格式错误被 Phase 5 无条件覆盖 | Phase 5 合并解析器错误 + checkpoint 校验错误 |
+| 4 | P2 | 冒险日志 `join()` 阻塞 generator，与普通轮间衔接的异步模式不对称 | 移除 `join()`，新增 `get_adventure_log()` 公共方法 |
+| 5 | P2 | `_parse_outline_goals` 提取 `{title}：{goal}` 而非仅 goal | 规范 `prompt-design.md` §4.3 更新为含标题前缀 |
+| 6 | P2 | `_accumulate_checkpoint` 残留 `cp_node == "end"` dead code | 删除旧设计分支 |
+| 7 | P2 | `_handle_set_event` + `apply_set` 双重条件求值 | `apply_set` 区分"跳过"（`reason="skipped:..."`），删除 `_handle_set_event` 重复预检 |
+| 8 | P2 | Q&A 15 轮上限与规范"不做轮数上限"矛盾 | 撤回——15 轮为安全熔断，非规范违规 |
+
+**净效果**：引擎核心 -12 行（含 5 行 dead code），`GameLoop` 新增 1 个公共方法（`get_adventure_log`），`prompt-design.md` §4.3 更新 2 处，293 测试全绿。
+
+**依据**：
+- 4 份权威 spec：`exec-flow.md`、`block-spec.md`、`prompt-design.md`、`data-model.md`
+- `stream_round()` 重构：commit `04845ce`
+
 ### 叙事循环统一重构 —— stream_round() 单入口
 
 **背景**：07-11 前序审计（[[2026-07-11-bridge-processing-audit]]）和 streaming parser 集成后，代码与 spec 仍存在结构性偏离：

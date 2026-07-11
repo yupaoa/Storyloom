@@ -491,7 +491,7 @@ The active node indicates the current direction; decide whether to complete it t
 | 内容 | 来源 | 说明 |
 |------|------|------|
 | 当前节点 | `current_node` | 当前大纲节点 ID |
-| 目标 | `goal` | 当前节点的叙事目标 |
+| 目标 | `goal` | 当前节点的叙事目标（含标题前缀，格式 `{title}：{goal}`） |
 | 已完成节点 | `completed_nodes` | 已通过的 checkpoint 列表 |
 | 压缩摘要 | `compressed_summaries` | 滑出窗口轮次的 checkpoint 摘要 |
 | 状态快照 | `state_vars` | 所有变量的当前值 |
@@ -502,7 +502,7 @@ The active node indicates the current direction; decide whether to complete it t
 #### 格式示例（Round N）
 
 ```
-当前节点：ch3_ally — 通过地下网络逃离
+当前节点：ch3_ally — 盟友之路：通过地下网络逃离
 已完成节点：ch1_bar, ch2_confrontation
 
 已完成的章节摘要：

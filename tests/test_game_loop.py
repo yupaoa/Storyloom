@@ -212,7 +212,8 @@ class TestGameStateApplySet:
         gs = GameState(SAMPLE_STORY_CONFIG)
         op = SetOperation(var="信任度", op="+", val="5", condition="approach==1")
         result = gs.apply_set(op, {"approach": 2})
-        assert result.accepted  # Accepted but skipped
+        assert result.accepted
+        assert result.reason == "skipped: condition not met"
         assert gs.state_vars["信任度"] == 10  # Unchanged
 
     def test_rejects_nonexistent_variable(self):
