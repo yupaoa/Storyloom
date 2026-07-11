@@ -66,8 +66,8 @@ class ParsedOutput:
     total_segments: int = 0
     pre_segments: int = 0
     post_segments: int = 0
-    choice_id: str | None = None        # deprecated: use choices[-1]["id"]
-    opt_branches: list[str] = field(default_factory=list)  # deprecated
+    choice_id: str | None = None        # convenience: last choice's id (= choices[-1]["id"])
+    opt_branches: list[str] = field(default_factory=list)  # convenience: all choice branches flattened
     choices: list[dict] = field(default_factory=list)  # [{"id": str, "branches": [str]}]
     sets: list[SetOperation] = field(default_factory=list)
     checkpoint_node: str | None = None
