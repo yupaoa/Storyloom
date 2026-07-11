@@ -724,9 +724,72 @@ class GameLoop:
             return
 
         # ── Fast path: consume pre-fetched API response ────────────
+        # _launch_prefetch already applied Steps 2-3.6 and started a
+        # background API call.  Drain the buffered response — the only
+        # difference from the live path is the response source.
         prefetch = self._take_prefetch(choice_key)
         if prefetch is not None:
-            yield from self._stream_from_prefetch(prefetch)
+            yield from prefetch["state_events"]
+
+            prefetch["thread"].join(timeout=STREAM_STALL_TIMEOUT_SEC)
+            if prefetch["thread"].is_alive():
+                yield {
+                    "type": "error",
+                    "message": (
+                        "Pre-fetched API call timed out after "
+                        f"{STREAM_STALL_TIMEOUT_SEC}s"
+                    ),
+                }
+                return
+
+            lb = LineBuffer()
+            sp = StreamingXmlParser()
+            collected: list[str] = []
+            ttft: float | None = None
+            tokens: dict | None = None
+            current_branch = self._current_branch
+
+            while True:
+                try:
+                    chunk = prefetch["queue"].get_nowait()
+                except queue.Empty:
+                    break
+                if "__prefetch_error__" in chunk:
+                    yield {
+                        "type": "error",
+                        "message": f"Pre-fetch API error: {chunk['__prefetch_error__']}",
+                    }
+                    return
+                if chunk.get("done"):
+                    tokens = chunk.get("usage")
+                else:
+                    if chunk.get("ttft") is not None:
+                        ttft = chunk["ttft"]
+                    delta = chunk["delta"]
+                    collected.append(delta)
+                    yield {"type": "token", "text": delta}
+                    yield from self._stream_parse_chunk(delta, lb, sp, current_branch)
+
+            remaining = lb.flush()
+            if remaining:
+                yield from self._stream_parse_chunk(remaining, lb, sp, current_branch)
+
+            response = "".join(collected)
+            yield from self._finalize_parsed_round(
+                sp=sp,
+                user_content=prefetch["user_content"],
+                response=response,
+                messages=prefetch["messages"],
+                selected_branch=prefetch.get("selected_branch"),
+                current_branch=current_branch,
+                ttft=ttft,
+                tokens=tokens,
+            )
+
+            # Chain pre-fetch for next auto-advance round
+            if not self.last_parsed or not self.last_parsed.choices:
+                if not self.ending_flag:
+                    self._launch_prefetch(choice_key)
             return
 
         # ── Step 1: Build choice_dict ───────────────────────────────
@@ -743,26 +806,8 @@ class GameLoop:
         if selected_branch is not None:
             self._current_branch = selected_branch
 
-        # ── Step 2: Apply last round's conditional sets ─────────────
-        # Unconditional sets were already applied in Step 9 of their own
-        # round.  Only conditional sets (those with an `if` attribute)
-        # are deferred — they may depend on the player's choice_dict.
-        step2_changes: list[dict] = []
-        new_rejected: list[str] = []
-        for set_op in self.last_parsed.sets:
-            if not set_op.condition:
-                continue  # unconditional — already applied in its own round
-            result = self.game_state.apply_set(set_op, choice_dict)
-            step2_changes.append({
-                "var": set_op.var,
-                "op": set_op.op,
-                "val": set_op.val,
-                "accepted": result.accepted,
-                "reason": result.reason,
-            })
-            if result.reason:
-                new_rejected.append(result.reason)
-        self._rejected_changes = new_rejected
+        # ── Steps 2-3.6: deferred sets, routes, checkpoint, ending ──
+        step2_changes, _ = self._apply_deferred_step(choice_dict)
 
         if step2_changes:
             yield {
@@ -770,53 +815,6 @@ class GameLoop:
                 "vars": self.game_state.state_vars,
                 "changes": step2_changes,
             }
-
-        # ── Step 3: Evaluate routes → advance node ──────────────────
-        if choice_dict:
-            old_node = self.current_node
-            route = self._evaluate_routes(choice_dict)
-            if route:
-                if old_node and old_node not in self._completed_nodes:
-                    self._completed_nodes.append(old_node)
-                self.current_node = route
-                self.goal = self._node_goals.get(route, self.goal or "")
-            elif not self.last_parsed.routes:
-                if old_node and old_node not in self._completed_nodes:
-                    self._completed_nodes.append(old_node)
-        elif not self.last_parsed.routes:
-            # No player choice and no routes — LLM auto-advanced node
-            cp = self.last_parsed.checkpoint_node
-            if cp and cp != self.current_node:
-                if self.current_node and self.current_node not in self._completed_nodes:
-                    self._completed_nodes.append(self.current_node)
-                self.current_node = cp
-                self.goal = self._node_goals.get(cp, self.goal or "")
-
-        # ── Step 3.5: Accumulate checkpoint data ────────────────────
-        if self.last_parsed.checkpoint_node:
-            cp_node = self.last_parsed.checkpoint_node
-            cp_summary = self.last_parsed.checkpoint_summary or ""
-
-            # Validate checkpoint node exists in outline (data-model.md §2
-            # step 2).  "end" is always valid.  Unknown node IDs — likely
-            # LLM hallucinations — are silently ignored (no crash, no save).
-            # Invalid checkpoints are observable via the RoundRecord observer
-            # (parsed.checkpoint_node vs outline_nodes); no explicit log here.
-            cp_valid = (cp_node == "end")
-            if not cp_valid and self._outline_nodes:
-                valid_ids = {n.get("id", "") for n in self._outline_nodes}
-                cp_valid = cp_node in valid_ids
-            elif not cp_valid and not self._outline_nodes:
-                cp_valid = True  # no outline loaded → accept provisionally
-
-            if cp_valid:
-                self._accumulate_checkpoint(cp_node, cp_summary)
-
-        # ── Step 3.6: Ending detection ──────────────────────────────
-        if self.last_parsed.checkpoint_node == "end":
-            self.ending_flag = True
-            if "end" not in self._completed_nodes:
-                self._completed_nodes.append("end")
 
         # ── Step 4: Build Round N context ───────────────────────────
         compressed_summaries = self._context_mgr.get_compressed_summaries() or None
@@ -870,147 +868,38 @@ class GameLoop:
 
         response = "".join(collected)
 
-        # ── Step 7: Get complete parsed output ────────────────────────
-        self._format_error = None  # clear previous error
-        parsed = sp.get_result()
-        format_errors = sp.format_errors
-        if format_errors:
-            self._format_error = "; ".join(format_errors)
-
-        # ── Post-parse: handle "end" checkpoint from THIS round ─────
-        # Per exec-flow.md §5.2 the adventure log must be requested at
-        # bridge time and run concurrently with bridge_text display.
-        # Process the "end" checkpoint immediately — it does not depend
-        # on deferred choice_dict resolution.
-        if parsed.checkpoint_node == "end":
-            self._accumulate_checkpoint("end", parsed.checkpoint_summary or "")
-            self.ending_flag = True
-            if "end" not in self._completed_nodes:
-                self._completed_nodes.append("end")
-
-        # ── Step 8: Store round in context manager ──────────────────
-        self._context_mgr.add_round(
-            rn_context, response,
-            bridge_text=sp.get_bridge_text(self._current_branch),
-            selected_branch=selected_branch,
-        )
-
-        # ── Step 9: Apply this round's unconditional sets ───────────
-        step9_changes: list[dict] = []
-        for set_op in parsed.sets:
-            if not set_op.condition:
-                result = self.game_state.apply_set(set_op, {})
-                step9_changes.append({
-                    "var": set_op.var,
-                    "op": set_op.op,
-                    "val": set_op.val,
-                    "accepted": result.accepted,
-                    "reason": result.reason,
-                })
-                if result.reason:
-                    self._rejected_changes.append(result.reason)
-
-        if step9_changes:
-            yield {
-                "type": "state",
-                "vars": self.game_state.state_vars,
-                "changes": step9_changes,
-            }
-
-        # Update stored state
-        self.last_parsed = parsed
-        self._last_bridge_text = parsed.bridge_text
-
-        # Capture state *before* pre-fetch mutates it for the next round.
-        done_state = self.game_state.state_vars
-        done_node = self.current_node
-        done_round = self._context_mgr.round_count
-
         # ── Bridge pre-fetch: fire next API call for auto-advance ─
         # Per exec-flow.md §4.7 the next round's prompt is assembled at
         # <bridge/> time so the post-bridge segments (bridge_text) act as
         # a display buffer that hides the API latency.
-        # MUST be before _emit_options() — the background API call runs
-        # concurrently with segment display, so TTFT is absorbed by
-        # bridge_text reading time.
-        if not parsed.choices and not self.ending_flag:
-            self._launch_prefetch(choice_key)
+        # MUST be called *before* _finalize_parsed_round — the background
+        # API call runs concurrently with segment/adventure-log display.
+        #
+        # Capture state snapshot first: _launch_prefetch mutates
+        # game_state, current_node, and current_branch for the next round
+        # (applies deferred sets + evaluates routes).  The "done" event
+        # must reflect the state as it was at the END of THIS round.
+        done_node = self.current_node
+        done_state = self.game_state.state_vars
+        done_round = self._context_mgr.round_count
+        if not self.ending_flag:
+            parsed_pre = sp.get_result()
+            if not parsed_pre.choices:
+                self._launch_prefetch(choice_key)
 
-        # ── Launch adventure log in background if ending ───────────
-        # Per exec-flow.md §5.2: submit adventure log at bridge time
-        # so the API call runs concurrently with bridge_text display.
-        # The segment emission below acts as the latency buffer.
-        _adventure_thread: threading.Thread | None = None
-        _adventure_result: dict = {}
-        if self.ending_flag:
-            def _fetch_adventure() -> None:
-                try:
-                    _adventure_result["text"] = self.run_adventure_log()
-                except Exception:
-                    _adventure_result["text"] = None
-            _adventure_thread = threading.Thread(
-                target=_fetch_adventure, daemon=True
-            )
-            _adventure_thread.start()
-
-        # ── Yield options (segments were already streamed above) ─────
-        yield from self._emit_options(parsed)
-
-        # ── Check for ending after emitting parsed content ──
-        if self.ending_flag:
-            # Join the background adventure-log thread (it started
-            # before segment emission, so most of the API latency is
-            # already absorbed by display time).
-            if _adventure_thread is not None:
-                _adventure_thread.join(timeout=30)
-            adventure_log = _adventure_result.get("text")
-
-            yield {
-                "type": "ending",
-                "adventure_log": adventure_log,
-                "final_state": self.game_state.state_vars,
-                "summary": self.last_parsed.checkpoint_summary,
-            }
-            yield {
-                "type": "done",
-                "round": self._context_mgr.round_count,
-                "node": "end",
-                "state": self.game_state.state_vars,
-            }
-
-            # Notify observers for ending round (same data as normal rounds)
-            self._notify(RoundRecord(
-                round_number=self._context_mgr.round_count,
-                messages_sent=messages,
-                raw_response=response,
-                parsed=parsed,
-                ttft=ttft,
-                tokens=tokens,
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                node="end",
-                selected_branch=selected_branch,
-            ))
-            return  # Game over
-
-        # ── Notify observer ─────────────────────────────────────────
-        self._notify(RoundRecord(
-            round_number=self._context_mgr.round_count,
-            messages_sent=messages,
-            raw_response=response,
-            parsed=parsed,
+        yield from self._finalize_parsed_round(
+            sp=sp,
+            user_content=rn_context,
+            response=response,
+            messages=messages,
+            selected_branch=selected_branch,
+            current_branch=self._current_branch,
             ttft=ttft,
             tokens=tokens,
-            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            node=self.current_node,
-            selected_branch=selected_branch,
-        ))
-
-        yield {
-            "type": "done",
-            "round": done_round,
-            "node": done_node,
-            "state": done_state,
-        }
+            done_node=done_node,
+            done_state=done_state,
+            done_round=done_round,
+        )
 
     def continue_round(self, choice_key: str | None = None) -> RoundResult:
         """Process player choice, build context, call API, parse response.
@@ -1081,12 +970,17 @@ class GameLoop:
         yielded to the UI — they are surfaced via ``sp.format_errors``
         after ``get_result()``.
 
-        Yields ``{"type": "segment", ...}`` and ``{"type": "bridge"}``
-        events as lines complete.
+        Yields ``{"type": "story_begin"}``, ``{"type": "story_end"}``,
+        ``{"type": "segment", ...}``, and ``{"type": "bridge"}`` events
+        as lines complete.
         """
         for line in lb.feed(text):
             for event in sp.feed_line(line):
-                if event.type == EventType.BRIDGE:
+                if event.type == EventType.STORY_BEGIN:
+                    yield {"type": "story_begin"}
+                elif event.type == EventType.STORY_END:
+                    yield {"type": "story_end"}
+                elif event.type == EventType.BRIDGE:
                     yield {"type": "bridge"}
                 elif event.type == EventType.SEGMENT:
                     # Bare segs (branch_name is None) always pass.
@@ -1104,7 +998,238 @@ class GameLoop:
                         "branch": event.branch_name,
                     }
 
+    # ── Round Finalization ─────────────────────────────────────────
+
+    def _finalize_parsed_round(
+        self,
+        sp: StreamingXmlParser,
+        user_content: str,
+        response: str,
+        messages: list[dict],
+        selected_branch: str | None,
+        current_branch: str,
+        ttft: float | None = None,
+        tokens: dict | None = None,
+        done_node: str | None = None,
+        done_state: dict | None = None,
+        done_round: int | None = None,
+    ) -> Iterator[dict]:
+        """Shared post-parse processing for continue_round_stream
+        (both live and pre-fetch paths).
+
+        Handles: parsed extraction, format errors, end checkpoint,
+        store in context, unconditional sets, adventure log launch,
+        options yield, ending/done events, observer notification.
+
+        Callers handle pre-fetch at their own timing (before or after
+        this method), since the two paths differ in when state snapshots
+        must be captured.
+
+        *done_node*, *done_state*, and *done_round* are snapshots taken
+        BEFORE pre-fetch mutation.  When omitted they default to the
+        current live values (correct for the pre-fetch path).
+        """
+        # ── Get complete parsed output ──────────────────────────────
+        self._format_error = None  # clear previous error
+        parsed = sp.get_result()
+        format_errors = sp.format_errors
+        if format_errors:
+            self._format_error = "; ".join(format_errors)
+
+        # ── Post-parse: handle "end" checkpoint ─────────────────────
+        if parsed.checkpoint_node == "end":
+            self._accumulate_checkpoint("end", parsed.checkpoint_summary or "")
+            self.ending_flag = True
+            if "end" not in self._completed_nodes:
+                self._completed_nodes.append("end")
+
+        # ── Store round in context manager ──────────────────────────
+        self._context_mgr.add_round(
+            user_content, response,
+            bridge_text=sp.get_bridge_text(current_branch),
+            selected_branch=selected_branch,
+        )
+
+        # ── Apply unconditional sets ────────────────────────────────
+        step9_changes: list[dict] = []
+        for set_op in parsed.sets:
+            if not set_op.condition:
+                result = self.game_state.apply_set(set_op, {})
+                step9_changes.append({
+                    "var": set_op.var,
+                    "op": set_op.op,
+                    "val": set_op.val,
+                    "accepted": result.accepted,
+                    "reason": result.reason,
+                })
+                if result.reason:
+                    self._rejected_changes.append(result.reason)
+
+        if step9_changes:
+            yield {
+                "type": "state",
+                "vars": self.game_state.state_vars,
+                "changes": step9_changes,
+            }
+
+        # Update stored state
+        self.last_parsed = parsed
+        self._last_bridge_text = parsed.bridge_text
+
+        # ── Launch adventure log in background if ending ────────────
+        # Per exec-flow.md §5.2: submit adventure log at bridge time
+        # so the API call runs concurrently with bridge_text display.
+        _adventure_thread: threading.Thread | None = None
+        _adventure_result: dict = {}
+        if self.ending_flag:
+            def _fetch_adventure() -> None:
+                try:
+                    _adventure_result["text"] = self.run_adventure_log()
+                except Exception:
+                    _adventure_result["text"] = None
+            _adventure_thread = threading.Thread(
+                target=_fetch_adventure, daemon=True
+            )
+            _adventure_thread.start()
+
+        # ── Yield options (segments were already streamed above) ────
+        yield from self._emit_options(parsed)
+
+        # ── Ending detection ────────────────────────────────────────
+        if self.ending_flag:
+            if _adventure_thread is not None:
+                _adventure_thread.join(timeout=30)
+            adventure_log = _adventure_result.get("text")
+
+            yield {
+                "type": "ending",
+                "adventure_log": adventure_log,
+                "final_state": self.game_state.state_vars,
+                "summary": self.last_parsed.checkpoint_summary,
+            }
+            yield {
+                "type": "done",
+                "round": self._context_mgr.round_count,
+                "node": "end",
+                "state": self.game_state.state_vars,
+            }
+
+            self._notify(RoundRecord(
+                round_number=self._context_mgr.round_count,
+                messages_sent=messages,
+                raw_response=response,
+                parsed=parsed,
+                ttft=ttft,
+                tokens=tokens,
+                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                node="end",
+                selected_branch=selected_branch,
+            ))
+            return  # Game over
+
+        # ── Notify observer ─────────────────────────────────────────
+        self._notify(RoundRecord(
+            round_number=self._context_mgr.round_count,
+            messages_sent=messages,
+            raw_response=response,
+            parsed=parsed,
+            ttft=ttft,
+            tokens=tokens,
+            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            node=self.current_node,
+            selected_branch=selected_branch,
+        ))
+
+        yield {
+            "type": "done",
+            "round": done_round if done_round is not None else self._context_mgr.round_count,
+            "node": done_node if done_node is not None else self.current_node,
+            "state": done_state if done_state is not None else self.game_state.state_vars,
+        }
+
     # ── Bridge Pre-fetch ──────────────────────────────────────────
+
+    def _apply_deferred_step(
+        self, choice_dict: dict[str, int]
+    ) -> tuple[list[dict], bool]:
+        """Apply deferred state changes and evaluate routes.
+
+        Shared by ``_launch_prefetch`` and ``continue_round_stream``.
+        Handles Steps 2-3.6: conditional sets (deferred from last
+        round), route evaluation, checkpoint accumulation, and ending
+        detection.
+
+        Args:
+            choice_dict: Player choice mapping (``{}`` for auto-advance).
+
+        Returns:
+            ``(step2_changes, ending_detected)`` where *step2_changes*
+            is a list of ``{var, op, val, accepted, reason}`` dicts and
+            *ending_detected* is ``True`` when the checkpoint node is
+            ``"end"`` (caller should abort further processing).
+        """
+        # ── Step 2: apply last round's conditional sets ─────────────
+        step2_changes: list[dict] = []
+        new_rejected: list[str] = []
+        for set_op in self.last_parsed.sets:
+            if not set_op.condition:
+                continue  # unconditional — already applied in its own round
+            result = self.game_state.apply_set(set_op, choice_dict)
+            step2_changes.append({
+                "var": set_op.var,
+                "op": set_op.op,
+                "val": set_op.val,
+                "accepted": result.accepted,
+                "reason": result.reason,
+            })
+            if result.reason:
+                new_rejected.append(result.reason)
+        self._rejected_changes = new_rejected
+
+        # ── Step 3: evaluate routes → advance node ──────────────────
+        old_node = self.current_node
+        route = self._evaluate_routes(choice_dict)
+        if route:
+            if old_node and old_node not in self._completed_nodes:
+                self._completed_nodes.append(old_node)
+            self.current_node = route
+            self.goal = self._node_goals.get(route, self.goal or "")
+        elif not self.last_parsed.routes:
+            # No routes declared: advance via checkpoint_node if the
+            # LLM set one, otherwise just mark the old node completed.
+            if choice_dict:
+                if old_node and old_node not in self._completed_nodes:
+                    self._completed_nodes.append(old_node)
+            else:
+                cp = self.last_parsed.checkpoint_node
+                if cp and cp != self.current_node:
+                    if self.current_node and self.current_node not in self._completed_nodes:
+                        self._completed_nodes.append(self.current_node)
+                    self.current_node = cp
+                    self.goal = self._node_goals.get(cp, self.goal or "")
+
+        # ── Step 3.5: accumulate checkpoint data ────────────────────
+        if self.last_parsed.checkpoint_node:
+            cp_node = self.last_parsed.checkpoint_node
+            cp_summary = self.last_parsed.checkpoint_summary or ""
+            cp_valid = (cp_node == "end")
+            if not cp_valid and self._outline_nodes:
+                valid_ids = {n.get("id", "") for n in self._outline_nodes}
+                cp_valid = cp_node in valid_ids
+            elif not cp_valid and not self._outline_nodes:
+                cp_valid = True
+            if cp_valid:
+                self._accumulate_checkpoint(cp_node, cp_summary)
+
+        # ── Step 3.6: ending detection ──────────────────────────────
+        ending_detected = False
+        if self.last_parsed.checkpoint_node == "end":
+            self.ending_flag = True
+            if "end" not in self._completed_nodes:
+                self._completed_nodes.append("end")
+            ending_detected = True
+
+        return step2_changes, ending_detected
 
     def _take_prefetch(self, choice_key: str | None) -> dict | None:
         """Atomically check and clear pre-fetched data for the given choice_key.
@@ -1146,59 +1271,9 @@ class GameLoop:
         if self.last_parsed is None:
             return
 
-        # ── Step 2 (deferred): apply current round's CONDITIONAL sets
-        # Unconditional sets were already applied in Step 9 of their own
-        # round (in continue_round_stream or _stream_from_prefetch).
-        # Only conditional sets are deferred — they may depend on
-        # choice_dict (empty for auto-advance) or current state_vars.
-        choice_dict: dict[str, int] = {}
-        step2_changes: list[dict] = []
-        new_rejected: list[str] = []
-        for set_op in self.last_parsed.sets:
-            if not set_op.condition:
-                continue  # unconditional — already applied in its own round
-            result = self.game_state.apply_set(set_op, choice_dict)
-            step2_changes.append({
-                "var": set_op.var,
-                "op": set_op.op,
-                "val": set_op.val,
-                "accepted": result.accepted,
-                "reason": result.reason,
-            })
-            if result.reason:
-                new_rejected.append(result.reason)
-        self._rejected_changes = new_rejected
-
-        # ── Step 3: evaluate routes ────────────────────────────────
-        old_node = self.current_node
-        route = self._evaluate_routes(choice_dict)
-        if route:
-            if old_node and old_node not in self._completed_nodes:
-                self._completed_nodes.append(old_node)
-            self.current_node = route
-            self.goal = self._node_goals.get(route, self.goal or "")
-        elif not self.last_parsed.routes:
-            if old_node and old_node not in self._completed_nodes:
-                self._completed_nodes.append(old_node)
-
-        # ── Step 3.5: accumulate checkpoint data ───────────────────
-        if self.last_parsed.checkpoint_node:
-            cp_node = self.last_parsed.checkpoint_node
-            cp_summary = self.last_parsed.checkpoint_summary or ""
-            cp_valid = (cp_node == "end")
-            if not cp_valid and self._outline_nodes:
-                valid_ids = {n.get("id", "") for n in self._outline_nodes}
-                cp_valid = cp_node in valid_ids
-            elif not cp_valid and not self._outline_nodes:
-                cp_valid = True
-            if cp_valid:
-                self._accumulate_checkpoint(cp_node, cp_summary)
-
-        # ── Step 3.6: ending detection ─────────────────────────────
-        if self.last_parsed.checkpoint_node == "end":
-            self.ending_flag = True
-            if "end" not in self._completed_nodes:
-                self._completed_nodes.append("end")
+        # ── Steps 2-3.6: deferred sets, routes, checkpoint, ending ──
+        step2_changes, ending_detected = self._apply_deferred_step({})
+        if ending_detected:
             return  # do not pre-fetch past the ending
 
         # ── Step 4: build Round N context ──────────────────────────
@@ -1260,209 +1335,6 @@ class GameLoop:
                 ] if step2_changes else [],
                 "selected_branch": selected_branch,
             }
-
-    def _stream_from_prefetch(self, prefetch: dict) -> Iterator[dict]:
-        """Yield events from a pre-fetched API response using streaming parse.
-
-        The pre-fetch already applied Steps 1-5 (state changes, route
-        evaluation, context building).  This method consumes the
-        background API response **incrementally** — tokens are fed to a
-        ``LineBuffer`` / ``StreamingXmlParser`` so that segment events
-        can be yielded as soon as a complete line arrives, rather than
-        waiting for the full response.
-
-        Args:
-            prefetch: The dict previously stored by ``_launch_prefetch``.
-
-        Yields:
-            Same event types as ``continue_round_stream()``.
-        """
-        # ── Yield deferred state events (computed during prefetch) ─
-        yield from prefetch["state_events"]
-
-        # ── Wait for the background thread ─────────────────────────
-        prefetch["thread"].join(timeout=STREAM_STALL_TIMEOUT_SEC)
-        if prefetch["thread"].is_alive():
-            yield {
-                "type": "error",
-                "message": (
-                    "Pre-fetched API call timed out after "
-                    f"{STREAM_STALL_TIMEOUT_SEC}s"
-                ),
-            }
-            return
-
-        # ── Drain queue with streaming parse ───────────────────────
-        lb = LineBuffer()
-        sp = StreamingXmlParser()
-        collected: list[str] = []
-        ttft: float | None = None
-        tokens: dict | None = None
-        current_branch = self._current_branch
-
-        while True:
-            try:
-                chunk = prefetch["queue"].get_nowait()
-            except queue.Empty:
-                break
-
-            if "__prefetch_error__" in chunk:
-                yield {
-                    "type": "error",
-                    "message": (
-                        "Pre-fetch API error: "
-                        f"{chunk['__prefetch_error__']}"
-                    ),
-                }
-                return
-
-            if chunk.get("done"):
-                tokens = chunk.get("usage")
-            else:
-                if chunk.get("ttft") is not None:
-                    ttft = chunk["ttft"]
-                delta = chunk["delta"]
-                collected.append(delta)
-
-                # Yield token event for typewriter effect
-                yield {"type": "token", "text": delta}
-
-                # Feed to line buffer → streaming parser
-                yield from self._stream_parse_chunk(
-                    delta, lb, sp, current_branch
-                )
-
-        # ── Flush remaining partial line ───────────────────────────
-        remaining = lb.flush()
-        if remaining:
-            yield from self._stream_parse_chunk(
-                remaining, lb, sp, current_branch
-            )
-
-        # ── Get complete parsed output ─────────────────────────────
-        response = "".join(collected)
-        parsed = sp.get_result()
-
-        # Surface format errors detected by streaming parser
-        format_errors = sp.format_errors
-        if format_errors:
-            self._format_error = "; ".join(format_errors)
-
-        # ── Post-parse: handle "end" checkpoint from THIS round ─────
-        if parsed.checkpoint_node == "end":
-            self._accumulate_checkpoint("end", parsed.checkpoint_summary or "")
-            self.ending_flag = True
-            if "end" not in self._completed_nodes:
-                self._completed_nodes.append("end")
-
-        # ── Step 8: store round in context manager ─────────────────
-        self._context_mgr.add_round(
-            prefetch["user_content"],
-            response,
-            bridge_text=sp.get_bridge_text(current_branch),
-            selected_branch=prefetch.get("selected_branch"),
-        )
-
-        # ── Step 9: apply this round's unconditional sets ──────────
-        step9_changes: list[dict] = []
-        for set_op in parsed.sets:
-            if not set_op.condition:
-                result = self.game_state.apply_set(set_op, {})
-                step9_changes.append({
-                    "var": set_op.var,
-                    "op": set_op.op,
-                    "val": set_op.val,
-                    "accepted": result.accepted,
-                    "reason": result.reason,
-                })
-                if result.reason:
-                    self._rejected_changes.append(result.reason)
-
-        if step9_changes:
-            yield {
-                "type": "state",
-                "vars": self.game_state.state_vars,
-                "changes": step9_changes,
-            }
-
-        # Update stored state
-        self.last_parsed = parsed
-        self._last_bridge_text = parsed.bridge_text
-
-        # ── Launch adventure log in background if ending ───────────
-        _adventure_thread: threading.Thread | None = None
-        _adventure_result: dict = {}
-        if self.ending_flag:
-            def _fetch_adventure() -> None:
-                try:
-                    _adventure_result["text"] = self.run_adventure_log()
-                except Exception:
-                    _adventure_result["text"] = None
-            _adventure_thread = threading.Thread(
-                target=_fetch_adventure, daemon=True
-            )
-            _adventure_thread.start()
-
-        # ── Yield options event (choices from complete parse) ──────
-        if parsed.choices:
-            yield {
-                "type": "options",
-                "choices": parsed.choices,
-            }
-
-        # ── Ending check ───────────────────────────────────────────
-        if self.ending_flag:
-            if _adventure_thread is not None:
-                _adventure_thread.join(timeout=30)
-            adventure_log = _adventure_result.get("text")
-            yield {
-                "type": "ending",
-                "adventure_log": adventure_log,
-                "final_state": self.game_state.state_vars,
-                "summary": self.last_parsed.checkpoint_summary,
-            }
-            yield {
-                "type": "done",
-                "round": self._context_mgr.round_count,
-                "node": "end",
-                "state": self.game_state.state_vars,
-            }
-            self._notify(RoundRecord(
-                round_number=self._context_mgr.round_count,
-                messages_sent=prefetch["messages"],
-                raw_response=response,
-                parsed=parsed,
-                ttft=ttft,
-                tokens=tokens,
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                node="end",
-                selected_branch=prefetch.get("selected_branch"),
-            ))
-            return
-
-        # ── Notify observer ────────────────────────────────────────
-        self._notify(RoundRecord(
-            round_number=self._context_mgr.round_count,
-            messages_sent=prefetch["messages"],
-            raw_response=response,
-            parsed=parsed,
-            ttft=ttft,
-            tokens=tokens,
-            timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            node=self.current_node,
-            selected_branch=prefetch.get("selected_branch"),
-        ))
-
-        yield {
-            "type": "done",
-            "round": self._context_mgr.round_count,
-            "node": self.current_node,
-            "state": self.game_state.state_vars,
-        }
-
-        # ── Chain pre-fetch for next auto-advance round ────────────
-        if not parsed.choices and not self.ending_flag:
-            self._launch_prefetch(prefetch["choice_key"])
 
     # ── Save / Restore ─────────────────────────────────────────────
 
