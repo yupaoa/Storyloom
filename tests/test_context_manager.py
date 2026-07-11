@@ -146,10 +146,10 @@ class TestBridgeText:
         cm = ContextManager()
         cm.set_round1("p", "o")
         xml = (
-            '<story>'
-            '<bridge/>'
-            '<seg n="1">你对耗子点了点头。</seg>'
-            '<seg n="2">耗子: 跟我来。</seg>'
+            '<story>\n'
+            '<bridge/>\n'
+            '<seg>你对耗子点了点头。</seg>\n'
+            '<seg>耗子: 跟我来。</seg>\n'
             '</story>'
         )
         cm.add_round("r2 context", xml)

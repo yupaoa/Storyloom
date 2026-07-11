@@ -21,7 +21,7 @@ except ImportError:
 import time
 
 from storyloom.i18n import _
-from storyloom.parser.xml_parser import Segment
+from storyloom.parser import Segment
 
 
 class Display:

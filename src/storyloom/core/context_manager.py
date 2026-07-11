@@ -1,7 +1,6 @@
 """Manages conversation messages array with sliding window + compression."""
 
 from storyloom.config import WINDOW_SIZE, FIRST_COMPRESSION_AT
-from storyloom.parser.xml_parser import XmlParser
 import re
 
 
@@ -167,17 +166,24 @@ class ContextManager:
     ) -> str:
         """Extract bridge text from assistant XML output.
 
-        When current_branch is provided, only extracts text from the
-        matching post-bridge <branch>. Otherwise extracts all (for
-        debugging) or bare <seg> text (for single-path rounds).
+        Uses ``StreamingXmlParser`` in batch mode — feeds all lines then
+        calls ``get_bridge_text()`` with optional branch filtering.
+
+        Args:
+            xml: Raw LLM XML output.
+            current_branch: If provided, only include post-bridge text
+                            from the matching ``<branch>`` (plus bare
+                            ``<seg>`` elements — the implicit "main").
+
+        Returns:
+            Filtered bridge text, or empty string on any error.
         """
         try:
-            if current_branch is not None:
-                return XmlParser.extract_bridge_text_for_branch(
-                    xml, current_branch
-                )
-            parsed = XmlParser.parse(xml)
-            return parsed.bridge_text
+            from storyloom.parser.streaming_parser import StreamingXmlParser
+            sp = StreamingXmlParser()
+            for line in xml.split("\n"):
+                sp.feed_line(line)
+            return sp.get_bridge_text(current_branch)
         except Exception:
             return ""
 

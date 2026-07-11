@@ -1,59 +1,22 @@
-"""Parse LLM XML output into structured data."""
+"""Parse LLM XML output into structured data.
+
+.. deprecated::
+    Use ``StreamingXmlParser`` instead.  This module is retained for
+    backwards compatibility during the migration period.  Data types
+    (``ParsedOutput``, ``Segment``, etc.) are owned by
+    ``streaming_parser``.
+"""
 
 import re
-from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
 
-
-class ParseError(Exception):
-    """Raised when XML output is malformed or violates rules."""
-    pass
-
-
-@dataclass
-class Segment:
-    """A single narrative segment."""
-    n: int
-    text: str
-    position: str  # "pre" or "post"
-    branch: str | None = None
-
-
-@dataclass
-class SetOperation:
-    """A state change operation."""
-    var: str
-    op: str
-    val: str
-    condition: str | None = None
-
-
-@dataclass
-class RouteTarget:
-    """A checkpoint route target."""
-    condition: str | None
-    target: str
-
-
-@dataclass
-class ParsedOutput:
-    """Structured result of parsing LLM XML output."""
-    segments: list[Segment] = field(default_factory=list)
-    total_segments: int = 0
-    pre_segments: int = 0
-    post_segments: int = 0
-    choice_id: str | None = None        # deprecated: use choices[-1]["id"]
-    opt_branches: list[str] = field(default_factory=list)  # deprecated
-    choices: list[dict] = field(default_factory=list)  # [{"id": str, "branches": [str]}]
-    sets: list[SetOperation] = field(default_factory=list)
-    checkpoint_node: str | None = None
-    checkpoint_summary: str | None = None
-    routes: list[RouteTarget] = field(default_factory=list)
-    bridge_found: bool = False
-    bridge_text: str = ""
-    numbering_issues: list[str] = field(default_factory=list)
-    pre_branches: list[str] = field(default_factory=list)
-    post_branches: list[str] = field(default_factory=list)
+from storyloom.parser.streaming_parser import (
+    ParsedOutput,
+    ParseError,
+    RouteTarget,
+    Segment,
+    SetOperation,
+)
 
 
 class XmlParser:

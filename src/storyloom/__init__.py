@@ -8,7 +8,7 @@ from storyloom.core.prompt_builder import PromptBuilder
 from storyloom.core.save_manager import SaveManager
 from storyloom.core.session import GameSession
 from storyloom.core.ui_interface import UiInterface
-from storyloom.parser.xml_parser import XmlParser, ParsedOutput, ParseError, Segment
+from storyloom.parser import ParsedOutput, ParseError, Segment
 
 __all__ = [
     "ApiClient",
@@ -28,5 +28,4 @@ __all__ = [
     "Segment",
     "UiInterface",
     "WINDOW_SIZE",
-    "XmlParser",
 ]

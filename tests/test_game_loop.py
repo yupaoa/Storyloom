@@ -43,8 +43,8 @@ SAMPLE_XML = """<story>
 <seg n="3">疤脸人摘下兜帽。</seg>
 <seg n="4">疤脸人: 坐。听说你在找一样东西。</seg>
 <choice id="approach">
-  <opt key="A" branch="take_lead">先开口</opt>
-  <opt key="B" branch="wait">保持沉默</opt>
+  <opt key="1" branch="take_lead">先开口</opt>
+  <opt key="2" branch="wait">保持沉默</opt>
 </choice>
 <set var="体力" op="-" val="10" if="approach==1"/>
 <set var="信任度" op="+" val="5" if="approach==2"/>

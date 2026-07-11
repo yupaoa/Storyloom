@@ -36,7 +36,34 @@
 - `docs/superpowers/specs/2026-07-05-narrative-flow-refactor-design.md` §2.2-2.5（设计依据）
 - 303 passed, 24 skipped, 0 failed
 
-**后续**：全量解析（`XmlParser.parse()`）将被流式解析彻底平替。当前流式解析仅用于 pre-fetch 路径；下一步在 `start_round1_stream()` 和 `continue_round_stream()` 慢路径中也使用 `StreamingXmlParser`，最终移除 `_emit_parsed()`。
+**后续**（07-11 已完成）：见下一条。
+
+### StreamingXmlParser 全面融入核心流程 —— 全量解析彻底平替
+
+**背景**：上一条日志恢复了 `StreamingXmlParser` 但仅用于 pre-fetch 路径——Round 1 和 continue 慢路径仍使用 `XmlParser.parse()` 全量解析，且 `ContextManager._extract_bridge_from_xml()` 也依赖 `XmlParser`。
+
+**决策**：
+1. **三条路径统一流式化**：`start_round1_stream()` 和 `continue_round_stream()` 慢路径在 token 收集期间同步 `LineBuffer` + `StreamingXmlParser`，segment 事件随行完成即时产出
+2. **提取 `_stream_parse_chunk()`**：消除三处 chunk→parser→event 重复逻辑
+3. **`_emit_parsed()` → `_emit_options()`**：segment 在流式阶段已产出，`_emit_parsed` 简化为仅产出 options 事件
+4. **`StreamingXmlParser` 增强**：
+   - `_bridge_text_parts` → `_bridge_text_items: list[tuple[str, str|None]]` 追踪分支归属
+   - 新增 `get_bridge_text(branch_name)` 方法支持分支过滤
+5. **`ContextManager._extract_bridge_from_xml()`**：改用 `StreamingXmlParser.get_bridge_text()` 替代 `XmlParser.parse()` / `extract_bridge_text_for_branch()`
+6. **Dataclass 归属迁移**：`ParsedOutput`、`Segment`、`SetOperation`、`RouteTarget`、`ParseError` 从 `xml_parser.py` 移至 `streaming_parser.py`（规范解析器拥有类型定义）。`xml_parser.py` 反向导入。所有生产代码消费者统一从 `storyloom.parser` 包级别导入
+7. **测试数据修正**：`SAMPLE_XML` 的 `<opt key>` 从 `A`/`B` 改为 `1`/`2`（匹配规范）；`test_context_manager` 紧凑 XML 改为逐行格式（匹配真实 LLM 输出）
+
+**架构效果**：
+- 核心引擎（`game_loop.py`、`context_manager.py`）零依赖 `XmlParser` 类
+- `xml_parser.py` 仅含 `XmlParser` 类（从 `streaming_parser` 导入类型），可安全删除
+- 完整删除步骤记录在 [[xml-parser-removal-guide-2026-07-11]]
+
+**依据**：
+- `exec-flow.md` §4.3："所有轮次使用 `StreamingXmlParser` 逐行解析"
+- `block-spec.md` §1："程序通过 `StreamingXmlParser` 逐行流式解析"
+- commit `748f654` — `docs(spec): mandate StreamingXmlParser for all rounds, replace ElementTree full-parse`
+- [[streaming-parser-integration-2026-07-11]]（完整变更记录）
+- 303 passed, 24 skipped, 0 failed
 
 ### StreamingXmlParser 删除决定推翻 —— Bridge Pre-Fetch 时序缺陷
 

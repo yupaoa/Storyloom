@@ -1,7 +1,8 @@
 """Main narrative game loop, GameState, and result types.
 
-Coordinates all modules: PromptBuilder, ContextManager, ApiClient, XmlParser.
-Validates all LLM-suggested state changes (local source of truth).
+Coordinates all modules: PromptBuilder, ContextManager, ApiClient,
+StreamingXmlParser.  Validates all LLM-suggested state changes
+(local source of truth).
 """
 
 import copy
@@ -17,14 +18,14 @@ from storyloom.config import STREAM_STALL_TIMEOUT_SEC
 from storyloom.io.api_client import ApiClient
 from storyloom.core.context_manager import ContextManager
 from storyloom.core.prompt_builder import PromptBuilder
-from storyloom.parser.xml_parser import (
+from storyloom.parser import (
     ParsedOutput,
     SetOperation,
-    XmlParser,
 )
 from storyloom.parser.streaming_parser import (
     EventType,
     LineBuffer,
+    ParseEvent,
     StreamingXmlParser,
 )
 
@@ -563,10 +564,15 @@ class GameLoop:
         # Build messages array (Round 1 only has user message)
         messages = [{"role": "user", "content": r1_prompt}]
 
-        # Stream API response token by token
+        # Stream API response token by token with streaming parse.
+        # Per exec-flow.md §4.4: StreamingXmlParser produces segment
+        # events as soon as a complete line arrives, eliminating the
+        # full-generation latency of ElementTree full-parse.
         collected: list[str] = []
         ttft: float | None = None
         tokens: dict | None = None
+        lb = LineBuffer()
+        sp = StreamingXmlParser()
 
         for chunk in self.api_client.stream_chat_iter(messages):
             if chunk.get("done"):
@@ -574,29 +580,27 @@ class GameLoop:
             else:
                 if chunk.get("ttft") is not None:
                     ttft = chunk["ttft"]
-                collected.append(chunk["delta"])
-                yield {"type": "token", "text": chunk["delta"]}
+                delta = chunk["delta"]
+                collected.append(delta)
+                yield {"type": "token", "text": delta}
+                yield from self._stream_parse_chunk(
+                    delta, lb, sp, self._current_branch
+                )
+
+        # Flush any remaining partial line at end-of-stream.
+        remaining = lb.flush()
+        if remaining:
+            yield from self._stream_parse_chunk(
+                remaining, lb, sp, self._current_branch
+            )
 
         response = "".join(collected)
+        parsed = sp.get_result()
 
-        # Parse response
-        try:
-            parsed = XmlParser.parse(response)
-        except Exception as e:
-            self._format_error = str(e)
-            self._notify(RoundRecord(
-                round_number=1,
-                messages_sent=messages,
-                raw_response=response,
-                parsed=None,
-                ttft=ttft,
-                tokens=tokens,
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                node=self.current_node,
-                selected_branch=None,
-            ))
-            yield {"type": "error", "message": str(e)}
-            return
+        # Surface format errors detected by the streaming parser.
+        format_errors = sp.format_errors
+        if format_errors:
+            self._format_error = "; ".join(format_errors)
 
         # Store in context manager
         self._context_mgr.set_round1(r1_prompt, response)
@@ -623,10 +627,8 @@ class GameLoop:
                 if result.reason:
                     self._rejected_changes.append(result.reason)
 
-        # Yield segments first, then state changes — narrative should
-        # reach the player before they see the mechanical consequences
-        # (per exec-flow.md §4.1: display → state validation).
-        yield from self._emit_parsed(parsed, self._current_branch)
+        # Yield options (segments were already streamed above).
+        yield from self._emit_options(parsed)
 
         if state_changes:
             yield {
@@ -670,13 +672,13 @@ class GameLoop:
         """
         for event in self.start_round1_stream():
             if event["type"] == "error":
-                from storyloom.parser.xml_parser import ParseError
+                from storyloom.parser import ParseError
                 raise ParseError(
                     f"Round 1 parse failed: {event['message']}"
                 )
 
         if self.last_parsed is None:
-            from storyloom.parser.xml_parser import ParseError
+            from storyloom.parser import ParseError
             raise ParseError("Round 1 parse failed: unknown error")
 
         return RoundResult(parsed=self.last_parsed, round_number=1)
@@ -830,10 +832,14 @@ class GameLoop:
         messages = self._context_mgr.get_messages()
         messages.append({"role": "user", "content": rn_context})
 
-        # ── Step 6: Stream API response ─────────────────────────────
+        # ── Step 6: Stream API response with streaming parse ────────
+        # Per exec-flow.md §4.4: StreamingXmlParser eliminates the
+        # full-generation latency of ElementTree full-parse.
         collected: list[str] = []
         ttft: float | None = None
         tokens: dict | None = None
+        lb = LineBuffer()
+        sp = StreamingXmlParser()
 
         for chunk in self.api_client.stream_chat_iter(messages):
             if chunk.get("done"):
@@ -841,30 +847,28 @@ class GameLoop:
             else:
                 if chunk.get("ttft") is not None:
                     ttft = chunk["ttft"]
-                collected.append(chunk["delta"])
-                yield {"type": "token", "text": chunk["delta"]}
+                delta = chunk["delta"]
+                collected.append(delta)
+                yield {"type": "token", "text": delta}
+                yield from self._stream_parse_chunk(
+                    delta, lb, sp, self._current_branch
+                )
+
+        # Flush remaining partial line at end-of-stream.
+        remaining = lb.flush()
+        if remaining:
+            yield from self._stream_parse_chunk(
+                remaining, lb, sp, self._current_branch
+            )
 
         response = "".join(collected)
 
-        # ── Step 7: Parse response ──────────────────────────────────
+        # ── Step 7: Get complete parsed output ────────────────────────
         self._format_error = None  # clear previous error
-        try:
-            parsed = XmlParser.parse(response)
-        except Exception as e:
-            self._format_error = str(e)
-            self._notify(RoundRecord(
-                round_number=self._context_mgr.round_count + 1,
-                messages_sent=messages,
-                raw_response=response,
-                parsed=None,
-                ttft=ttft,
-                tokens=tokens,
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                node=self.current_node,
-                selected_branch=selected_branch,
-            ))
-            yield {"type": "error", "message": str(e)}
-            return
+        parsed = sp.get_result()
+        format_errors = sp.format_errors
+        if format_errors:
+            self._format_error = "; ".join(format_errors)
 
         # ── Post-parse: handle "end" checkpoint from THIS round ─────
         # Per exec-flow.md §5.2 the adventure log must be requested at
@@ -938,8 +942,8 @@ class GameLoop:
             )
             _adventure_thread.start()
 
-        # ── Yield structured events ─────────────────────────────────
-        yield from self._emit_parsed(parsed, self._current_branch)
+        # ── Yield options (segments were already streamed above) ─────
+        yield from self._emit_options(parsed)
 
         # ── Check for ending after emitting parsed content ──
         if self.ending_flag:
@@ -1016,14 +1020,14 @@ class GameLoop:
         """
         for event in self.continue_round_stream(choice_key):
             if event["type"] == "error":
-                from storyloom.parser.xml_parser import ParseError
+                from storyloom.parser import ParseError
                 raise ParseError(
                     f"Round {self._context_mgr.round_count + 1} parse "
                     f"failed: {event['message']}"
                 )
 
         if self.last_parsed is None:
-            from storyloom.parser.xml_parser import ParseError
+            from storyloom.parser import ParseError
             raise ParseError(
                 f"Round {self._context_mgr.round_count + 1} parse "
                 f"failed: unknown error"
@@ -1037,47 +1041,44 @@ class GameLoop:
     # ── Event Emission ───────────────────────────────────────────
 
     @staticmethod
-    def _emit_parsed(
-        parsed: ParsedOutput,
-        current_branch: str = "main",
-    ) -> Iterator[dict]:
-        """Yield structured events from parsed LLM output.
-
-        Filters pre-bridge segments by current_branch per block-spec.md
-        §3: bare <seg> (no branch) always passes (implicit "main").
-        <seg> inside <branch name="X"> passes only when X matches
-        current_branch.  Post-bridge segments are emitted unfiltered —
-        the UI layer selects the matching branch after the player
-        chooses (serial-architecture constraint; the bridge pre-fetch
-        refactor will move this filtering into the engine).
-
-        Args:
-            parsed: ParsedOutput from XmlParser.parse().
-            current_branch: Active branch name (default ``"main"``).
-
-        Yields:
-            segment and options events.
-        """
-        for seg in parsed.segments:
-            # Pre-bridge: filter by current_branch.  Bare segs (implicit
-            # "main") always pass.  Named-branch segs pass only on match.
-            # Post-bridge: emit everything — UI filters after choice.
-            if seg.position == "pre":
-                if seg.branch and seg.branch != current_branch:
-                    continue
-            yield {
-                "type": "segment",
-                "text": seg.text,
-                "n": seg.n,
-                "position": seg.position,
-                "branch": seg.branch,
-            }
-
+    def _emit_options(parsed: ParsedOutput) -> Iterator[dict]:
+        """Yield options event if the parsed output contains choices."""
         if parsed.choices:
             yield {
                 "type": "options",
                 "choices": parsed.choices,
             }
+
+    @staticmethod
+    def _stream_parse_chunk(
+        text: str,
+        lb: LineBuffer,
+        sp: StreamingXmlParser,
+        current_branch: str,
+    ) -> Iterator[dict]:
+        """Feed a token chunk through the streaming parse pipeline.
+
+        Token chunks are accumulated into complete lines by *lb*; each
+        complete line is fed to *sp*.  Segment events pass through a
+        pre-bridge branch filter (bare segs always pass; named-branch
+        segs pass only when they match *current_branch*).
+
+        Yields ``{"type": "segment", ...}`` events as lines complete.
+        """
+        for line in lb.feed(text):
+            for event in sp.feed_line(line):
+                if event.type == EventType.SEGMENT:
+                    if (event.position == "pre"
+                            and event.branch_name
+                            and event.branch_name != current_branch):
+                        continue
+                    yield {
+                        "type": "segment",
+                        "text": event.text or "",
+                        "n": sp._seg_count,
+                        "position": event.position,
+                        "branch": event.branch_name,
+                    }
 
     # ── Bridge Pre-fetch ──────────────────────────────────────────
 
@@ -1302,40 +1303,16 @@ class GameLoop:
                 yield {"type": "token", "text": delta}
 
                 # Feed to line buffer → streaming parser
-                for line in lb.feed(delta):
-                    for event in sp.feed_line(line):
-                        if event.type == EventType.SEGMENT:
-                            # Pre-bridge filter (same logic as
-                            # _emit_parsed): bare segs always pass;
-                            # named-branch segs pass only on match.
-                            if (event.position == "pre"
-                                    and event.branch_name
-                                    and event.branch_name != current_branch):
-                                continue
-                            yield {
-                                "type": "segment",
-                                "text": event.text or "",
-                                "n": sp._seg_count,
-                                "position": event.position,
-                                "branch": event.branch_name,
-                            }
+                yield from self._stream_parse_chunk(
+                    delta, lb, sp, current_branch
+                )
 
         # ── Flush remaining partial line ───────────────────────────
         remaining = lb.flush()
         if remaining:
-            for event in sp.feed_line(remaining):
-                if event.type == EventType.SEGMENT:
-                    if (event.position == "pre"
-                            and event.branch_name
-                            and event.branch_name != current_branch):
-                        continue
-                    yield {
-                        "type": "segment",
-                        "text": event.text or "",
-                        "n": sp._seg_count,
-                        "position": event.position,
-                        "branch": event.branch_name,
-                    }
+            yield from self._stream_parse_chunk(
+                remaining, lb, sp, current_branch
+            )
 
         # ── Get complete parsed output ─────────────────────────────
         response = "".join(collected)

@@ -23,12 +23,64 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-from storyloom.parser.xml_parser import (
-    ParsedOutput,
-    RouteTarget,
-    Segment,
-    SetOperation,
-)
+
+# ── Shared data types ─────────────────────────────────────────────
+# Owned by the streaming parser (the canonical parser).  xml_parser.py
+# imports these from here so the file can be deleted safely later.
+
+
+class ParseError(Exception):
+    """Raised when XML output is malformed or violates rules."""
+    pass
+
+
+@dataclass
+class Segment:
+    """A single narrative segment."""
+    n: int
+    text: str
+    position: str  # "pre" or "post"
+    branch: str | None = None
+
+
+@dataclass
+class SetOperation:
+    """A state change operation."""
+    var: str
+    op: str
+    val: str
+    condition: str | None = None
+
+
+@dataclass
+class RouteTarget:
+    """A checkpoint route target."""
+    condition: str | None
+    target: str
+
+
+@dataclass
+class ParsedOutput:
+    """Structured result of parsing LLM XML output."""
+    segments: list[Segment] = field(default_factory=list)
+    total_segments: int = 0
+    pre_segments: int = 0
+    post_segments: int = 0
+    choice_id: str | None = None        # deprecated: use choices[-1]["id"]
+    opt_branches: list[str] = field(default_factory=list)  # deprecated
+    choices: list[dict] = field(default_factory=list)  # [{"id": str, "branches": [str]}]
+    sets: list[SetOperation] = field(default_factory=list)
+    checkpoint_node: str | None = None
+    checkpoint_summary: str | None = None
+    routes: list[RouteTarget] = field(default_factory=list)
+    bridge_found: bool = False
+    bridge_text: str = ""
+    numbering_issues: list[str] = field(default_factory=list)
+    pre_branches: list[str] = field(default_factory=list)
+    post_branches: list[str] = field(default_factory=list)
+
+
+# ── Event types ───────────────────────────────────────────────────
 
 
 class EventType(Enum):
@@ -142,7 +194,7 @@ class StreamingXmlParser:
         self._routes: list[RouteTarget] = []
         self._pre_branches: list[str] = []
         self._post_branches: list[str] = []
-        self._bridge_text_parts: list[str] = []
+        self._bridge_text_items: list[tuple[str, str | None]] = []  # (text, branch_name)
         self._line_count = 0
         self._seg_count = 0
 
@@ -281,7 +333,7 @@ class StreamingXmlParser:
             self._segments.append(seg)
 
             if self._post_bridge:
-                self._bridge_text_parts.append(text)
+                self._bridge_text_items.append((text, self._in_branch))
 
             return [ParseEvent(type=EventType.SEGMENT, text=text,
                                branch_name=self._in_branch,
@@ -393,11 +445,35 @@ class StreamingXmlParser:
             checkpoint_summary=self._checkpoint_summary,
             routes=list(self._routes),
             bridge_found=self._bridge_seen,
-            bridge_text="\n".join(self._bridge_text_parts),
+            bridge_text="\n".join(t for t, _ in self._bridge_text_items),
             numbering_issues=[],
             pre_branches=list(self._pre_branches),
             post_branches=list(self._post_branches),
         )
+
+    def get_bridge_text(self, branch_name: str | None = None) -> str:
+        """Extract bridge text, optionally filtered by branch.
+
+        Per block-spec.md §4, bare ``<seg>`` elements (no enclosing
+        ``<branch>``) are the implicit "main" branch and are always
+        included.  ``<seg>`` elements inside ``<branch name=\"X\">`` are
+        included only when *branch_name* is ``None`` (no filter) or
+        matches *branch_name*.
+
+        Args:
+            branch_name: If not ``None``, only include text from the
+                         matching ``<branch>`` (plus bare ``<seg>``).
+
+        Returns:
+            Filtered bridge text string.
+        """
+        if branch_name is None:
+            return "\n".join(t for t, _ in self._bridge_text_items)
+        texts: list[str] = []
+        for text, br in self._bridge_text_items:
+            if br is None or br == branch_name:
+                texts.append(text)
+        return "\n".join(texts)
 
     # ── Properties ──────────────────────────────────────────────────
 
