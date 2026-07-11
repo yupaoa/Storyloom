@@ -11,13 +11,13 @@
 
 ## §1 GameState 初始化
 
-共创阶段 Step 5（大纲校验通过后），初始化内存中的 GameState：
+共创阶段生成完成后（`generate()` 返回 `CoCreationResult`），初始化内存中的 GameState：
 
 ```
 game_state = GameState()
-game_state.story_config   = story_config           // Step 3 + Step 3.5 解析结果（含 variables）
+game_state.story_config   = story_config           // CoCreationResult.story_config（含 variables）
 game_state.state_vars     = init_from_variables(story_config.variables)  // 初始值深拷贝
-game_state.outline        = outline                // Step 4 解析+校验结果
+game_state.outline        = outline                // CoCreationResult.outline_nodes（含 outline_text）
   → 第一个节点 status = "active"，其余 = "pending"
 game_state.progress = {
     current_node:         outline[0].node_id,
@@ -249,12 +249,12 @@ load_save(filepath):
 
 | # | 约定 | 说明 |
 |---|------|------|
-| 1 | **Prompt 语言** | 所有系统/叙事/冒险日志 LLM Prompt 使用英文。输出语言由 story_config.language 决定 |
+| 1 | **Prompt 语言** | 所有系统 Prompt 使用英文。LLM 输出给用户的文本模板通过 `_()` + `.po` 翻译。输出语言由 story_config.language 决定 |
 | 2 | **XML 元素名** | 全部英文（`<seg>`、`<checkpoint>` 等） |
 | 3 | **变量命名** | 状态变量名、choice 名使用中文 |
 | 4 | **XML 转义** | narrative 正文中的 `<` `>` `&` 必须转义为 `&lt;` `&gt;` `&amp;` |
-| 5 | **重试策略** | 格式/校验错误最多 `MAX_RETRIES` 次，附带纠正提示重试；API 调用失败**不**自动重试——告知用户，用户决定 |
-| 6 | **用户决策** | 重试耗尽、API 失败、内容过短等异常——告知用户具体信息，由用户选择（重试 / 继续 / 返回主菜单） |
+| 5 | **重试策略** | 共创 `send()` 与 `generate()` 内 API 失败自动重试 3 次后抛出异常；格式/校验错误最多 `MAX_RETRIES` 次附带纠正提示重试 |
+| 6 | **用户决策** | 重试耗尽等异常——告知用户具体信息，由用户选择（重试 / 继续 / 返回主菜单） |
 | 7 | **错误隔离** | state 逐条校验、options 逐行解析——单条失败不影响同轮其余有效条目 |
 | 8 | **静默错误** | 微小校验错误（list 增删不存在元素、number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
 | 9 | **常量引用** | 统一使用 §A 中定义的常量名，禁止在业务代码中硬编码数值 |
