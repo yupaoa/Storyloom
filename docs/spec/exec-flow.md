@@ -331,9 +331,9 @@ saves/*.json 存在？
    │    节点是否存在于大纲中？                               │
    │ b. 分支条件引用的变量是否存在于 Step 3.5 variables？     │
    │    （不存在仅记日志警告，不强制拒绝）                    │
-   │ c. 最后一个节点的 branches 是否为空（结局节点）？        │
+   │ c. 最后一个节点的 routes 是否为空（结局节点）？          │
+   │    （空 routes = 结局，无需特殊 node ID）               │
    │ d. 节点数是否 ≥ 1？（有没有起点）                       │
-   │ e. 第一个节点是否为唯一入口？（无其他节点指向它）          │
    └─────────────────────────────────────────────────────┘
    ├── 校验通过？→ 继续
    └── 校验失败？→ 重试（附带具体错误提示），最多 MAX_RETRIES 次
@@ -685,7 +685,7 @@ UI 展示流（用户阅读 / 自动推进）
         3. 组装下一轮 Prompt → 启动后台 API 调用 → Round N+1
 ```
 
-> `ending_flag` 由 checkpoint 处理为 `end` 时设置（见 data-model.md）。
+> `ending_flag` 由 checkpoint 的 routes 为空（结局节点）时设置（见 data-model.md）。
 >
 > **时序说明**：此处"解析完成"指引擎侧流式接收完毕、`StreamingXmlParser.get_result()` 返回的时刻。Prompt 组装和后台 API 调用在此刻立即执行（不间断同步代码块），与 UI 展示 post-bridge 段落并发进行。
 
@@ -697,20 +697,22 @@ UI 展示流（用户阅读 / 自动推进）
 
 | 路径 | 触发条件 | 说明 |
 |------|---------|------|
-| **自然结局** | `--- checkpoint ---` 中为 `end` | 大纲终点，最后一轮由 LLM 自然收束 |
+| **自然结局** | checkpoint 的 routes 为空（结局节点） | 大纲终点，最后一轮由 LLM 自然收束 |
 | **主动结束** | 玩家在选项面板按 Q | 随时中断，跳过后续大纲 |
 
 两条路径最终汇聚：展示冒险日志 → 返回主菜单。
 
 > 结局后不删除存档——玩家可通过"继续"重新查看冒险日志，或通过"存档管理"删除。
 
-### 5.2 自然结局（checkpoint `end`）流程
+### 5.2 自然结局流程
+
+结局节点通过 `<checkpoint>` 无 `<route>` 子元素（routes 为空）来判定。
 
 ```
 倒数第二轮（Round N-1）：
   <story>
   <seg>（结局叙事段落……）</seg>
-  <checkpoint node="end" summary="所有线索在此交汇……"/>
+  <checkpoint node="ch4_safehouse" summary="所有线索在此交汇……"/>
   <bridge/>
   <seg>（最后的衔接文本——缓冲用，保持与正常剧情段一致的结构）</seg>
   </story>
@@ -719,11 +721,12 @@ UI 展示流（用户阅读 / 自动推进）
 
   1. 正常解析 → 展示 narrative → 处理 state（如有）
   2. 处理 checkpoint：
-     a. 检测到 "end" → 标记 outline 最后一个节点为 completed
-     b. 设置 ending_flag = true
-     c. 存入 checkpoint_summaries
-     d. 存储 checkpoint_snapshots
-     e. 触发自动存档（与其他 checkpoint 行为一致）
+     a. routes 为空 → 检测为结局节点
+     b. 标记当前节点为 completed
+     c. 设置 ending_flag = true
+     d. 存入 checkpoint_summaries
+     e. 存储 checkpoint_snapshots
+     f. 触发自动存档（与其他 checkpoint 行为一致）
   3. 执行到 bridge：
      a. 检测到 ending_flag == true
      b. 不组装正常下一轮 Prompt
@@ -736,7 +739,7 @@ UI 展示流（用户阅读 / 自动推进）
      → 等待按键 → 返回主菜单
 ```
 
-> **关键**：bridge 放在 checkpoint `end` 之后、尾部 narrative 之前。程序在 bridge 处检测到 ending_flag，提交冒险日志请求。尾部 narrative 作为缓冲。
+> **关键**：结局节点由 routes 为空判定。bridge 放在 checkpoint 之后、尾部 narrative 之前。程序在 bridge 处检测到 ending_flag，提交冒险日志请求。尾部 narrative 作为缓冲。
 
 ### 5.3 Q 键主动结束流程
 

@@ -164,9 +164,9 @@
 #### 规范
 
 - **输入**：story_config + 可用变量名列表（来自 §3.3）。
-- **输出**：`=== outline ===` 后的大纲树。节点数 short 3-5 / medium 5-8 / long 8-15。
-- **格式**：node_id 为 `ch{序号}_{英文缩写}`。分支条件只能引用已声明变量。最后节点为结局。
-- **程序校验**：route 目标存在、变量引用合法、最后节点无分支。失败 → 重试。
+- **输出**：`=== outline ===` 后的大纲树，使用 `[node]` block 格式。节点数 short 3-5 / medium 5-8 / long 8-15。
+- **格式**：node_id 为 `ch{序号}_{英文缩写}`。分支条件只能引用已声明变量。结局节点 routes 为空（无文本），系统通过空 routes 判定结局。
+- **程序校验**：route 目标存在、变量引用合法、最后节点 routes 为空。失败 → 重试。
 
 #### Prompt
 
@@ -177,7 +177,7 @@
 - 节点数：short 3-5 / medium 5-8 / long 8-15
 - 每个节点有明确叙事目标
 - 允许分支（if 条件 → route），条件只能引用已声明的变量
-- 最后节点为结局
+- 最后节点为结局——其 routes: 留空（不写任何文本）。系统通过空 routes 检测结局，不要写"（结局）"等标记。
 - node_id 格式：ch{序号}_{英文缩写}
 
 可用变量：{variables_name_list}
@@ -185,16 +185,25 @@
 输出格式：
 
 === outline ===
-节点1：{标题} | ch1_{缩写}
-目标：{本章叙事目标}
-分支：无
+[node]
+id: ch1_intro
+title: {节点标题}
+goal: {本章叙事目标}
+routes: → ch2_next
 
-节点2：{标题} | ch2_{缩写}
-目标：{本章叙事目标}
-分支：if 信任度 >= 10 → ch3_ally
-分支：if 信任度 < 10 → ch3_betrayal
+[node]
+id: ch2_branch
+title: {节点标题}
+goal: {本章叙事目标}
+routes:
+  if 信任度 >= 30 → ch3_ally
+  if 信任度 < 30 → ch3_betrayal
 
-（最后节点分支留空或写"（结局）"）
+[node]
+id: ch3_ending
+title: {节点标题}
+goal: {本章叙事目标，结局}
+routes:
 ```
 
 ---

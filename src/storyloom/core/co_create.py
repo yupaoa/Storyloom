@@ -304,8 +304,9 @@ class CoCreateParser:
                     current["goal"] = line_stripped[5:].strip()
                 elif line_stripped.startswith("routes:"):
                     route_text = line_stripped[7:].strip()
-                    if route_text and route_text not in ("（结局）", "(ending)"):
+                    if route_text:
                         # Single route on same line: → target
+                        # (empty routes = ending node, detected by validate_outline)
                         target = route_text.lstrip("→ ").strip()
                         if target:
                             current["routes"].append(
@@ -494,7 +495,7 @@ Design a directed graph of key story nodes. Rules:
 - Node count by tier: short 3-5 / medium 5-8 / long 8-15
 - Each node has a clear narrative goal
 - Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
-- Final node is the ending (no branches).
+- Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
 - node_id format: ch{number}_{english_abbreviation}
 
 ```
@@ -528,8 +529,8 @@ routes: → ch4_ending
 [node]
 id: ch4_ending
 title: {node title}
-goal: {narrative goal}（结局）
-routes: （结局）
+goal: {narrative goal}
+routes:
 ```
 
 Output all three sections in a single response. Do not add commentary before or after."""

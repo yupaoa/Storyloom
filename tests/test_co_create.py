@@ -21,7 +21,7 @@ hp: number, 80
 id: ch1
 title: start
 goal: begin
-routes: （结局）"""
+routes:"""
         result = CoCreateParser.split_blocks(text)
         assert "genre: fantasy" in result["story_config"]
         assert "hp: number" in result["variables"]
@@ -318,8 +318,8 @@ routes: → ch4_safehouse
 [node]
 id: ch4_safehouse
 title: 安全屋
-goal: 揭开芯片秘密（结局）
-routes: （结局）"""
+goal: 揭开芯片秘密
+routes:"""
 
     def test_parse_valid_branching_outline(self):
         nodes = CoCreateParser.parse_outline(self.VALID_OUTLINE)
@@ -354,7 +354,7 @@ routes: → ch2
 id: ch2
 title: end
 goal: finish
-routes: （结局）"""
+routes:"""
         nodes = CoCreateParser.parse_outline(text)
         assert len(nodes) == 2
 
@@ -623,8 +623,8 @@ routes: → ch4_safehouse
 [node]
 id: ch4_safehouse
 title: 安全屋
-goal: 揭开芯片秘密（结局）
-routes: （结局）"""
+goal: 揭开芯片秘密
+routes:"""
 
 
 class TestCoCreateFlowSend:
@@ -702,7 +702,7 @@ class TestCoCreateFlowSend:
             "=== variables ===\n体力: number, 80\n"
             "=== outline ===\n[node]\nid: ch1\n"
             "title: Start\ngoal: Begin\nroutes: → ch2\n"
-            "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes: （结局）\n"
+            "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes:\n"
         )
         flow = CoCreateFlow(api)
         flow._phase = "awaiting_answer"
@@ -794,7 +794,7 @@ hp: number, 80
 id: ch1
 title: start
 goal: begin
-routes: （结局）"""
+routes:"""
 
         api = MockApiClient(responses=[
             BAD_RESPONSE,
@@ -823,7 +823,7 @@ hp: number, 80
 id: ch1
 title: start
 goal: begin
-routes: （结局）"""
+routes:"""
 
         api = MockApiClient(responses=[
             BAD_RESPONSE,
@@ -1000,7 +1000,7 @@ class TestGenerateAllValidation:
             "d: string, foo\n"
             "=== outline ===\n"
             "[node]\nid: ch1\ntitle: Start\ngoal: Begin\nroutes: → ch2\n"
-            "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes: （结局）\n"
+            "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes:\n"
         )
         flow = CoCreateFlow(api)
         flow._messages = [

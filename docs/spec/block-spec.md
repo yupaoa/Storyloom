@@ -262,17 +262,17 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 </checkpoint>
 ```
 
-结局节点（无 `<route>` 子元素）：
+结局节点（无 `<route>` 子元素，routes 为空即结局）：
 
 ```xml
-<checkpoint node="end" summary="所有线索在此交汇，故事走向终点。"/>
+<checkpoint node="ch4_safehouse" summary="所有线索在此交汇，故事走向终点。"/>
 ```
 
 **属性**：
 
 | 属性 | 必填 | 说明 |
 |------|------|------|
-| `node` | 是 | 节点 ID（`end` 为结局）或 `end`。必须原样复制大纲 ID，禁止拼接后缀 |
+| `node` | 是 | 节点 ID。必须原样复制大纲 ID，禁止拼接后缀。无 `<route>` 子元素时表示结局节点 |
 | `summary` | 是 | 1-2 句中文摘要 |
 
 **`<route>` 属性**：
@@ -311,7 +311,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 **多分支场景**：bridge 之后多个 `<branch>` 分别对应各选项后果叙事。`current_branch` 决定展示哪个分支的内容。未选中的分支不展示、不注入下一轮。
 
-**结局轮**：当 `checkpoint node="end"` 时，`<bridge/>` 仍是必选项。程序在 bridge 处检测到 `ending_flag`，提交冒险日志 Prompt（独立 LLM 调用）。
+**结局轮**：当 `<checkpoint>` 无 `<route>` 子元素时（routes 为空 = 结局节点），`<bridge/>` 仍是必选项。程序检测到 `ending_flag`，提交冒险日志 Prompt（独立 LLM 调用）。
 
 ---
 

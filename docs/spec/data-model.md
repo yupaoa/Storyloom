@@ -41,11 +41,11 @@ game_state.rejected_changes = []
 **流程**：
 
 ```
-1. 提取 node 属性值：
-   ├── node_id → 标记关键节点
-   └── "end" → 结局节点：设置 ending_flag = true，其余推进逻辑相同
-      （标记 completed、存入摘要和快照、触发存档）。
-      后续 bridge 处检测到此标志时走结局路径（见 exec-flow.md §4.7）
+1. 提取 node 属性值（node_id）：
+   ├── routes 为空 → 结局节点：设置 ending_flag = true，其余推进逻辑相同
+   │   （标记 completed、存入摘要和快照、触发存档）。
+   │   后续 bridge 处检测到此标志时走结局路径（见 exec-flow.md §4.7）
+   └── routes 非空 → 正常分支节点：评估 route 条件，推进到目标节点
 
 2. 验证 node_id 存在于 outline：
    ├── 否 → 记日志，忽略该 checkpoint，继续
