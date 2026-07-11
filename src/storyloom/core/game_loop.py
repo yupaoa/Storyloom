@@ -778,22 +778,14 @@ class GameLoop:
                             pending_cp["node"] = None
 
         # ── Flush any remaining partial line ────────────────────────
+        # Feed through the parser so its internal accumulators
+        # (_segments, _bridge_text_items) are complete for
+        # get_result() in Phase 5.  Don't yield UI events — the
+        # stream has ended and a partial line is almost certainly
+        # truncated garbage.
         remaining = lb.flush()
         if remaining:
-            for event in sp.feed_line(remaining):
-                if event.type == EventType.SEGMENT:
-                    if (event.branch_name
-                            and event.branch_name != current_branch):
-                        continue
-                    yield {
-                        "type": "segment",
-                        "text": event.text or "",
-                        "n": sp._seg_count,
-                        "position": event.position,
-                        "branch": event.branch_name,
-                    }
-                elif event.type == EventType.STORY_END:
-                    yield {"type": "story_end"}
+            sp.feed_line(remaining)
 
         # ═══════════════════════════════════════════════════════════
         # Phase 5: </story> — pack, store, next-round launch
