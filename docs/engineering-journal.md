@@ -8,6 +8,38 @@
 
 ## 2026-07-11（周六）
 
+### CoCreateFlow API 重构 —— Q&A 与生成分离，i18n 清理
+
+**背景**：三个语言相关问题触发——
+1. story label 几乎固定为英文（存档显示名与用户语言不匹配）
+2. 共创阶段"是否开始"问句概率固定为英文
+3. `co_create.py:437` 硬编码中文 `（或输入你自己的答案）`，未与配置语言联动
+
+根因分析发现更深层问题：`_START_KEYWORDS` / `_QUIT_KEYWORDS` 在引擎侧硬编码解析用户意图，UI 与引擎职责混淆。
+
+**决策**：
+
+1. **i18n 清理**：`.po` 从 48 条精简至 3 条活跃条目，删除 45 条无用翻译，修正 msgid 换行符偏差导致翻译不生效的 bug。编写 `scripts/compile_mo.py`（stdlib 版 `.mo` 编译器）。
+
+2. **语言感知 Prompt**：`CO_CREATE_SYSTEM_PROMPT` 转为 `string.Template`，`_LANG_META` 字典管理给 LLM 的英文指令，`_()` + `.po` 管理 LLM 输出给用户的文本模板（`$own_answer_hint`）。
+
+3. **API 重构**：
+   - `send()` → 返回 `str`（LLM 回复），纯转发，无关键词检测、无轮次上限。API 失败 3 次重试后 raise `RuntimeError`。
+   - 新增 `generate()` 公共方法：注入格式规范 Prompt → API 调用 → 解析 + 校验 + 重试 → 返回 `CoCreationResult`。
+   - 删除 `_START_KEYWORDS` / `_QUIT_KEYWORDS` / `_qa_round`。
+   - Q&A 与生成 Prompt 拆分：`CO_CREATE_SYSTEM_PROMPT`（Q&A only）+ `CO_CREATE_GENERATION_PROMPT`（格式规范）。
+
+4. **UI 层**：dev_cli 用 `/go` 触发 `generate()`，`/quit` 触发 `abort()`，其余输入全部直接转发 LLM。启动时显示命令提示。
+
+5. **Prompt 语气优化**：维度从"必须聚焦"改为"作参考指南"；删除"禁止询问是否开始"等机械指令；主角维度补充 gender。
+
+**净效果**：4 文件变更，+231/-360 行（净 -129）。227 tests pass。引擎与 UI 职责边界清晰化。
+
+**依据**：
+- commits: `9c60124`, `20426ab`, `c35769e`, `a8e04f1`
+- [[co-create-api-refactor-2026-07-11]]
+- [[co-create-i18n-hardcoded-assumptions]]
+
 ### Spec-vs-Code 审计 —— 6 项修复
 
 **背景**：在 `stream_round()` 统一重构后，对全部 4 份 spec 文档与核心源代码进行逐条对照审计，确认代码是否忠实落实规范流程与设计。本次是重构后首次全面审计。
