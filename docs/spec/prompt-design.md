@@ -734,67 +734,71 @@ The active node indicates the current direction; decide whether to complete it t
 - **调用时机**：结局轮 bridge 处（ending_flag=true）或 Q 键结束后。独立调用，不流式。
 - **输入**：story_config 全文、state_vars 当前值、checkpoint_summaries、checkpoint_history。
 - **输出**：Markdown 格式，500-1000 字。面向玩家回顾性口吻。不加区块分隔符。
+- **Prompt 语言**：英文（与所有系统 Prompt 一致）。通过 `{language}` 占位符指示 LLM 以故事语言输出。
 
 ### 5.2 Prompt 模板
 
 ```
-你是冒险回顾作者。为刚完成的文字冒险游戏撰写冒险日志。
+You are an adventure log author. Write a player-facing recap for a completed text adventure game.
 
-用 Markdown 格式：
+Use Markdown format. Write in the story's language ({language}).
 
-## 冒险回顾：{story_label}
+## Adventure Recap: {story_label}
 
-### 第X章：{node_title}
-（根据摘要扩写 2-3 句章节回顾）
+### Chapter 1: {title}
+(Expand based on this summary: {summary})
 
-（每个 checkpoint 一节）
+...
 
-### 结局：{ending_title}
-（故事收束）
+## Ending
+(Write a warm, satisfying conclusion based on the chapter summaries above.)
 
-### 最终状态
-- 各变量最终值及评语
+## Final State
+{state_vars}
+(For each variable, write a brief one-sentence reflection.)
 
-要求：面向玩家口吻（"你选择了……"），纯文本，不加区块分隔符，500-1000 字。
+Requirements:
+- Address the player directly ("You chose...", "In the end you...")
+- Plain text only, no XML or block separators
+- 500-1000 words
 ```
 
 ### 5.3 Prompt 示例
 
 ```
-你是冒险回顾作者。为刚完成的文字冒险游戏撰写冒险日志。
+You are an adventure log author. Write a player-facing recap for a completed text adventure game.
 
-用 Markdown 格式：
+Use Markdown format. Write in the story's language (zh-CN).
 
-## 冒险回顾：霓虹深渊
+## Adventure Recap: 霓虹深渊
 
-### 第X章：{节点标题}
-（根据摘要扩写 2-3 句）
+### Chapter 1: 霓虹深渊
+(Expand based on this summary: 在霓虹深渊酒吧与耗子接头)
 
-### 结局：安全屋
-（故事收束）
+### Chapter 2: 地下交易
+(Expand based on this summary: 完成芯片交易)
 
-### 最终状态
-- 各变量最终值及评语
+### Chapter 3: 盟友之路
+(Expand based on this summary: 通过地下网络逃离追捕)
 
-要求：面向玩家口吻，纯文本，不加区块分隔符，500-1000 字。
+### Chapter 4: 安全屋
+(Expand based on this summary: 揭开芯片秘密，加入抵抗组织)
 
----
+## Ending
+(Write a warm, satisfying conclusion based on the chapter summaries above.)
 
-故事信息：
-标签：霓虹深渊 · 题材：赛博朋克冒险
+## Final State
+- 体力: 25
+- 理智值: 50
+- 信任度: 20
+- 线索: 神秘芯片
+- 所属势力: 抵抗组织
+(For each variable, write a brief one-sentence reflection.)
 
-已完成的章节：
-- ch1_bar：在霓虹深渊酒吧与耗子接头
-- ch2_confrontation：完成芯片交易
-- ch3_ally：通过地下网络逃离追捕
-- ch4_safehouse：揭开芯片秘密，加入抵抗组织（结局）
-
-最终状态：
-体力：25 / 100
-理智值：50 / 100
-信任度：20 / 100
-线索：神秘芯片
-所属势力：抵抗组织
+Requirements:
+- Address the player directly ("You chose...", "In the end you...")
+- Plain text only, no XML or block separators
+- 500-1000 words
 ```
 
 ---

@@ -8,7 +8,65 @@
 
 ## 2026-07-11（周六）
 
-## 2026-07-11（周六）
+### 结局节点设计修订 —— `node="end"` 移除，routes 数量判定结局
+
+**背景**：当前设计中，结局节点通过 `<checkpoint node="end" .../>` 标识——LLM 必须将结局节点的 `node` 属性硬编码为 `"end"`。此设计存在两个问题：
+
+1. **命名不清晰**：多结局故事中，多个结局节点同名为 `"end"`，无法从 node 属性区分不同结局路径。
+2. **语义不一致**：非结局节点通过 `routes` 数量表达分支结构（routes≥1 = 分支节点），但结局节点需要额外记住命名约定（node="end"）——LLM 容易遗漏。
+
+**决策**：移除 `node="end"` 的命名约定。**routes 数量直接判定节点类型**：
+
+| routes 数量 | 节点类型 | 处理 |
+|------------|---------|------|
+| ≥1 | 分支节点 | 条件求值，推进到命中的 target |
+| 0（空） | **结局节点** | 标记 `ending_flag`，推进流程同普通节点 |
+
+**影响范围**：
+- `co_create.py`：`CO_CREATE_SYSTEM_PROMPT` 中移除 `node="end"` 示例，结局节点由 `routes: （结局）` 表达（已存在）
+- `co_create.py`：`validate_outline()` 中最终节点 routes 为空 → 结局（已存在）
+- `game_loop.py`：`_accumulate_checkpoint` / ending 检测逻辑移除 `node == "end"` 硬编码，改为检查 routes 是否为空
+- `StreamingXmlParser`：无需感知 "end" 特殊值
+- `prompt_builder.py`：Round 1 Prompt 中移除 `node="end"` 相关描述
+- Spec 文档：`block-spec.md` §4 checkpoint 节、`data-model.md` §2、`exec-flow.md` §5.2 更新
+
+**依据**：
+- block-spec.md §4：`<route>` 属性 target 指向目标节点——无 route 则无目标
+- data-model.md §2：结束节点为 "最后一个节点"（branches 为空）
+
+### Spec-vs-Code 审计 —— 4 项修复 + 叙事循环重构设计
+
+**背景**：对 4 份权威 spec 文档与全部核心源代码进行逐条对照审计。发现 7 个问题（2 P0 + 2 P1 + 3 P2），其中 4 项已修复，3 项等待重构。
+
+**已修复**：
+
+| # | 等级 | 问题 | 修复 |
+|---|------|------|------|
+| 3 | P1 | `GameState.apply_set()` 对未知变量/非法操作 raise ValueError，应静默返回 SetResult(accepted=False) | 4 处 `raise ValueError` → `return SetResult(accepted=False, reason=...)` |
+| 4 | P1 | `ParsedOutput.bridge_text` 不过滤分支，`_last_bridge_text` 含全部 branch 文本 | 两处赋值改用 `sp.get_bridge_text(current_branch)` |
+| 5 | P2 | Adventure Log Prompt 语言 spec-vs-code 不一致（spec 说中文，代码用英文） | Spec 更新为英文（与所有系统 Prompt 一致），`data-model.md` §B #1 + `prompt-design.md` §5 同步 |
+| 6 | P2 | StreamingXmlParser 未校验重复 bridge | 遇到第二个 bridge 时记入 `_format_errors`（与 post-bridge choice/set/checkpoint 同级处理） |
+
+**待重构（1, 2, 7）**：
+
+叙事循环当前实现与 spec 存在结构性偏离：
+
+| 偏离 | 说明 |
+|------|------|
+| Round 1 无 pre-fetch | `start_round1_stream` 末尾未启动后台 API 调用 |
+| 条件 set 跨轮延迟 | 有条件的 `<set>` 推迟到下一轮执行，而非轮内求值 |
+| 无轮内暂停 | `<choice>` 解析不暂停等 UI 输入，options 打包到 `</story>` 后统一 yield |
+| `_launch_prefetch` 双重角色 | 同时负责状态清算和 Prompt 预取，live 路径中导致双重调用 |
+
+重构方向：统一每轮流程为 `stream_round()` 单入口，API 调用全部走 daemon 线程 + queue.Queue，所有 set/route 在解析时立即处理。
+
+此外发现结局节点设计需要修订——`node="end"` 命名约定改为 routes 数量判定。详见上一条日志。
+
+**依据**：
+- 本 session 审计报告
+- [[2026-07-11-bridge-processing-audit]]（关联）
+
+---
 
 ### Bridge 处理流程审计 —— 时序模型澄清与 Pipeline 缺口
 

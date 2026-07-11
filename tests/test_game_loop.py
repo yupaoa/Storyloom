@@ -215,12 +215,13 @@ class TestGameStateApplySet:
         assert result.accepted  # Accepted but skipped
         assert gs.state_vars["信任度"] == 10  # Unchanged
 
-    def test_raises_on_nonexistent_variable(self):
-        """Setting a variable that doesn't exist should raise."""
+    def test_rejects_nonexistent_variable(self):
+        """Setting a variable that doesn't exist should be silently rejected."""
         gs = GameState(SAMPLE_STORY_CONFIG)
         op = SetOperation(var="不存在变量", op="+", val="10", condition=None)
-        with pytest.raises(ValueError, match="unknown variable"):
-            gs.apply_set(op, {})
+        result = gs.apply_set(op, {})
+        assert not result.accepted
+        assert "unknown variable" in result.reason
 
     def test_applies_string_assignment(self):
         """String variable assignment should work."""
@@ -257,11 +258,12 @@ class TestGameStateApplySet:
         assert not result.accepted
 
     def test_rejects_list_add_on_non_list(self):
-        """String vars should raise on list operations."""
+        """String vars should reject list operations (silently)."""
         gs = GameState(SAMPLE_STORY_CONFIG)
         op = SetOperation(var="所属势力", op="+", val="新势力", condition=None)
-        with pytest.raises(ValueError, match="Invalid string operation"):
-            gs.apply_set(op, {})
+        result = gs.apply_set(op, {})
+        assert not result.accepted
+        assert "Invalid string operation" in result.reason
 
     def test_condition_against_state_variable(self):
         """Condition can reference state variables."""

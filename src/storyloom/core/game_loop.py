@@ -151,6 +151,11 @@ class GameState:
     def apply_set(self, set_op: SetOperation, choice_dict: dict[str, int]) -> SetResult:
         """Validate and apply a state change from the LLM.
 
+        Per block-spec.md §5, all validation failures are returned as
+        ``SetResult(accepted=False, reason=...)`` — never raised.  This
+        implements the "silent rejection" contract: single-set failure
+        does not affect other valid sets in the same round.
+
         Steps:
         1. Verify variable exists.
         2. Verify operation is valid for the variable type.
@@ -165,30 +170,37 @@ class GameState:
 
         Returns:
             SetResult with accepted flag and optional rejection reason.
-
-        Raises:
-            ValueError: If variable doesn't exist or operation is incompatible.
+            Never raises — all failures are communicated via the return
+            value so the caller can accumulate rejected_changes.
         """
         var_name = set_op.var
 
-        # Step 1: Check variable exists
+        # Step 1: Verify variable exists (per block-spec.md §5:
+        # unknown variable → silently reject, record in rejected_changes).
         if var_name not in self._state_vars:
-            raise ValueError(f"unknown variable: {var_name}")
+            return SetResult(
+                accepted=False,
+                reason=f"unknown variable: {var_name}",
+            )
 
         var_type = self._var_types[var_name]
 
-        # Step 2: Check operation is valid for type
+        # Step 2: Verify operation is valid for type (per block-spec.md §5:
+        # type mismatch → silently reject).
         if var_type == "number" and set_op.op not in self.VALID_NUMBER_OPS:
-            raise ValueError(
-                f"Invalid number operation: {set_op.op} for {var_name}"
+            return SetResult(
+                accepted=False,
+                reason=f"Invalid number operation: {set_op.op} for {var_name}",
             )
         if var_type == "string" and set_op.op not in self.VALID_STRING_OPS:
-            raise ValueError(
-                f"Invalid string operation: {set_op.op} for {var_name}"
+            return SetResult(
+                accepted=False,
+                reason=f"Invalid string operation: {set_op.op} for {var_name}",
             )
         if var_type == "list" and set_op.op not in self.VALID_LIST_OPS:
-            raise ValueError(
-                f"Invalid list operation: {set_op.op} for {var_name}"
+            return SetResult(
+                accepted=False,
+                reason=f"Invalid list operation: {set_op.op} for {var_name}",
             )
 
         # Step 3: Parse/try value
@@ -612,9 +624,10 @@ class GameLoop:
         # Clear previous format error on successful parse
         self._format_error = None
 
-        # Store parsed output
+        # Store parsed output (bridge_text filtered by current_branch
+        # per block-spec.md §4 — unselected branches must not leak).
         self.last_parsed = parsed
-        self._last_bridge_text = parsed.bridge_text
+        self._last_bridge_text = sp.get_bridge_text(self._current_branch)
 
         # Apply unconditional sets from Round 1
         state_changes: list[dict] = []
@@ -1072,9 +1085,10 @@ class GameLoop:
                 "changes": step9_changes,
             }
 
-        # Update stored state
+        # Update stored state (bridge_text filtered by current_branch
+        # per block-spec.md §4).
         self.last_parsed = parsed
-        self._last_bridge_text = parsed.bridge_text
+        self._last_bridge_text = sp.get_bridge_text(current_branch)
 
         # ── Launch adventure log in background if ending ────────────
         # Per exec-flow.md §5.2: submit adventure log at bridge time

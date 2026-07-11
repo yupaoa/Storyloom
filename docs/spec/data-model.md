@@ -249,7 +249,7 @@ load_save(filepath):
 
 | # | 约定 | 说明 |
 |---|------|------|
-| 1 | **Prompt 语言** | 所有系统/叙事 LLM Prompt 使用英文。冒险日志 Prompt 使用中文 |
+| 1 | **Prompt 语言** | 所有系统/叙事/冒险日志 LLM Prompt 使用英文。输出语言由 story_config.language 决定 |
 | 2 | **XML 元素名** | 全部英文（`<seg>`、`<checkpoint>` 等） |
 | 3 | **变量命名** | 状态变量名、choice 名使用中文 |
 | 4 | **XML 转义** | narrative 正文中的 `<` `>` `&` 必须转义为 `&lt;` `&gt;` `&amp;` |

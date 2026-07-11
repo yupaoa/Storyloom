@@ -314,6 +314,12 @@ class StreamingXmlParser:
 
         # ── Bridge ──────────────────────────────────────────────────
         if _RE_BRIDGE.match(clean):
+            if self._post_bridge:
+                self._format_errors.append(
+                    f"<bridge/> found after <bridge/>"
+                    f" (line {self._line_count})"
+                )
+                return []
             self._bridge_seen = True
             self._post_bridge = True
             return [ParseEvent(type=EventType.BRIDGE,
