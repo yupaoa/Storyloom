@@ -99,6 +99,7 @@ def run_co_create(
         ui.show_error(f"Co-creation failed to start: {e}")
         return None
     ui.write(event["prompt"])
+    ui.write("[/go to generate  /quit to exit]")
 
     while True:
         user_input = ui.ask("").strip()
@@ -143,6 +144,10 @@ def run_co_create(
         return None
 
     if observer is not None:
+        # Record generation prompt + response (generate() appends both to messages)
+        gen_input = flow.messages[-2]["content"]
+        observer.record_co_create_prompt(flow.messages[:-2], gen_input)
+        observer.record_co_create_response(flow.messages)
         observer.record_co_create_result(
             result.story_config, result.outline_text)
     ui.write(f"\n[Story: {result.story_config.get('label', '?')}]")

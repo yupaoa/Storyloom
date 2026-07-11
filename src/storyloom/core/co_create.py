@@ -450,7 +450,7 @@ $language_instruction
 
 Ask one question at a time. Here are some dimensions to explore — use them as a guide, not a checklist. Do NOT reveal specific plot events or spoil story content:
 - World setting (era, location, tech/magic level, society)
-- Protagonist (name, identity, personality traits, background)
+- Protagonist (name, gender, identity, personality traits, background)
 - Story tone (dark/light, epic/personal, serious/humorous)
 - Conflict direction (core tension — describe it as a question the story explores)
 - Story length (short ~10 rounds / medium ~20 rounds / long ~40 rounds)
