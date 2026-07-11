@@ -152,10 +152,10 @@
 输出格式：
 
 === variables ===
-体力: number, 初始 80
-信任度: number, 初始 5
-所属势力: string, 初始 "中立"
-线索: list, 初始 []
+体力: number, 80
+信任度: number, 5
+所属势力: string, "中立"
+线索: list, []
 ```
 
 ---
