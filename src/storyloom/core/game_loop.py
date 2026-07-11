@@ -391,12 +391,16 @@ class GameState:
 class GameLoop:
     """Main narrative game loop, coordinating all modules.
 
-    Flow:
-    1. start_round1() -> Prompter -> API -> Parser
-    2. Player makes choice
-    3. continue_round() -> apply state changes -> update outline ->
-       build context -> API -> Parser
-    4. Repeat from step 2 until ending.
+    Unified per-round flow (all rounds identical per exec-flow.md §4.1)::
+
+        gl.start_game()              # Round 1: build prompt + launch API
+        gen = gl.stream_round()      # Round 1 generator
+        for event in gen:            # Phase 1-4: streaming parse
+            if event["type"] == "options":
+                gen.send(key)         # choice pause → resume
+        # Phase 5: </story> → store, launch next API, yield done
+        gen = gl.stream_round()      # Round 2 (API already running)
+        ...
     """
 
     def __init__(
@@ -477,7 +481,7 @@ class GameLoop:
 
     @property
     def round_count(self) -> int:
-        """Current round number (0 before start_round1)."""
+        """Current round number (0 before first ``stream_round()``)."""
         return self._context_mgr.round_count
 
     @property
@@ -1396,9 +1400,8 @@ class GameLoop:
     def _accumulate_checkpoint(self, cp_node: str, cp_summary: str) -> None:
         """Accumulate checkpoint data and trigger auto-save.
 
-        Centralised helper shared by the deferred checkpoint path
-        (Step 3.5 in ``continue_round_stream`` / ``_launch_prefetch``)
-        and the immediate post-parse path for the ``"end"`` sentinel.
+        Called by ``_handle_checkpoint`` during streaming parse
+        (Phase 3) for every checkpoint — ending or non-ending.
 
         Side effects on: ``_checkpoint_summaries``,
         ``_checkpoint_history``, ``_checkpoint_snapshots``,
