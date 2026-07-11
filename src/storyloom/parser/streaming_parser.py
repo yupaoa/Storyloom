@@ -141,7 +141,7 @@ _RE_SEG = re.compile(r'^<seg(?: n="(\d+)")?>(.*)</seg>\s*$')
 _RE_CHOICE_OPEN = re.compile(r'^<choice id="([^"]+)">\s*$')
 _RE_CHOICE_CLOSE = re.compile(r'^</choice>\s*$')
 _RE_OPT = re.compile(
-    r'^<opt key="(\d+)" branch="([^"]+)"(?: if="([^"]+)")?>(.*)</opt>\s*$'
+    r'^<opt key="(\d+)"(?: branch="([^"]+)")?(?: if="([^"]+)")?>(.*)</opt>\s*$'
 )
 _RE_SET = re.compile(
     r'^<set var="([^"]+)" op="([^"]+)" val="([^"]+)"'
@@ -343,8 +343,8 @@ class StreamingXmlParser:
         m = _RE_OPT.match(clean)
         if m:
             key = m.group(1)       # "1", "2", ...
-            branch = m.group(2)
-            if_cond = m.group(3)   # None if no if="..." attribute
+            branch = m.group(2)  # None if no branch → current_branch unchanged
+            if_cond = m.group(3)  # None if no if="..." attribute
             text = m.group(4).strip()
 
             # Accumulate into pending choices (not post-hoc consolidation)

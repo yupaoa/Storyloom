@@ -210,7 +210,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 | 属性 | 必填 | 说明 |
 |------|------|------|
 | `key` | 是 | 数字键 `1`/`2`/`3`/`4`。对应选项序号 |
-| `branch` | 是 | 选中后设置的 `current_branch`，必须对应 bridge 之后同名的 `<branch name>` |
+| `branch` | 否 | 选中后设置的 `current_branch`，必须对应 bridge 之后同名的 `<branch name>`。省略时 `current_branch` 不变 |
 | `if` | 否 | 条件表达式，满足才可选。格式 `变量名 运算符 值` |
 
 处理逻辑：展示选项 → 玩家选择 → `choice_dict["chip_choice"] = N` → 设置 `current_branch = opt.branch`。

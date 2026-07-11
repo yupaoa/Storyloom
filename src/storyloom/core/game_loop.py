@@ -736,7 +736,8 @@ class GameLoop:
 
         # Determine selected branch from the player's choice
         selected_branch = self._get_selected_branch(choice_key)
-        self._current_branch = selected_branch or "main"
+        if selected_branch is not None:
+            self._current_branch = selected_branch
 
         # ── Step 2: Apply last round's conditional sets ─────────────
         # Unconditional sets were already applied in Step 9 of their own
@@ -1182,7 +1183,8 @@ class GameLoop:
             self._context_mgr.get_compressed_summaries() or None
         )
         selected_branch = self._get_selected_branch(choice_key)
-        self._current_branch = selected_branch or "main"
+        if selected_branch is not None:
+            self._current_branch = selected_branch
 
         # Derive bridge_text for the *next* round from the current
         # round's parsed output, filtered by the branch the player
