@@ -345,6 +345,30 @@ class TestGameStateConditionEval:
 
 # ── GameLoop Tests ────────────────────────────────────────────────
 
+
+def _run_round(game_loop, choice_key=None):
+    """Drive one round via stream_round(), feeding choice_key at options.
+
+    Replaces the old ``start_round1()`` / ``continue_round(key)``
+    convenience wrappers.
+    """
+    gen = game_loop.stream_round()
+    choice_fed = False
+    try:
+        event = next(gen)
+        while True:
+            if (event["type"] == "options"
+                    and choice_key is not None
+                    and not choice_fed):
+                event = gen.send(choice_key)
+                choice_fed = True
+            elif event["type"] == "error":
+                raise RuntimeError(event["message"])
+            event = next(gen)
+    except StopIteration:
+        pass
+
+
 class TestGameLoopInit:
     def test_initializes_with_defaults(self):
         """GameLoop should initialize with minimal arguments."""
@@ -411,63 +435,57 @@ class TestGameLoopInit:
 
 
 class TestGameLoopRound1:
-    def test_start_round1_increments_round_count(self):
-        """start_round1 should set round_count to 1."""
+    """Round 1 tests — now use start_game() + _run_round()."""
+
+    def test_round1_increments_count(self):
+        """Round 1 should set round_count to 1."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
         )
-        result = loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         assert loop.round_count == 1
-        assert result.round_number == 1
 
-    def test_start_round1_returns_round_result(self):
-        """start_round1 should return a RoundResult."""
+    def test_round1_parses_xml(self):
+        """Round 1 should parse the API response into ParsedOutput."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
         )
-        result = loop.start_round1()
-        assert isinstance(result, RoundResult)
-        assert result.parsed is not None
+        loop.start_game()
+        _run_round(loop)
+        assert loop.last_parsed is not None
+        assert len(loop.last_parsed.segments) > 0
 
-    def test_start_round1_parses_xml(self):
-        """start_round1 should parse the API response into ParsedOutput."""
+    def test_start_game_cannot_be_called_twice(self):
+        """start_game should raise if called again."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
         )
-        result = loop.start_round1()
-        assert len(result.parsed.segments) > 0
-
-    def test_start_round1_cannot_be_called_twice(self):
-        """start_round1 should raise if called again."""
-        loop = GameLoop(
-            story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
-            api_client=MockApiClient(),
-        )
-        loop.start_round1()
+        loop.start_game()
         with pytest.raises(RuntimeError, match="Round 1 already started"):
-            loop.start_round1()
+            loop.start_game()
 
-    def test_start_round1_sends_messages_to_api(self):
-        """start_round1 should pass messages to the API client."""
+    def test_round1_sends_messages_to_api(self):
+        """Round 1 should pass messages to the API client."""
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         assert mock.last_messages is not None
         assert len(mock.last_messages) > 0
 
-    def test_start_round1_sets_current_node(self):
-        """start_round1 should set current_node from config."""
+    def test_round1_sets_current_node(self):
+        """Round 1 should set current_node from config."""
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
@@ -476,7 +494,8 @@ class TestGameLoopRound1:
             current_node="ch1_bar",
             goal="开场：进入酒吧",
         )
-        result = loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         assert loop.current_node is not None
 
     def test_available_options_after_round1(self):
@@ -486,27 +505,30 @@ class TestGameLoopRound1:
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
         )
-        loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         options = loop.get_available_options()
         assert len(options) > 0
         assert options[0]["branch"] == "take_lead"
 
 
 class TestGameLoopContinueRound:
-    def test_continue_round_increments_count(self):
-        """continue_round should increment round count."""
+    """Continue-round tests — now use start_game() + _run_round()."""
+
+    def test_round2_increments_count(self):
+        """Round 2 should increment round count."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
         )
-        loop.start_round1()
-        result = loop.continue_round(choice_key="1")
+        loop.start_game()
+        _run_round(loop)
+        _run_round(loop, choice_key="1")
         assert loop.round_count == 2
-        assert result.round_number == 2
 
-    def test_continue_round_applies_state_changes(self):
-        """continue_round should apply conditional state changes."""
+    def test_round2_applies_state_changes(self):
+        """Round 2 should apply state changes from parsed XML."""
         mock = MockApiClient()
         gs = GameState(SAMPLE_STORY_CONFIG)
         loop = GameLoop(
@@ -515,22 +537,22 @@ class TestGameLoopContinueRound:
             api_client=mock,
             game_state=gs,
         )
-        loop.start_round1()
-        # Option 1 maps to approach==1 → 体力 -= 10
-        loop.continue_round(choice_key="1")
+        loop.start_game()
+        _run_round(loop)
+        _run_round(loop, choice_key="1")
         assert gs.state_vars["体力"] == 70  # 80 - 10
 
-    def test_continue_round_without_start_round1_raises(self):
-        """continue_round should raise if start_round1 wasn't called."""
+    def test_stream_round_without_start_game_raises(self):
+        """stream_round should raise if start_game wasn't called."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
         )
-        with pytest.raises(RuntimeError, match="No last result"):
-            loop.continue_round(choice_key="1")
+        with pytest.raises(RuntimeError, match="start_game"):
+            next(loop.stream_round())
 
-    def test_continue_round_picks_different_branch(self):
+    def test_round2_picks_different_branch(self):
         """Different choice should apply different state changes."""
         mock = MockApiClient()
         gs = GameState(SAMPLE_STORY_CONFIG)
@@ -540,21 +562,22 @@ class TestGameLoopContinueRound:
             api_client=mock,
             game_state=gs,
         )
-        loop.start_round1()
-        # Option 2 maps to approach==2 → 信任度 += 5
-        loop.continue_round(choice_key="2")
+        loop.start_game()
+        _run_round(loop)
+        _run_round(loop, choice_key="2")
         assert gs.state_vars["信任度"] == 15  # 10 + 5
 
-    def test_continue_round_sends_context_to_api(self):
-        """continue_round should send context messages to API."""
+    def test_round2_sends_context_to_api(self):
+        """Round 2 should send context messages to API."""
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        loop.start_round1()
-        loop.continue_round(choice_key="1")
+        loop.start_game()
+        _run_round(loop)
+        _run_round(loop, choice_key="1")
         assert mock.last_messages is not None
 
 
@@ -567,9 +590,10 @@ class TestGameLoopWithSimpleXml:
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        result = loop.start_round1()
-        assert result.parsed.choices == []
-        assert result.parsed.bridge_found
+        loop.start_game()
+        _run_round(loop)
+        assert loop.last_parsed.choices == []
+        assert loop.last_parsed.bridge_found
 
     def test_simple_xml_no_options(self):
         """A simple XML should return empty options list."""
@@ -579,21 +603,23 @@ class TestGameLoopWithSimpleXml:
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         options = loop.get_available_options()
         assert options == []
 
     def test_continue_without_choice(self):
-        """continue_round should work without a choice (passing None)."""
+        """Round 2 should work without a choice (passing None)."""
         mock = MockApiClient(response=SIMPLE_XML)
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        loop.start_round1()
-        result = loop.continue_round(choice_key=None)
-        assert result.round_number == 2
+        loop.start_game()
+        _run_round(loop)
+        _run_round(loop, choice_key=None)
+        assert loop.round_count == 2
 
 
 class TestGameLoopAdventureLog:
@@ -604,7 +630,8 @@ class TestGameLoopAdventureLog:
             outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
         )
-        result = loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         log = loop.run_adventure_log()
         assert isinstance(log, str)
         assert len(log) > 0
@@ -617,7 +644,8 @@ class TestGameLoopAdventureLog:
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         log = loop.run_adventure_log()
         assert mock.last_messages is not None
 
@@ -631,22 +659,24 @@ class TestGameLoopBranchRoute:
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        loop.start_round1()
+        loop.start_game()
+        _run_round(loop)
         route = loop.evaluate_routes({"approach": 1})
         assert route is not None
 
 
 class TestGameLoopLastParsed:
     def test_last_parsed_is_accessible(self):
-        """The last parsed output should be accessible."""
+        """The last parsed output should be accessible after round 1."""
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
             outline_text=SAMPLE_OUTLINE,
             api_client=mock,
         )
-        result = loop.start_round1()
-        assert loop.last_parsed is result.parsed
+        loop.start_game()
+        _run_round(loop)
+        assert loop.last_parsed is not None
 
 
 class TestGameStateSerialization:

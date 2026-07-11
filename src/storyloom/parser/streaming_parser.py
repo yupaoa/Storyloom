@@ -129,6 +129,8 @@ class ParseEvent:
     # Position
     line_number: int = 0
     position: str = "pre"             # "pre" or "post" (bridge relative)
+    # CHOICE_END payload — accumulated opt data from _pending_choices
+    choice_data: dict | None = None
 
 
 # ── Line regex patterns ───────────────────────────────────────────
@@ -248,10 +250,16 @@ class StreamingXmlParser:
                                position=self._position)]
 
         if _RE_CHOICE_CLOSE.match(clean):
+            choice_data = (
+                dict(self._pending_choices[-1])
+                if self._pending_choices
+                else None
+            )
             self._in_choice = None
             return [ParseEvent(type=EventType.CHOICE_END,
                                line_number=self._line_count,
-                               position=self._position)]
+                               position=self._position,
+                               choice_data=choice_data)]
 
         m = _RE_CHECKPOINT_OPEN.match(clean)
         if m:
@@ -503,6 +511,11 @@ class StreamingXmlParser:
     def bridge_seen(self) -> bool:
         """Whether ``<bridge/>`` has been encountered."""
         return self._bridge_seen
+
+    @property
+    def routes(self) -> list[RouteTarget]:
+        """Route targets accumulated from ``<route>`` elements (copy)."""
+        return list(self._routes)
 
 
 # ── LineBuffer ────────────────────────────────────────────────────

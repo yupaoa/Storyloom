@@ -191,34 +191,49 @@ def main(output=None, argv: list[str] | None = None) -> None:
     n_rounds = max(1, args.rounds)
     failed = 0
 
+    def _run_round(choice_key: str | None = None) -> None:
+        """Drive one round via stream_round(), feeding choice at options."""
+        gen = game_loop.stream_round()
+        choice_fed = False
+        try:
+            event = next(gen)
+            while True:
+                if (event["type"] == "options"
+                        and choice_key is not None
+                        and not choice_fed):
+                    event = gen.send(choice_key)
+                    choice_fed = True
+                elif event["type"] == "error":
+                    raise RuntimeError(event["message"])
+                event = next(gen)
+        except StopIteration:
+            pass
+
+    # Round 1
+    game_loop.start_game()
     try:
-        game_loop.start_round1()
+        _run_round()
     except Exception as e:
         print(f"Round 1 failed: {e}", file=sys.stderr)
         sys.exit(1)
 
     for r in range(1, n_rounds):
         options = game_loop.get_available_options()
-
         if not options:
             choice_key = None
         else:
-            # Pick from --choices sequence, or default to first option
-            idx = r - 1  # round 2 = sequence index 0
+            idx = r - 1
             if idx < len(choice_sequence):
                 choice_key = choice_sequence[idx]
             else:
                 choice_key = "1"
-
         try:
-            game_loop.continue_round(choice_key=choice_key)
+            _run_round(choice_key=choice_key)
         except Exception as e:
             failed += 1
             print(f"Round {r + 1} failed: {e}", file=sys.stderr)
             if not args.debug:
                 sys.exit(1)
-            # In --debug mode, continue to next round (data from prior
-            # rounds is already saved; failed round has no new data.)
 
     if failed:
         print(f"Completed {n_rounds} round(s) — {failed} failed.",
