@@ -36,8 +36,6 @@
 - `docs/superpowers/specs/2026-07-05-narrative-flow-refactor-design.md` §2.2-2.5（设计依据）
 - 303 passed, 24 skipped, 0 failed
 
-**后续**（07-11 已完成）：见下一条。
-
 ### StreamingXmlParser 全面融入核心流程 —— 全量解析彻底平替
 
 **背景**：上一条日志恢复了 `StreamingXmlParser` 但仅用于 pre-fetch 路径——Round 1 和 continue 慢路径仍使用 `XmlParser.parse()` 全量解析，且 `ContextManager._extract_bridge_from_xml()` 也依赖 `XmlParser`。
@@ -103,18 +101,18 @@
 
 ### Adventure Log 时序修复
 
-**背景**：`exec-flow.md` §5.2 要求冒险日志在 bridge 时刻发起，与 bridge_text 展示并发执行。实际代码中 `run_adventure_log()` 在所有 segment 展示完毕后同步调用。
+**背景**：`exec-flow.md` §5.2 要求冒险日志在 bridge 时刻发起，与 bridge_text 展示并发执行。实际代码中 `run_adventure_log()` 在所有 segment 展示完毕后同步调用——用户需额外等待 LLM 生成时间。
 
 **决策**：
-1. 提取 `_accumulate_checkpoint()` 辅助方法（消除 3 处重复）
+1. 提取 `_accumulate_checkpoint()` 辅助方法（消除 3 处重复的 checkpoint 处理逻辑）
 2. Post-parse "end" 检测——Step 7 后立即检查 `parsed.checkpoint_node == "end"`
 3. Adventure log 在 `_emit_parsed()` 前启动 daemon 线程，segment 展示期间并发执行
-4. Early-return guard 防止结局后被重复调用
+4. Early-return guard：`self._ending_handled` 标志防止结局后被重复调用
 
 **依据**：
 - commit `980ec2f` — `fix(engine): adventure log now runs concurrently with bridge_text display`
 - [[2026-07-10-adventure-log-timing-fix]]
-- [[2026-07-10-spec-compliance-audit]]（10/10 全部修复）
+- exec-flow.md §5.2 并发设计描述
 
 ---
 
@@ -122,9 +120,30 @@
 
 ### bridge pre-fetch 实现
 
-**背景**：Bridge 机制要求程序在展示 post-bridge 缓冲文本期间发起下一轮 API 调用，以消除段边界停顿。exec-flow.md §4.3 描述了时序模型，但此前实现侧一直是串行等待。
+**背景**：Bridge 机制要求程序在展示 post-bridge 缓冲文本期间发起下一轮 API 调用，以消除段边界停顿。exec-flow.md §4.3 描述了时序模型——程序解析到 `<bridge/>` 时立即提交下一轮 Prompt，同时继续展示 bridge_text。但此前实现侧一直是串行等待：展示完所有内容 → 等待玩家输入 → 组装 Prompt → API 调用 → 等待响应 → 开始下一轮。
 
-**决策**：在 `GameLoop._launch_prefetch()` 中实现 daemon 线程 + `queue.Queue` 架构。仅对无选项（auto-advance）轮次触发——choice 轮次的下一轮 messages 数组取决于玩家选择，无法预计算。
+**决策**：在 `GameLoop._launch_prefetch()` 中实现 daemon 线程 + `queue.Queue` 架构。
+
+**触发条件**：仅对无选项（auto-advance）轮次触发。choice 轮次无法预计算下一轮的 messages 数组——bridge_text 的 branch 过滤依赖玩家选择，只有在玩家做出选择后才能确定 `current_branch`。
+
+**流程**：
+```
+到达 <bridge/>
+    │
+    ├─ ① 检测：parsed.choices 非空？
+    │   ├── 有 choice → 不预取（下一轮取决于玩家选择，messages 数组无法预计算）
+    │   └── 无 choice → _launch_prefetch()
+    │       ├── 捕获当前状态快照（done_state）
+    │       ├── 组装下一轮 messages
+    │       └── 启动 daemon 线程：api_client.stream_chat(messages) → queue.Queue
+    │
+    └─ ② 主线程：继续 emit bridge_text segments
+        （用户阅读中；后台线程在 queue 中缓冲 chunks）
+```
+
+**已知局限**（07-10 已知，07-11 修复）：
+- `_launch_prefetch()` 在 `yield from self._emit_parsed()` 之后调用——终端 UI 同步消费 segment 事件会阻塞 generator，导致 pre-fetch 在所有内容展示完后才启动。详见 07-11 日志"Pre-fetch 触发时机修复"
+- 后台线程收集完整响应后才由主线程解析——无法实现流式展示。详见 07-11 日志"StreamingXmlParser 恢复"
 
 **依据**：
 - commit `663b9f2` — `feat(engine): implement bridge pre-fetch for auto-advance rounds`
@@ -133,73 +152,108 @@
 
 ### 规范合规审计与修复
 
-**背景**：对代码实现与 4 份权威 spec 文档进行逐条对照审计。
+**背景**：对代码实现与 4 份权威 spec 文档（exec-flow.md、block-spec.md、prompt-design.md、data-model.md）进行逐条对照审计。这是引擎完备化后首次系统性审计。
 
 **决策**：发现并修复 1 P0 + 3 P1 + 4 P2 问题：
 
-| 等级 | 问题 | 修复 commit |
-|------|------|-------------|
-| P0 | unconditional set 双重应用 | `4715904` |
-| P1 | emit_parsed 未传递 current_branch | `4715904` |
-| P1 | AUTO_ADVANCE_DELAY_MS spec 引用同步 | `4715904` |
-| P1 | Round 1 parse 失败缺少 observer 通知 | `951145c` |
-| P2 | adventure log 与 bridge_text 并发执行 | `980ec2f` |
-| P2 | 其他 spec 同步 | `642465f` |
+| 等级 | 问题 | 说明 | 修复 commit |
+|------|------|------|-------------|
+| P0 | unconditional set 双重应用 | 无条件的 `<set>` 在流式处理阶段应用一次，`_apply_sets()` 又应用一次 | `4715904` |
+| P1 | emit_parsed 未传递 current_branch | 选项选择后的分支切换未反映在事件中 | `4715904` |
+| P1 | AUTO_ADVANCE_DELAY_MS spec 引用错误 | 常量引用位置与 spec 不一致 | `4715904` |
+| P1 | Round 1 parse 失败缺少 observer 通知 | `start_round1_stream` parse 失败路径缺少 `_notify()` 调用 | `951145c` |
+| P2 | adventure log 时序 | 同步执行改为并发（见 07-11 详细日志） | `980ec2f` |
+| P2 | save 文件缺少 label 字段 | spec 要求但未实现 | `642465f` |
+| P2 | 配置文件与 data-model.md §A 不同步 | 常量值未反映最新 spec | `642465f` |
+| P2 | streaming_parser.py 残留 | 已废弃的模块仍在仓库中 | `642465f`（后续 `6697f47` 彻底删除）|
 
 **依据**：
-- [[2026-07-10-spec-compliance-audit]]
-- [[2026-07-10-spec-compliance-followup]]
+- [[2026-07-10-spec-compliance-audit]]（完整审计报告）
+- [[2026-07-10-spec-compliance-followup]]（修复记录）
 - [[2026-07-10-adventure-log-timing-fix]]
 
 ### StreamingXmlParser 删除 **【07-11 推翻，见当日日志】**
 
-**背景**：2026-07-05 的 narrative flow refactor 设计规划了 `StreamingXmlParser`——基于 `NNN| ` 行号前缀的逐行流式解析器，含状态机（`IN_STORY | IN_BRANCH | IN_CHECKPOINT | IN_CHOICE | POST_BRIDGE`）和预处理/实际处理双重线。该模块曾被实现（commit `39c049d`）。
+**背景**：2026-07-05 的 narrative flow refactor 设计（`docs/superpowers/specs/2026-07-05-narrative-flow-refactor-design.md`）规划了 `StreamingXmlParser`——基于 `NNN| ` 行号前缀的逐行流式解析器，含状态机（`IN_STORY | IN_BRANCH | IN_CHECKPOINT | IN_CHOICE | POST_BRIDGE`）和预处理/实际处理双重线。该模块于 07-06 实现（commit `39c049d`）。
 
-**决策（07-10）**：删除 `streaming_parser.py`。
+**07-10 的决策**：删除 `streaming_parser.py`。
 
-**理由（07-10）**：
+**07-10 的理由**：
 1. bridge pre-fetch 在后台线程完成完整 API 调用 + `ElementTree` 解析——流式解析的"边收边处理"优势被覆盖
-2. 状态机 + 双重处理线的复杂度与 `ElementTree` 全量解析的 millisecond 级耗时不成比例
-3. 两套解析器需保持语义一致——维护负担 > 理论收益
+2. 状态机 + 双重处理线（预处理建索引 / 实际处理做决策）的复杂度与 `ElementTree` 全量解析的 millisecond 级耗时不成比例
+3. 两套解析器（XmlParser + StreamingXmlParser）需保持语义一致——维护负担 > 理论收益
 
-**推翻（07-11）**：上述分析聚焦在错误的指标上（已完成的 XML 解析耗时 234 μs）。正确指标是从 pre-fetch 启动到**首个可展示内容就绪**的墙上时间——全量解析需等待完整生成（25-50s），流式解析仅需等待首行生成（<1s）。见 [[2026-07-11-streaming-parser-timing-flaw]]。
+**07-11 的推翻**：上述分析聚焦在错误的指标上（已完成的 XML 字符串解析耗时 234 μs）。正确指标是从 pre-fetch 启动到**首个可展示内容就绪**的墙上时间——全量解析需等待完整生成（25-50s），流式解析仅需等待首行生成。详见 07-11 日志"StreamingXmlParser 删除决定推翻"。
+
+**教训**：**选择正确的度量指标是架构决策的前提。** 错误的指标（解析耗时）导向了错误的决策（删除流式解析器）。桥接机制的核心度量是"首段可展示时间"，而非"解析吞吐量"。
 
 **依据**：
 - [[2026-07-10-adventure-log-and-parser-architecture]]（部分分析被推翻）
 - [[2026-07-11-streaming-parser-timing-flaw]]（修正分析）
-- `src/storyloom/parser/streaming_parser.py` 已不存在，需从 `7fe2278` 恢复
+- `src/storyloom/parser/streaming_parser.py` 已不存在（需从 `7fe2278` 恢复）
 
 ### CoCreateFlow.run() 删除
 
-**背景**：`CoCreateFlow.run()` 是遗留的同步方法，内部直接调用 `Display` 进行终端 I/O。状态机 API（`start()`/`send()`，07-07 实现）已完全覆盖其功能，Terminal UI 已移至 `dev_cli`。
+**背景**：`CoCreateFlow.run()` 是遗留的同步方法，内部直接调用 `Display` 进行终端 I/O（`d.output.write()`、`d.show_wait_message()`、`d.get_input()`）。随着 07-07 实现的状态机 API（`start()`/`send()`）和 07-10 的 `dev_cli`，该方法的使命终结。
 
-**决策**：删除 `run()` 方法及所有 UI 耦合代码。
+**具体清理**：
+- 删除 `run()` 方法（含内嵌的 `_step1_get_idea()`、`_step2_questioning()` 终端 I/O 调用）
+- 删除所有对 `Display` 的直接/间接引用
+- `GENERATE_ALL_PROMPT` 模板中的硬编码 UI 提示替换为引擎中立表述
+- `_generate_all()` 重构为纯引擎逻辑（无 UI 副作用）
+
+**影响**：commit `a6d941f` — `2 files changed, 268 insertions(+), 566 deletions(-)`（净 -298 行）。CoCreateFlow 现在完全 UI 无关——通过 `UiInterface` 协议和返回 dict 与任意 UI 层交互。
 
 **依据**：
-- commit `a6d941f` — `2 files changed, 268 insertions(+), 566 deletions(-)`（净 -298 行）
+- commit `a6d941f` — `refactor: remove CoCreateFlow.run() and all UI coupling from core engine`
 - CLAUDE.md §UI Territory 明确引擎不应依赖 UI 层文件
+- [[2026-07-10-ui-logic-separation-audit]]
 
 ### Dev CLI 完整实现
 
-**背景**：07-07 将 CLI 降级为测试工具后，需要一个最小化的 CLI 来验证引擎端到端能力，同时提供开发者检查（记录原始 Prompt/响应/解析数据）。
+**背景**：07-07 将 CLI 降级为测试工具后，`main.py` 成为尴尬的存在——它不再是"主界面"但却是唯一的 CLI 入口。需要一个最小化的 CLI 来：(1) 验证引擎端到端能力，(2) 提供开发者检查（记录原始 Prompt/响应/解析数据），(3) 可作为 Web UI 开发者的引擎行为参考。
 
-**决策**：实现 `src/storyloom/dev_cli/` 包（`__init__.py` / `args.py` / `ui.py` / `observer.py`）。核心约束：零引擎变更。通过 `GameLoop._observers`（Python 约定私有属性）注册 DevObserver。输出文件追加模式写入 `dev_output/{prompts,responses,checks}.txt`。
+**决策**：实现 `src/storyloom/dev_cli/` 包，独立于引擎核心（引擎零修改）。
+
+**架构**：
+```
+dev_cli/
+├── __init__.py      # dev_main() entry point
+├── args.py          # 参数解析（--mode normal|dev, --story <file>, --no-save, --lang）
+├── ui.py            # TerminalUi（实现 UiInterface）+ 游戏流程驱动 run_co_create()/run_game()
+└── observer.py      # DevObserver → dev_output/{prompts,responses,checks}.txt
+```
+
+**关键设计决策**：
+- **零引擎变更**：通过 `GameLoop._observers`（Python 约定私有属性）注册 DevObserver——引擎代码一行不改
+- **追加模式输出**：3 个输出文件始终追加（`dev_output/prompts.txt`、`responses.txt`、`checks.txt`）——跨 session 累积
+- **事件驱动消费**：`run_game()` 遍历 stream 事件（token→忽略、segment→print、options→菜单、state→记录、error→stderr、done→循环终止判断）
+- **Ctrl+C 安全**：KeyboardInterrupt 在 `ask()` 中传播，在 `run_game()` 中捕获并提示存档
+
+**实现迭代**（17 个 commits，`45ebd25` → `93c6020`）：
+- 基础框架：args（`c580177`）、TerminalUi + driver（`6da20aa`）、DevObserver（`864aec2`）
+- 体验修复：段间延迟 0.5s（`814e72f`）、流式实时输出（`8df3545`）、等待提示（`b8818b1`）
+- 健壮性：错误处理（`e61d845`）、KeyboardInterrupt 传播（`f77f76d`）、事件字段守卫（`735dba1`）
+- 完善：共创记录（`c250fd8`）、完整 messages 数组记录（`09f291a`）、速度配置/覆盖模式/暂停（`93c6020`）
 
 **依据**：
-- 设计：`docs/superpowers/specs/2026-07-10-dev-cli-design.md`
-- 计划：`docs/superpowers/plans/2026-07-10-dev-cli.md`
-- Commits：`45ebd25` → `93c6020`（17 个 commits）
+- 设计 spec：`docs/superpowers/specs/2026-07-10-dev-cli-design.md`
+- 实现计划：`docs/superpowers/plans/2026-07-10-dev-cli.md`
 
 ### 系统 Prompt 英文化
 
-**背景**：部分 Prompt 残留中文，违反 prompt-design.md §1.1 "英文 Prompt"原则。
+**背景**：部分 Prompt 残留中文硬编码，违反 prompt-design.md §1.1 确立的"英文 Prompt"原则（所有系统/叙事 Prompt 使用英文）。具体问题：(1) 冒险日志 Prompt 模板使用中文，(2) 共创 Prompt 中混入中文变量名假设，(3) 格式规范部分有中英混杂。
 
-**决策**：全面清理——所有系统/叙事 Prompt 切换为英文；冒险日志 Prompt 改为英文 + 引擎中立信号。
+**决策**：全面清理：
+1. 所有系统/叙事 Prompt 切换为英文——角色定义、输出格式、核心规则、质量要求
+2. 冒险日志 Prompt 改为英文 + 引擎中立信号（用 `{story_label}`、`{chapter_title}` 占位符替代硬编码中文）
+3. 代码注释中的中文替换为英文
+4. i18n 层严格仅处理 UI 文本（CLI 输出、菜单、提示）——不触碰 Prompt
 
 **依据**：
-- commit `048ab53` — `refactor: purge Chinese from system prompts and format spec`
-- commit `77314b7` — `refactor: rewrite adventure log prompt in English`
-- prompt-design.md §1.1：英文 Prompt 原则
+- commit `048ab53` — `refactor: purge Chinese from system prompts and format spec, enforce i18n layer separation`
+- commit `77314b7` — `refactor: rewrite adventure log prompt in English, use neutral engine signals`
+- prompt-design.md §1.1 英文 Prompt 原则
 
 ---
 
@@ -207,56 +261,137 @@
 
 ### API 审计与界面集成设计
 
-**背景**：引擎声称 UI 无关，但审计发现 Web UI 开发者需要重新实现大量业务逻辑才能接入。
+**背景**：引擎声称 UI 无关，但审计发现 Web UI 开发者需要重新实现大量业务逻辑才能接入——`CoCreateFlow` 的同步 `run()` 方法内嵌终端 I/O、`GameLoop` 的关键数据（checkpoint 历史、大纲节点）仅以私有属性存在、没有统一的会话生命周期管理。
+
+**审计流程**：系统性地对照 "UI 需要做什么" vs. "引擎提供了什么"：
+
+```
+[Menu] → [Co-Create] → [Init GameState] → [Narrative Loop] → [Ending] → [Menu]
+
+Phase              Engine Provides               UI Can Use Directly?
+─────              ───────────────               ────────────────────
+Menu               SaveManager.list_saves()      ✅
+                   SaveManager.delete()          ✅
+New Game           CoCreateFlow.run()            ❌ (synchronous, embedded UI)
+                   GameState(story_config)       ✅
+                   GameLoop(...)                 ⚠️ (7 constructor params)
+Gameplay           start_round1_stream()         ✅
+                   continue_round_stream(key)    ✅
+                   get_available_options()       ✅
+                   to_save_dict()                ✅
+                   round_count, current_node     ✅
+                   checkpoint_history            ❌ (private _attribute)
+                   outline_nodes                 ❌ (private _attribute)
+Ending             type: "ending" event          ✅ (built into stream)
+                   adventure_log                 ✅ (in ending event)
+Return to Menu     —                             ❌ (no transition mechanism)
+```
 
 **决策**：识别 5 个缺口并逐一解决：
 
-| # | 缺口 | 解决方案 |
-|---|------|---------|
-| 1 | UiInterface 过于极简 | 保持 3 方法不变，通过状态机 API 弥补 |
-| 2 | CoCreateFlow 不可被 Web UI 复用 | 实现 `start()`/`send()` 状态机 API |
-| 3 | 无顶层会话编排器 | 新增 `GameSession` 类 |
-| 4 | GameLoop 缺少公开访问器 | 新增 `checkpoint_history`/`outline_nodes` 属性 |
-| 5 | SaveManager 未统一 | `GameSession` 封装生命周期 |
+| # | 缺口 | 严重度 | 解决方案 |
+|---|------|--------|---------|
+| 1 | UiInterface 过于极简（3 方法不够语义化） | 🔴 | 保持协议不变，通过状态机 API 返回 dict 弥补——UI 从返回值判断意图 |
+| 2 | CoCreateFlow 不可被 Web UI 复用 | 🔴 | 实现 `start()`/`send()` 状态机 API——每个调用返回 `{phase, content}` dict，UI 自由决定如何展示 |
+| 3 | 无顶层会话编排器 | 🔴 | 新增 `GameSession` 类——封装"新游戏/加载/保存"完整生命周期 |
+| 4 | GameLoop 缺少公开访问器 | 🟡 | 新增 `checkpoint_history`（`list[dict]`）和 `outline_nodes`（`list[dict]`，含格式归一化）属性 |
+| 5 | SaveManager 未与 GameLoop 统一 | 🟡 | `GameSession` 封装 `SaveManager`——UI 不需要手动连接二者 |
 
-**关键发现**：`outline_nodes` 存在两种内部格式（新鲜创建 vs. 从 save 恢复），需在公开访问器中做格式归一化——这是在设计过程中发现的预存 bug。
+**关键发现——预存 bug**：`_outline_nodes` 存在两种不可互换的内部格式：
+- 新鲜创建路径（`CoCreateParser.parse_outline()`）：`[{id, title, goal, routes: [{condition, target}]}]`
+- 从 save 恢复路径：`[{node_id, title, goal, status, branches}]`
+
+公开访问器 `outline_nodes` 需做格式归一化——**这是审计过程中发现的，而非预先知道的 bug。** commit message 中标注了此发现。
+
+**状态机 API 设计**：
+```python
+flow = CoCreateFlow(api_client, ui=None)  # ui 参数可选——为 Web UI 设计
+flow.start()                              # → {phase: "awaiting_idea"}
+flow.send("a cyberpunk story")            # → {phase: "awaiting_answer", content: "..."}
+flow.send("开始")                          # → {phase: "complete", result: CoCreationResult}
+flow.abort()                              # 任意时刻中止
+flow.phase                                # 当前阶段（只读）
+flow.result                               # CoCreationResult | None（只读）
+```
 
 **依据**：
-- `docs/superpowers/specs/2026-07-07-api-audit-and-interface-design.md`（完整审计报告，v2 自我审查修正版）
-- 实现 commits：`03d992f`（start）、`e3a6750`（send）、`2ba92ea`（GameSession）、`7d08624`/`f8667df`（accessors）
+- 设计：`docs/superpowers/specs/2026-07-07-api-audit-and-interface-design.md`（v2 自我审查修正版）
+- 计划：`docs/superpowers/plans/2026-07-07-api-interface-implementation.md`
+- 实现 commits：
+  - `03d992f` — `feat: add CoCreateFlow.start() method`
+  - `e3a6750` — `feat: add CoCreateFlow.send() state machine method`
+  - `0874cce` — `feat: add CoCreateFlow phase, result properties and abort() method`
+  - `67a086e` — `feat: make CoCreateFlow ui parameter optional for state machine API`
+  - `2ba92ea` — `feat: add GameSession lifecycle coordinator`
+  - `7d08624` — `feat: add GameLoop.checkpoint_history public property`
+  - `f8667df` — `feat: add GameLoop.outline_nodes public property with format normalization`
 
 ### CLI 降级与观察者统一
 
-**背景**：`main.py` 中的 CLI 原本是"主界面"，但 Web 界面已成为主要 UI 层。`Display` 类混入了 GameLoop——违反 UI-引擎解耦原则。
+**背景**：`main.py` 中的 CLI 原本是"主界面"——直接从终端交互驱动游戏循环。但 Web 界面已成为主要 UI 层（并行分支活跃开发），且 `Display` 类混入了 `GameLoop`——引擎直接调用终端 I/O 方法，违反 UI-引擎解耦原则。
 
 **决策**：
-- CLI 从"主界面"降级为"测试/维护工具"
-- `Display` 从 `GameLoop` 中移除——GameLoop 改为 generator yield 事件流
-- 观察者系统统一到 `cli_utils.py`
+1. **CLI 降级**：`main.py` 从"主界面"变为"测试/维护工具"——保留 `--quick` 模式供开发者快速验证引擎行为
+2. **Display 移除**：`GameLoop` 不再持有 `Display` 引用。所有内容输出改为 generator yield 事件流——`token`、`segment`、`options`、`state`、`error`、`done`
+3. **观察者统一**：`cli_utils.py` 集成 observer 回调注册——供 `dev_cli` 和 `main.py` 共享
+
+**事件流设计**（此设计为 07-10 Dev CLI 的基础）：
+
+| type | payload | 说明 |
+|------|---------|------|
+| `token` | `{"text": str}` | LLM 逐 token（供 Web UI 流式渲染） |
+| `segment` | `{"text": str, "n": int, "position": "pre"\|"post", "branch": str\|null}` | 叙事段完成 |
+| `options` | `{"choices": [{"id": str, "branches": [str], "labels": [str], "conditions": {}}]}` | 选项面板 |
+| `state` | `{"vars": dict, "changes": [{"var": str, "op": str, "val": str, "accepted": bool}]}` | 状态变更 |
+| `error` | `{"message": str}` | 格式/API 错误 |
+| `done` | `{"round": int, "node": str\|null, "state": dict}` | 轮次结束 |
 
 **依据**：
 - commit `2127350` — `refactor: demote CLI to test-only harness, unify observer system`
+- commit `6697f47` — `refactor: remove dead code and mark deprecated files`
 - [[2026-07-07-cli-observer-refactor]]
 
 ### 3 个 P0 引擎 Bug 修复
 
-**背景**：代码审查发现条件变量解析逻辑存在优先级不一致。
+**背景**：代码审查发现条件变量解析逻辑存在优先级不一致——不同求值场景使用不同的解析顺序，导致同一条件在不同上下文中得出不同结果。
 
-**决策**：
-1. 所有条件求值场景统一 `choice_dict > state_vars` 优先级
-2. number 操作结果 clamp 到 [0, 100]
-3. 分支条件全部不命中 → 取第一条 route 的 target（兜底）
+**Bug 1 — 条件变量解析优先级不一致**：
+- 问题：`choice_dict > state_vars` 优先级在 options 置灰判断中遵循此顺序，但在 `set` 条件求值和 `route` 条件求值中使用相反顺序
+- 根因：三处条件求值是独立实现的代码路径，没有共享的求值函数
+- 修复：抽取共享的 `_evaluate_condition()` 方法，统一优先级为 `choice_dict > state_vars`（与 block-spec.md §3 一致）
+- 影响：未修复时，`<set if="approach==1">` 在 choice_dict 已包含 `approach` 时可能错误地回退到 state_vars 查找
+
+**Bug 2 — number 越界未 clamp**：
+- 问题：`<set var="体力" op="-" val="100"/>` 结果可能为负数（如当前 30 → -70）
+- 根因：`_apply_number_op()` 执行算术但没有边界检查
+- 修复：所有 number 操作结果 clamp 到 [0, 100]（与 block-spec.md §5 一致）
+- 影响：未修复时，LLM 可能在后续轮次中基于负数状态做出不合理叙事决策
+
+**Bug 3 — route 兜底策略缺失**：
+- 问题：checkpoint 的所有分支条件都不命中时，`target_node` 保持为 `None`——程序不知道该推进到哪个节点
+- 根因：仅实现了"命中则设置 target"的逻辑，没有 else 分支
+- 修复：取第一条 route 的 target 作为兜底（与 data-model.md §2 兜底策略一致——"取 LLM 列出的第一个分支"）
+- 影响：未修复时，条件不命中会导致大纲推进卡死
 
 **依据**：
-- commit `6533e10`
-- block-spec.md §3："条件变量解析优先级：choice_dict > state_vars"
+- commit `6533e10` — `fix: condition priority, number clamp, route fallback — 3 core engine bugs`
+- block-spec.md §3 条件变量解析优先级 + §5 状态变更校验
+- data-model.md §2 兜底策略说明
 - [[2026-07-07-audit-and-bugfix]]
 
 ### 规范文档 NNN| 格式同步
 
-**背景**：代码已迁移到 `NNN| ` 行号前缀格式（07-05），但 block-spec.md 和 prompt-design.md 仍使用旧的 `<seg n="N">` 描述。
+**背景**：代码于 07-05 迁移到 `NNN| ` 行号前缀格式（commit `ce5a776`），但规范文档（block-spec.md、prompt-design.md、data-model.md）仍使用旧的 `<seg n="N">` 属性编号描述——文档与代码不一致。
 
-**决策**：同步全部核心文档到新格式，修复 8 处不一致。
+**修复范围（8 处）**：
+1. block-spec.md §1 速查表：`<seg>` 的 `n` 属性描述改为"可选（兼容旧格式）"
+2. block-spec.md §2：新增完整的行号规则节（`NNN| ` 前缀、零填充 3 位、全局连续）
+3. block-spec.md §2.3：`XmlParser` 解析流程更新为剥离前缀 + 兼容 `n` 属性
+4. prompt-design.md §4.2：Round 1 Prompt 模板中 `<seg N>` 替换为 `NNN| <seg>`
+5. prompt-design.md §4.3：Round N 上下文描述更新
+6. data-model.md §A.4：新增 `LINES_PER_ROUND_*` 行控制常量 + 架构说明
+7. data-model.md §A.7：废弃 `SEGMENTS_PER_ROUND_*`、`BRIDGE_SEGMENT_RATIO`、`MIN_NARRATION_CHARS`
+8. exec-flow.md §4.4：解析流程更新为行号剥离描述
 
 **依据**：
 - commit `f283d24` — `docs: sync spec format to NNN| line-number prefix, fix 8 issues`
@@ -268,56 +403,148 @@
 
 ### 后端完备化：存档、结局、解耦
 
-**背景**：引擎核心缺失三个关键能力——(1) 存档系统仅存设计文档，(2) 结局检测和冒险日志未实现，(3) CoCreateFlow 直接依赖 `Display` 类，Web UI 无法复用。
+**背景**：引擎核心缺失三个关键能力——(1) 存档系统仅存设计文档（exec-flow.md §2、data-model.md §3），(2) 结局检测和冒险日志未实现，(3) `CoCreateFlow` 直接 `import Display` 并调用终端 I/O 方法，Web UI 无法复用。这三个缺口阻塞了 Web 界面集成和端到端测试。
 
-**决策**（11 项任务，一次性交付）：
+**设计方法**：以 4 份权威 spec 文档为标准（exec-flow.md、block-spec.md、data-model.md、prompt-design.md），代码适配文档——**spec 是权威，代码是派生。** 采用最小变更策略——只在现有模块上添加新方法/属性，不重构核心流程。
 
-1. **SaveManager**（新模块）：原子写入（`.tmp` → `os.replace`），加载校验（version + 字段完整 + current_node 存在），文件名从 `story_config.label` 派生
-2. **ending_flag 机制**：checkpoint `node="end"` → `ending_flag=True` → bridge 处组装冒险日志 Prompt → 独立 LLM 调用（不走叙事循环解析管线）
-3. **UiInterface 协议**：极简 3 方法（`write`/`show_error`/`ask`），CoCreateFlow 全部替换 `Display` 调用
-4. **GameState/GameLoop 序列化**：`to_dict()`/`from_dict()`——为存档和加载提供数据契约
-5. **冒险日志 Prompt**：`build_adventure_log_prompt()`，注入 story_config + state_vars + checkpoint_summaries + checkpoint_history。Markdown 格式，500-1000 字
+**实现（11 项任务）**：
+
+**任务 1-2：UiInterface 协议 + CoCreateFlow 去耦合**
+- 新建 `src/storyloom/core/ui_interface.py`：极简 3 方法协议——`write(text)`、`show_error(text)`、`ask(prompt) → str`
+- `Display` 实现 `UiInterface`：`write()` 委托到 `self.output.write()`，`ask()` 委托到 `self.get_input()`
+- `CoCreateFlow` 构造函数从 `display: Display` 改为 `ui: UiInterface`——所有 `self._display.output.write(...)` → `self._ui.write(...)`，共替换约 20 处
+- 影响范围：仅 CoCreateFlow 和 Display 两个模块——不涉及 GameLoop
+
+**任务 3-4：GameState/GameLoop 序列化**
+- `GameState.to_dict()` → `{state_vars: dict}`（仅序列化变量状态）
+- `GameState.from_dict(data, story_config)` → 用 story_config 提供的变量定义类型信息恢复 state_vars
+- `GameLoop.to_save_dict()` → 组装完整的存档 dict（version、metadata、config、story_config、state_vars、outline、progress、bridge_text）
+- `GameLoop.from_save_dict(data, api_client)` → 校验结构完整性 → 恢复 GameLoop 实例
+- **关键设计**：`story_config.variables[].initial` 是**共创时的初始值**（非当前值），用于提供类型定义。实际状态来自 `state_vars`
+
+**任务 5-6：存档系统（SaveManager）**
+- 新建 `src/storyloom/core/save_manager.py`
+- `save(save_data)`：序列化 → 写 `saves/{label}.tmp` → `os.replace(tmp, saves/{label}.json)`（原子写入，data-model.md §3.3）
+- `load(label)`：JSON 解析 → 校验 version==1 → 校验关键字段（story_config 含 variables、state_vars、outline、progress）→ 校验 current_node 在 outline 中存在 → 返回 save_data dict
+- `list_saves()`：扫描 `saves/*.json`，读取每个文件的 metadata（label、round_count、created_at、updated_at、current_node）
+- `delete(label)`：删除 `saves/{label}.json`
+- 加载校验失败 → `ValueError`（调用者删除损坏文件，提示用户返回主菜单）
+- **前置依赖**：新增 `story_config.label` 字段——commit `926bc8e`。存档文件名从 label 派生（非法字符替换为 `_`，重名追加 `_2`/`_3`）
+
+**任务 7-8：结局检测 + 冒险日志**
+- `ending_flag`：GameLoop 新增属性（非 GameState——GameState 管理变量，ending_flag 是流程控制）
+- 检测流程：`parsed.checkpoint_node == "end"` → `ending_flag = True` → 标记节点 completed → 存储 checkpoint 摘要/历史/快照 → 触发 auto-save → bridge 处组装冒险日志 Prompt → 独立 LLM 调用
+- `build_adventure_log_prompt()`：注入 story_config + state_vars + checkpoint_summaries + checkpoint_history。Markdown 格式，500-1000 字，面向玩家回顾性口吻
+- 冒险日志不走叙事循环解析管线——独立 `api_client.chat()` 调用（非流式）
+- 新增流事件类型 `ending`：`{type: "ending", adventure_log: str, final_state: dict, summary: str|null}`
+
+**任务 9-10：checkpoint 累积 + outline 结构化存储**
+- 新增字段：`_checkpoint_summaries: list[str]`、`_checkpoint_history: list[dict]`、`_checkpoint_snapshots: dict[str, dict]`
+- `_outline_nodes: list[dict]`：从 `CoCreateParser.parse_outline()` 获取结构化节点（替代仅存 `outline_text: str`）
+- checkpoint snapshot 在 Phase 1 仅存储不读取——为 Phase 2 回档预留
+
+**任务 11：Web 前端 MVP（并行分支）**
+- FastAPI + SSE 流式渲染、共创支持、streaming parser 集成
+- commit `3035496` — `feat: streaming web frontend with co-creation support`
+
+**全部 commits**：`c18fb71`（SaveManager）、`acfd7c9`（UiInterface）、`4313b6e`（CoCreateFlow 解耦）、`6646a60`/`50a5057`（序列化）、`9f67ac6`（结局）、`06b49ba`（冒险日志）、`8e89d15`（checkpoint 累积）、`e139831`（outline 结构化）、`926bc8e`（label 字段）、`a9bd880`（存档时间戳/结局节点修复）、`65db872`（存档恢复 bridge_text 注入）
 
 **依据**：
-- 设计：`docs/superpowers/specs/2026-07-06-backend-completion-design.md`（经自我审查修订）
-- 计划：`docs/superpowers/plans/2026-07-06-backend-completion.md`（11 任务）
-- 核心 commits：`c18fb71`（SaveManager）、`acfd7c9`（UiInterface）、`9f67ac6`（ending）、`06b49ba`（冒险日志）、`50a5057`/`6646a60`（序列化）
+- 设计：`docs/superpowers/specs/2026-07-06-backend-completion-design.md`（经自我审查修订——v2 移除不必要的 UiInterface 扩展）
+- 计划：`docs/superpowers/plans/2026-07-06-backend-completion.md`（11 任务，TDD）
 
 ### Narrative Flow 重构
 
-**背景**：xml_parser.py 存在 5 个问题：(1) bridge_text 未按 current_branch 过滤，(2) 全量解析违背顺序处理，(3) `run_full_test.py` 重写了生产逻辑，(4) 无观察者机制，(5) `format_error` 从未被赋值。
+**背景**：对 `xml_parser.py` 和 `game_loop.py` 的叙事流程进行系统性审视，发现 5 个问题。
 
-**决策**：
-1. `_extract_bridge_text()` 改为按 `current_branch` 过滤——统一逻辑，不再区分"全量/分支"模式
-2. 实现 `StreamingXmlParser`（状态机驱动的流式逐行解析器）**【注：该模块于 07-10 删除，见当日日志】**
-3. 新增 `RoundRecord` + observer 回调
-4. 修复 `format_error`——流式解析异常时设置，下一轮 Prompt 注入纠正提示
-5. `run_full_test.py` 全量重写为 GameLoop 驱动
+**5 个问题及修复**：
+
+1. **bridge_text 未按 current_branch 过滤**（P0）：
+   - `XmlParser._extract_bridge_text()` 提取所有 `<branch>` 内的文本节点——未选中分支的文本泄露到下一轮上下文
+   - 修复：`_extract_bridge_text(post_children, current_branch=None)`——bare `<seg>`（无分支 = 单路径）始终收集；`<branch name="X">` 仅在 `X == current_branch` 时收集
+   - 统一逻辑：不再有"全量模式"和"分支模式"的区分——"默认就是一种分支"
+
+2. **全量解析违背顺序处理原则**：
+   - `ElementTree.fromstring()` 一次性解析完整 XML，然后批量处理所有元素
+   - 设计文档（narrative-flow-refactor-design.md §2.1-2.2）规划了缓冲式读取——pre-bridge 交互区在 bridge 前处理，bridge 后内容作为缓冲
+   - 修复：实现 `StreamingXmlParser`（见下条）（**该模块在 07-10 删除、07-11 恢复——见当日日志**）
+
+3. **`run_full_test.py` 重写了全部生产逻辑**：
+   - 手工状态管理、route 评估、choice_dict 构建——这些应该由 GameLoop 完成
+   - 修复：全量重写为 GameLoop 驱动——脚本仅做配置 + observer 回调 + 选择策略
+
+4. **无观察者机制**：
+   - 测试/发布模式无法区分——每轮数据无法导出供调试
+   - 修复：新增 `RoundRecord` dataclass + `observer: Callable[[RoundRecord], None] | None` 回调。每轮结束时调用 `_notify(record)`
+
+5. **`format_error` 从未被赋值**（P0）：
+   - `GameLoop._format_error` 声明了但没有任何代码设置它——XML 解析错误不会反馈给 LLM
+   - 修复：流式解析异常时设置 `self._format_error`，`PromptBuilder.build_round_n()` 在下一轮注入纠正提示："上一轮输出存在格式问题——{format_error}。请严格遵循 XML 格式规范。"
+
+**额外变更**：
+- `ApiClient.stream_chat()` 返回类型从 `str` 改为 `ApiResult`（`{content, ttft, tokens}`）——记录首 token 时间和 token 用量
+- 包结构拆分：`src/storyloom/` 扁平结构 → `core/` / `io/` / `parser/` 三个子包（commit `7fe2278`）
 
 **依据**：
 - 设计：`docs/superpowers/specs/2026-07-05-narrative-flow-refactor-design.md`
 - commit `39c049d` — `refactor: narrative flow — branch-aware bridge_text, observer pattern, streaming parser`
+- commit `7fe2278` — `refactor: split flat package into core/io/parser subpackages`
 
 ### 国际化迁移：Display.UI → gettext
 
-**背景**：`Display.UI` dict 存储 UI 文本——翻译者需编辑 Python 字典。
+**背景**：`Display.UI` dict 存储中英文 UI 文本（`{"zh-CN": "...", "en": "..."}`）。翻译者需要编辑 Python 字典——工作流不友好（无法使用标准翻译工具、无法增量更新、无法审查 diff）。
 
-**决策**：迁移到 gettext `.po/.mo` 文件体系。`_()` 调用替代 `display.t("key")`。
+**决策**：迁移到 gettext `.po/.mo` 文件体系，使用标准 Python `gettext` 模块。
+
+**迁移步骤**：
+1. 新建 `src/storyloom/i18n.py`：封装 `gettext.translation()`，提供 `_()` 快捷函数
+2. 创建 `locale/zh_CN/LC_MESSAGES/storyloom.po`：从 `Display.UI` dict 提取所有 UI 文本作为 msgid
+3. 编译 → `locale/zh_CN/LC_MESSAGES/storyloom.mo`
+4. `Display.t("key")` → `_("English text")`：所有 UI 文本调用替换
+5. `main.py` 删除 `language` 参数传递——语言由 `LANG` 环境变量或系统 locale 决定
+6. `co_create.py` 中的中文硬编码 → `_()` 调用
+7. 移除 `Display.UI` dict 和 `Display.t()` 方法
+
+**设计原则**：i18n 层严格仅处理 UI 文本（CLI 输出、菜单、提示）——不触碰 Prompt。Prompt 语言由 prompt-design.md 控制（英文 Prompt 原则）。
 
 **依据**：
 - 设计：`docs/superpowers/specs/2026-07-06-i18n-gettext-design.md`
 - 计划：`docs/superpowers/plans/2026-07-06-i18n-gettext-migration.md`
+- commits：`7b298ab`（i18n 模块）、`80bd632`（zh-CN 翻译）、`38460ef`/`59907e9`（迁移）、`14c57b8`（Windows 兼容）、`f052614`（测试更新）
 - [[i18n-migration-follow-up]]
 
 ### 包结构重构
 
-**背景**：原 `src/storyloom/` 是扁平结构。
+**背景**：原 `src/storyloom/` 是扁平结构——所有 `.py` 文件直接放在包根目录。随着模块数增长（game_loop.py、co_create.py、context_manager.py、prompt_builder.py、config.py、xml_parser.py、api_client.py、display.py、main.py、cli_utils.py...），扁平结构变得难以导航和维护。
 
-**决策**：拆分为 `core/`（引擎核心）、`io/`（API 客户端）、`parser/`（XML 解析器）三个子包。
+**决策**：拆分为 3 个子包：
+```
+src/storyloom/
+├── __init__.py         # 顶层导出（GameSession, CoCreationResult）
+├── config.py           # 常量（不变）
+├── i18n.py             # gettext 封装
+├── cli_utils.py        # CLI 观察者工具
+├── main.py             # CLI 入口
+├── core/               # 引擎核心
+│   ├── game_loop.py
+│   ├── co_create.py
+│   ├── context_manager.py
+│   ├── prompt_builder.py
+│   ├── save_manager.py
+│   ├── session.py
+│   └── ui_interface.py
+├── io/                 # I/O 层
+│   ├── api_client.py
+│   └── display.py
+└── parser/             # 解析器
+    └── xml_parser.py
+```
+
+**原则**：`core/` 不导入 `io/` 或外部模块（仅标准库 + 自身子模块）；`io/` 可导入 `core/` 的协议；`parser/` 纯解析逻辑，零外部依赖。
 
 **依据**：
 - commit `7fe2278` — `refactor: split flat package into core/io/parser subpackages`
-- CLAUDE.md 文件管辖表格反映此结构
+- CLAUDE.md 文件管辖表格反映此结构（引擎核心 / 引擎 API / UI 领地）
 
 ---
 
@@ -325,80 +552,189 @@
 
 ### 行号格式迁移（NNN| 前缀）
 
-**背景**：`<seg n="N">` 属性编号方案下，LLM 需在生成 XML 属性同时维护编号——认知负担高。
+**背景**：`<seg n="N">` 属性编号方案是两个问题之间的妥协——(1) LLM 需要知道每段的序号以便感知"写到哪了"，(2) 程序需要为段排序。将编号放在 XML 属性中意味着 LLM 在生成 `<seg n="42">text</seg>` 时需要同时维护：(a) XML 标签语法正确，(b) n 属性值在变化，(c) 文本内容符合规范。认知负担高。
 
-**决策**：改为 `NNN| ` 行号前缀（零填充 3 位，全局连续）。每行是自包含单元——`NNN| <element>content</element>`。
+**替代方案**：将编号从 XML 属性中剥离，改为行前缀——`NNN| <seg>text</seg>`。行号不是 XML 的一部分，程序解析前剥离。LLM 只需维护一个递增计数器（写一行 → 前缀数字 +1），不干扰 XML 结构认知。
+
+**新格式规范**：
+- 每行以 `NNN| ` 前缀开头（零填充 3 位），从 001 开始，全局连续递增
+- 行号不是 XML 的一部分——程序在 `XmlParser` 解析前用正则 `r'^\d{3}\| '` 剥离
+- 段数 → 行数：`LINES_PER_ROUND_MIN = 150`、`LINES_PER_ROUND_MAX = 300`（行数 ≈ 段数 × 1.25，含 XML tag + 行号前缀开销）
 
 **连锁变更**：
-- `SEGMENTS_PER_ROUND_*` → `LINES_PER_ROUND_*`（行数 ≈ 段数 × 1.25）
-- `LINES_PER_ROUND_MIN` = 150，`LINES_PER_ROUND_MAX` = 300
-- `<seg n="N">` → 裸 `<seg>`
+| 变更 | 说明 |
+|------|------|
+| `SEGMENTS_PER_ROUND_*` → `LINES_PER_ROUND_*` | 段数控制改为行数控制 |
+| `<seg n="N">` → 裸 `<seg>` | n 属性不再由 Prompt 要求产生 |
+| 解析器兼容旧格式 | `int(el.get("n", 0))`——n 缺失时默认 0 |
+| 宽容原则确立 | 编号偏差（跳号、重复、非 001 起始）不触发重试——内容质量优先于编号准确性 |
+
+**行号的价值**（超越格式美化）：
+- LLM 在生成过程中**自我计量**——替代不准确的字数估算和段数计数
+- 程序端解析前剥离前缀——对展示层和 XML 解析器透明
+- 流式逐行解析成为天然可能——每行是自包含的独立处理单元
+- `tests/prompt_lab/data/prompts/round1-linenum.txt` 成为权威 Prompt 标准（9758 字节）
 
 **依据**：
+- commit `8023859` — `feat: add line-numbered prompt (round1-linenum.txt) — 3-digit zero-padded, 150-300 lines`
 - commit `ce5a776` — `feat: migrate to English line-numbered prompt format`
-- `tests/prompt_lab/data/prompts/round1-linenum.txt`（权威 Prompt 标准，9758 字节）
-- data-model.md §A.4（行控制常量）+ §A.7（废弃的 `SEGMENTS_PER_ROUND_*`）
+- data-model.md §A.4（当前常量）+ §A.7（废弃常量列表）
 - block-spec.md §2（行号规范）
 
 ### 段长-TTFT 实验
 
-**背景**：Bridge 无缝约束 `TTFT < N × RATE × t`（RATE=50%, t=0.5s/段）。需找到使约束成立的段长范围。
+**背景**：Bridge 机制的无缝约束是 `TTFT < N × RATE × t`（RATE=阅读速度比例, t=每段阅读时间）。当 `SEGMENTS_PER_ROUND = 60-120`、bridge 在 40% 处时，post-bridge 缓冲仅有 24-48 段。RATE=50%、t=0.5s/段 → 缓冲阅读时间 6-12s。但 TTFT 实测平均 48-60s。**约束不成立——用户在每轮之间必然感知停顿。**
 
-**假设**：TTFT 由思考时间主导，而非输出长度。
+**假设**：TTFT 由"思考时间"（Prompt 解析、格式规划、内容结构化）主导，而非输出长度。如果假设成立，可以大幅增加段数而不成比例增加 TTFT——用更长的 post-bridge 缓冲覆盖 TTFT 窗口。
 
-**实验**：4 档（60-120 / 120-200 / 180-280 / 240-360），每档 3 次运行。
+**实验设计**（Phase 1：段数测试，Phase 2：RATE 测试）：
+- 4 个段数档位（T1: 60-120, T2: 120-200, T3: 180-280, T4: 240-360），每档 3 次运行
+- 固定 RATE = 50%、bridge 位置 = 对应档位中心
+- 测量指标：TTFT（avg/min/max）、实际段数、bridge 位置比例、XML 正确性（8 项检查）
+- 工具链：`generate_prompt.py`（模板渲染）→ `run_prompt_test.py`（串行流式测试）→ `analyze_seg_test.py`（结果聚合）
 
-**结果**：假设部分成立（段数 3×，TTFT 仅增 ~20%）。最优范围：**120-200 段，75% bridge 位置，12,288 tokens**。关键因素：Prompt 大小（输入 tokens）对 TTFT 的影响 > 输出长度。
+**Phase 1 结果**：
+
+| 档位 | 段数范围 | 平均 TTFT | 平均段数 | Bridge 位置 | 正确率 |
+|------|---------|-----------|---------|------------|--------|
+| T1（对照） | 60-120 | ~48s | 84 | ~40% | 2/3 |
+| T2 | 120-200 | ~52s | 156 | ~55% | 3/3 |
+| T3 | 180-280 | ~56s | 218 | ~62% | 2/3 |
+| T4 | 240-360 | ~58s | 285 | ~70% | 1/3 |
+
+**关键发现**：
+- 假设**部分成立**——段数增加 3×（T1→T4），TTFT 仅增加 ~20%，远非线性
+- 但 T4 的正确率明显下降——LLM 在超长输出时更难维持格式正确性
+- **最优范围：T2（120-200 段）**——正确率最高（3/3），TTFT 可控（~52s），缓冲文本充足
+- 最优 token 预算：**12,288 tokens**
+- **关键因素确认**：Prompt 大小（输入 tokens）对 TTFT 的影响 > 输出长度
+
+**Phase 2（RATE 测试）**：在 120-200 段下测试 RATE ∈ {60%, 75%}——进一步优化 bridge 位置。
+
+**结论**：推荐配置 `SEGMENTS_PER_ROUND 120-200`、`BRIDGE_POSITION_RATIO = 0.75`、`MAX_TOKENS = 12288`。07-05 立即应用到生产配置（commit `fb73c9d`）。
 
 **依据**：
 - 设计：`docs/superpowers/specs/2026-07-05-segment-length-test-design.md`
-- 实验数据：commits `fb73c9d`（配置应用）、`867d16e`（Phase 2 RATE）、`af1b6df`（4 档结果）
+- 计划：`docs/superpowers/plans/2026-07-05-segment-length-test.md`
+- 实验数据 commits：`fb73c9d`（配置应用）、`867d16e`（Phase 2 RATE 结果）、`af1b6df`（4 档完整结果）
 - [[segment-length-ttft-optimization]]
 
 ### Bridge 位置：40% → 75%
 
-**背景**：`BRIDGE_SEGMENT_RATIO = 0.4`，post-bridge 缓冲文本太短（~15-30s），TTFT 平均 48-60s 导致用户感知停顿。
+**背景**：段长实验发现 bridge 位置是决定无缝体验的关键参数。原 `BRIDGE_SEGMENT_RATIO = 0.4`（约 07-04 初设），post-bridge 缓冲文本太短。当 `LINES_PER_ROUND = 150-300` 时，40% 意味着 post-bridge 仅 60-120 行缓冲——对应 15-30s 阅读时间（RATE=50%）。但 TTFT 平均 48-60s——缓冲播完时下一轮首段大概率未到。
 
-**决策**：`BRIDGE_POSITION_RATIO = 0.75`（常量重命名 + 值更新）。新增 `MIN_TAIL_LINES = 25`。
+**决策**：
+- `BRIDGE_SEGMENT_RATIO` → `BRIDGE_POSITION_RATIO`（重命名，语义更清晰：这是比例位置，不是段数比例）
+- 值：0.4 → 0.75（经 Phase 1+2 实验验证）
+- 新增 `MIN_TAIL_LINES = 25`：bridge 后每个 `<branch>` 的最少行数——确保分支叙事有足够缓冲
+
+**为什么 0.75 更好**：
+- 150 行总输出 → bridge 在 ~113 行，post-bridge ~37 行（~9s 阅读时间）——仍短但比 0.4 的 ~15s 有明显改善
+- 300 行总输出 → bridge 在 ~225 行，post-bridge ~75 行（~19s 阅读时间）——显著改善
+- 与 TTFT 对比：TTFT 10-30s（优化后 Prompt）vs post-bridge 阅读 9-19s——仍有 gap，但已缩小到可接受范围
+- 配合 bridge pre-fetch（07-10 实现）可进一步缩小 gap
 
 **依据**：
-- commit `aa2b8fe` — `fix: bump post-bridge branch minimum to 25 lines`
+- commit `aa2b8fe` — `fix: bump post-bridge branch minimum to 25 lines (accounts for XML wrapper overhead)`
+- commit `fb73c9d` — `feat: apply optimal segment-length config (120-200, bridge 75%, max_tokens 12288)`
 - data-model.md §A.4（当前常量 0.75）+ §A.7（废弃常量 0.4）
+- Phase 1+2 实验数据
 
 ### 变量上限收紧：5-8 → ≤3
 
-**背景**：初始设计建议 5-8 个变量。多变量 → 更多 `<set>` 操作 → 更多条件路由 → 更高错误率。
+**背景**：07-04 的变量系统重构（LLM 自定义变量）建议 5-8 个变量。但随着变量数增加：(1) 每轮更多 `<set>` 操作 → 更多校验失败 → 更多 rejected_changes，(2) 更多条件路由 → LLM 更难维持一致性，(3) 更多 state_vars 注入 Prompt → 更长的输入 → 更高的 TTFT。
 
-**决策**：≤3 总计（≤2 number + ≤1 string/list）。新增 `VARIABLE_CAP=3`、`VARIABLE_NUMERIC_CAP=2`、`VARIABLE_LABEL_CAP=1`。原则："如果一个变量从不触发分支或选项，它就是噪音"。
+**决策**：
+- 硬上限：≤3 总计（≤2 number + ≤1 string/list）
+- 新增常量：`VARIABLE_CAP = 3`、`VARIABLE_NUMERIC_CAP = 2`、`VARIABLE_LABEL_CAP = 1`
+- **种子参考表**注入变量生成 Prompt——题材 → 推荐变量，LLM 可采纳/调整/替换：
+  ```
+  Romance → affection
+  Mystery → clues_progress
+  Cyberpunk → implant_integrity
+  Wuxia → inner_power
+  Horror → sanity
+  ```
+- **设计原则**："如果一个变量从不触发分支或选项，它就是噪音。优先使用单个核心数值变量。"
+
+**影响分析**：
+- 更少的 `<set>` 操作 → 更少的校验拒绝 → 更低的错误反馈频率
+- 种子表仅 ~200 chars——可忽略的 Prompt 预算
+- `story_config.variables` 格式不变——向后兼容
+- 程序侧新增校验规则：`variables.count ≤ 3`、`number.count ≤ 2`、`string/list.count ≤ 1`
 
 **依据**：
 - `docs/superpowers/specs/2026-07-05-variable-cap-design.md`
-- `src/storyloom/config.py` 中 `VARIABLE_CAP = 3`
+- commit `1dadd60` — `feat: add co-creation config constants (MAX_RETRIES, variable caps, outline ranges)`
+- `src/storyloom/config.py` 中 `VARIABLE_CAP = 3`、`VARIABLE_NUMERIC_CAP = 2`、`VARIABLE_LABEL_CAP = 1`
 
 ### 共创阶段实现（CoCreateFlow）
 
-**背景**：叙事循环已迭代 6+ 轮，但共创阶段代码为零。`main.py` 用硬编码 `DEFAULT_STORY_CONFIG` 绕过整个流程。
+**背景**：叙事循环已迭代 6+ 轮——XML 格式（07-04）、对话式架构（07-04）、Prompt v4（07-04）——但共创阶段代码为零。`main.py` 用 `DEFAULT_STORY_CONFIG` 和 `SAMPLE_OUTLINE` 硬编码绕过整个共创流程。每次端到端测试都必须手动编辑 Python 源码。
 
-**关键决策 1 — 三步合一**：单次 API 调用生成 story_config + variables + outline（`=== xxx ===` 分隔），而非 3 次独立调用。延迟降低 2/3；LLM 在单次上下文中有完整信息。
+**设计空间探索**：
 
-> spec 文档（exec-flow.md §3）保留 Step 3/3.5/4 的逻辑分步——为概念清晰，不代表 3 次独立调用。
+**关键决策 1 —— 三步合一（单次 API 调用）**：
+- **原方案**：3 次独立 API 调用——story_config → variables → outline
+- **新方案**：单次调用生成全部三个区块（`=== story_config ===` / `=== variables ===` / `=== outline ===`）
+- **理由**：
+  - 延迟：1 次调用替代 3 次 → 用户等待时间降低 2/3（共创阶段静默等待期间无用户交互）
+  - 信息完整性：LLM 在单次生成上下文中设计变量和大纲——知道完整 story_config 时能做出更一致的设计
+  - INI 风格分隔符（`=== xxx ===`）经叙事 Prompt 测试验证稳定——比 JSON/YAML 对 LLM 更友好
+- **权衡**：单次调用失去中间校验——如果 story_config 正确但 variables 校验失败，需整体重试（而非仅重试 variables）。缓解措施：`_generate_all()` 内置 `MAX_RETRIES=2` 自动重试，解析失败时附带具体错误提示
 
-**关键决策 2 — 静态全上下文窗口**：共创阶段 ~6-12 条消息，无需滑动窗口和压缩。
+> spec 文档（exec-flow.md §3）保留 Step 3/3.5/4 的逻辑分步——为概念清晰，不代表 3 次独立 API 调用。
 
-**关键决策 3 — INI 风格区块**：`=== xxx ===` 分隔符经叙事 Prompt 测试验证稳定。
+**关键决策 2 —— 静态全上下文窗口**：
+- 共创阶段 ~6-12 条消息（system + Q&A 对话 + 生成请求 + 生成响应）
+- 无需滑动窗口和压缩——消息量远低于叙事循环（~20+ 轮）
+- system prompt 在 `CoCreateFlow.__init__()` 中一次性设置，始终作为 messages[0]
 
-**实现**：`CoCreateFlow`（`start()`/`send()` 状态机 + `_generate_all()`）+ `CoCreateParser`（`split_blocks()` / 各 `parse_*()` / 各 `validate_*()`）。
+**关键决策 3 —— CoCreateParser 作为无状态工具类**：
+- 所有解析/校验方法为 `@staticmethod`——纯函数，无副作用
+- `split_blocks(text) → {story_config, variables, outline}`：按 `=== xxx ===` 分割
+- `parse_story_config(text) → dict`：逐行 `key: value` 解析
+- `parse_variables(text) → list[dict]`：逐行 `name: type, 初始 value` 解析
+- `validate_variables(variables) → list[str]`：返回错误消息列表（空 = 通过）
+- `parse_outline(text) → list[dict]`：`[node]` 块解析为 `[{id, title, goal, routes}]`
+- `validate_outline(nodes, var_names) → list[str]`：静态校验（route target 存在、变量引用合法、最后节点无分支）
+
+**关键决策 4 —— 重试策略**：
+- API 调用失败：静默重试最多 3 次（`_api_attempt` 循环），耗尽后抛 `CoCreationAborted`
+- 解析/校验失败：附带纠正消息追加到对话历史，重试最多 `MAX_RETRIES`（2）次
+- 全部耗尽 → `CoCreationAborted` → 调用者（UI 层）告知用户并询问（重试 / 返回主菜单）
+- 变量校验失败 → 生成带有具体错误的纠正消息（如 "Previous variables had errors: 变量名重复: 体力"）
+
+**实现（12 任务）**：
+- 配置常量：`MAX_RETRIES`、`VARIABLE_CAP`、`VARIABLE_NUMERIC_CAP`、`VARIABLE_LABEL_CAP`、`OUTLINE_NODE_RANGES`（commit `1dadd60`）
+- CoCreateParser：`split_blocks`（`71bb3b6`）→ 各 `parse_*` / `validate_*`（`2a7a9ba`）
+- CoCreateFlow：step1（获取想法）+ step2（Q&A 循环）+ step3（生成 + 重试）（`4e24d7a`）
+- 集成：集成到 `main.py` + 安全限制（`c70f085`）、无界循环修复（`3b37e84`）
+- Prompt 模板：`CO_CREATE_SYSTEM_PROMPT` + `GENERATE_ALL_PROMPT`（`2a7a9ba`）
 
 **依据**：
 - 设计：`docs/superpowers/specs/2026-07-05-co-creation-implementation-design.md`
-- 计划：`docs/superpowers/plans/2026-07-05-co-creation-implementation.md`
-- 单次调用验证：`_generate_all()` 使用 `self._api.chat(self._messages)` 单次调用 + `CoCreateParser.split_blocks(response)` 拆分
+- 计划：`docs/superpowers/plans/2026-07-05-co-creation-implementation.md`（12 任务，TDD）
+- 单次调用验证：`_generate_all()` 使用 `self._api.chat(self._messages)` 单次调用 → `CoCreateParser.split_blocks(response)` 拆分为三区块 → 逐区块解析校验
 
 ### 叙事流程 5 缺陷修复
 
-**背景**：对话式架构实现存在流程缺陷（completed_nodes 派生、压缩摘要注入、选项标签、节点注入、结局检测）。
+**背景**：对话式架构（07-04）的初始实现存在 5 个流程缺陷，影响叙事连贯性和上下文正确性。
 
-**决策**：5 项修复，commit `88f489e`。
+**5 个缺陷及修复**：
+
+1. **`completed_nodes` 独立维护 vs. 派生**：原实现独立维护 `completed_nodes` 列表，与 `outline_nodes[].status` 不同步。修复：从 `status == "completed"` 派生。
+
+2. **压缩摘要未注入 Round N 消息**：`ContextManager` 构建了压缩消息对，但 `PromptBuilder.build_round_n()` 未将其注入。修复：在 build_round_n 中添加 `compressed_summaries` 参数。
+
+3. **选项标签显示错误**：选项展示时使用了内部 branch 名而非 opt 文本。修复：正确映射 opt key → label。
+
+4. **当前节点信息未注入 Prompt**：`current_node` 和 `goal` 在 Round N 消息中缺失。修复：添加 "当前节点：{node} — {goal}" 节。
+
+5. **结局检测逻辑错误**：`ending_flag` 设置后未在 bridge 处正确触发。修复：bridge 处理中添加 `if self.ending_flag: ...` 分支。
+
+**依据**：
+- commit `88f489e` — `fix: 5叙事流程缺陷修复 — completed_nodes/压缩摘要/选项标签/节点注入/结局检测`
 
 ---
 
@@ -406,60 +742,252 @@
 
 ### XML 格式替换文本块（frame-v1）
 
-**背景**：初版使用 `--- block ---` 分隔符。经测试暴露系统性问题——node ID 后缀拼接 ~80%、分支叙事缺失 ~60%、双重 bridge ~30%、解析正确率 20-74%。
+**背景**：初版使用 `--- block ---` 文本分隔符（`--- narrative:main ---`、`--- options:main ---`、`--- state ---`、`--- checkpoint ---`、`--- bridge ---`）。经多轮测试暴露系统性 LLM 行为缺陷：
 
-**决策**：采用 XML 格式（`<story>` 根元素，6 种子元素）。
+| 问题 | 发生率 | 根因分析 |
+|------|--------|---------|
+| node ID 后缀拼接 | ~80% | `ch2_confrontation` → `ch2_confrontation_end`。LLM 将 ID 视为"可润色的文本"，而非"必须原样保持的标识符" |
+| 分支叙事缺失 | ~60% | `:branch_a` 后缀依赖命名约定——LLM 不将其视为结构约束，容易遗漏 |
+| 双重 bridge | ~30% | `--- bridge ---` 被 LLM 误认为"场景转换标记"——在 narrative 段落中重复使用 |
+| 模糊解析 | 20-74% 正确率 | 正则匹配 `--- xxx ---` 边界——空白、缩进、变体等边界情况多 |
 
-**核心洞察**：LLM 将自定义文本块视为"外语"——从 Prompt 文本重新学习。XML 是 LLM 的"母语"——无处不在的训练数据。
+**核心洞察**：LLM 将自定义文本块语法视为"外语"——每轮从 Prompt 文本中重新学习。XML 是 LLM 的"母语"——预训练数据中无处不在的结构化格式。
 
-**首次测试**（frame-v1，DeepSeek v4-pro）：**3/3 (100%)** 正确率，对比文本块 20-74%。
+**决策**：采用 XML 格式。LLM 输出 `<story>` 根元素包裹的 XML 文档，内含 6 种子元素：
+- `<seg>`：叙事段（旁白或对话）
+- `<choice id="...">`：选项列表，内含 `<opt key="N" branch="...">`
+- `<set var="..." op="..." val="...">`：状态变更
+- `<checkpoint node="..." summary="...">`：大纲节点记录
+- `<bridge/>`：自闭合桥接标记
+- `<branch name="...">`：分支叙事容器
+
+**首次测试**（frame-v1 Prompt，DeepSeek v4-pro）：
+
+| 指标 | 结果 | 说明 |
+|------|------|------|
+| 正确率 | **3/3 (100%)** | 对比文本块 20-74% |
+| TTFT | 12.6s ~ 80.3s | Run 1 冷启动（80.3s），Run 2-3 热缓存（12.6s, 19.8s） |
+| 无缝率 | 1/3 | 仅 Run 2（TTFT 12.6s, tail 15s）满足无缝约束 |
+| 段数 | 74, 101, 75 | 均在 60-120 范围内 |
+
+**为什么 XML 解决了文本块的问题**：
+
+| 文本块问题 | XML 方案 | 机制 |
+|-----------|---------|------|
+| node ID 后缀拼接 | `node="ch2_confrontation"` | 属性值——LLM 倾向于保持 XML 属性值原样（"数据"认知） |
+| 分支叙事缺失 | `<branch name="x">...</branch>` | 容器结构——闭标签强制完整性 |
+| 双重 bridge | `<bridge/>` | 唯一自闭合标签——语义上不可能有两个 bridge |
+| 模糊解析 | `xml.etree.ElementTree` | 二值正确性——XML 要么合法要么不合法，无模糊地带 |
 
 **关键设计规则**（经用户反馈修正）：
-- `<branch>` 允许在 bridge 之前（段内小分支）
-- bridge 之后仅 `<seg>` 和 `<branch>`，禁止 `<choice>`/`<set>`/`<checkpoint>`
+- `<branch>` 允许在 bridge 之前——用于段内小分支（合并回主线，不影响大纲）
+- bridge 之后：裸 `<seg>` 用于单路径场景；`<branch>` 容器用于多路径场景
+- bridge 之后严格禁止 `<choice>`、`<set>`、`<checkpoint>`——仅允许叙事元素
+- `&` 必须转义为 `&amp;`（XML 标准要求，非 Prompt 特有）
 
 **依据**：
-- [[xml-format-decision]] — 测试数据（TTFT 12.6-80.3s, 段数 74/101/75）
-- block-spec.md §1（XML 元素速查表 + 结构示例）
+- [[xml-format-decision]] — 设计决策、测试结果（3/3 100% 正确率、TTFT 12.6-80.3s）
+- `docs/superpowers/specs/2026-07-04-conversation-prompt-design.md`
+- block-spec.md §1（XML 元素速查表 + 完整结构示例）
+- prompt-design.md §4.2（Round 1 模板含 XML 格式示例）
 
-### Prompt v4 模板：6 轮迭代
+### Prompt v4 模板：6 轮迭代与 7 条原则
 
-**背景**：XML 格式确定后，Prompt 质量成为核心瓶颈。
+**背景**：XML 格式确定后，Prompt 质量成为核心瓶颈。默认 Prompt（3329 chars）在 5 次测试中正确率仅 ~33%，TTFT 平均 56s（比 XML frame-v1 的 ~12s 慢 4.7×）。
 
-**迭代结果**（6 轮，30+ 次测试）：正确率 33%→83%，TTFT 38s→11s，checkpoint 正确率 33%→100%。
+**测试基础设施修复**（迭代前）：
+- 并行 → 串行：发现并行测试导致 TTFT 翻倍（服务端排队），改为 `stream=True` + 串行执行
+- 正确性自动化：`analyze_results.py` 支持一键运行 8 项正确性检查 + 时序分析
 
-**核心洞察**：**LLM 对"不能做什么"的学习依赖显式规则，而非从示例推断。** 催生了 7 条约束有效性原则。
+**迭代历程**（default → v2-lean → v2 → v2-final → v2-detailed → v3 → v4）：
+
+| 版本 | 关键变更 | 正确率 | TTFT |
+|------|---------|--------|------|
+| default | 初始 Prompt | 33% (1/3) | 56s |
+| v2-lean | 精简冗余描述 | 33% (1/3) | ~50s |
+| v2 | 添加反例约束（checkpoint 后缀示例） | 67% (2/3) | ~45s |
+| v2-final | 正反双重覆盖（:main 分支） | 67% (2/3) | ~40s |
+| v3 | 注意力标签 + 段数/bridge 量化 | 83% (5/6) | ~18s |
+| v4 | 示例-规则屏障 + 规则精简 | **83% (5/6)** | **11s** |
+
+**量化成果（default vs v4）**：
+
+| 指标 | default | v4 | 改善 |
+|------|---------|-----|------|
+| System Prompt 大小 | 3329 chars | 3280 chars | -1.5% |
+| TTFT 平均 | 38s | 11s | **3.5×** |
+| 正确率 | 33% (1/3) | 83% (5/6) | **2.5×** |
+| 无缝率 | 33% (1/3) | 83% (5/6) | **2.5×** |
+| choice 缺失 | 偶发 | 0 | 消除 |
+| pre-bridge 分支错误 | 偶发 | 0 | 消除 |
+| checkpoint node 虚构 | 67% | 0 | 消除 |
+
+**七条约束有效性原则**（通用，不限于特定题材或模型）：
+
+| # | 原则 | 说明 | 效果验证 |
+|---|------|------|---------|
+| 1 | **反例约束** | 对每个关键约束给出具体的错误案例。如"禁止 `ch2_confrontation_resolved`（拼接后缀）" | checkpoint 正确率 33%→100% |
+| 2 | **正反双重覆盖** | 关键约束在正面规则和负面禁止中各出现一次。单次提及漏看率 ~30%，双重 ~0% | pre-bridge 分支错误消除 |
+| 3 | **注意力标签** | `（重要）` 标记最易出错的规则节。LLM 注意力资源有限，标签指引优先分配 | v2 未标 → 2/3, v3 标了 → 6/6 |
+| 4 | **示例-规则屏障** | 格式示例结束后加显式提醒——防 LLM 将示例续写为自己的输出 | v3 的 1/6 续写故障 v4 消除 |
+| 5 | **具体优于抽象** | 给出数字和案例，而非比例或一般性描述。"总 80 段 → bridge 第 32 段后 ✓" | bridge 量化位置偏离缩小 |
+| 6 | **显式禁止优于隐式模式** | 独立的 `**禁止**` 节逐条列出禁止行为——每条都是测试中实际出现过的错误 | 禁止项逐条验证 |
+| 7 | **关键处不吝笔墨** | 整体紧凑，但在反复出错的规则上多花 tokens。checkpoint 规则更长但 Prompt 整体更短 | v4 比 default 少 49 chars 但关键规则更详尽 |
+
+**跨题材泛化测试**（v4 Prompt，4 题材各 3 轮）：
+- 赛博朋克（基准）：2/3 正确，3/3 无缝
+- 青春恋爱：2/3 正确，2/3 无缝——对话密度极高但格式保持
+- 心理悬疑：3/3 正确，3/3 无缝——bridge 未打断悬念节奏
+- 古风武侠：1/3 正确，2/3 无缝——对话文言化倾向影响格式
+
+**跨题材发现**：
+- **bridge-before-options**（跨题材共性问题）：慢节奏叙事中 LLM 在 options 之前插入 bridge——需要更强措辞
+- **bridge 位置偏离**（跨题材共性问题）：慢节奏叙事推迟交互断点——`BRIDGE_POSITION_RATIO` 从 0.75 调至 0.4（bridge 提前，增加 post-bridge 缓冲）
 
 **依据**：
 - prompt-design.md §1.2（7 条原则）+ §6（迭代日志）
-- commit `78b35d4`
+- 设计：`docs/superpowers/specs/2026-07-04-prompt-template-optimization-design.md`
+- 跨题材：`docs/superpowers/specs/2026-07-04-cross-genre-prompt-validation-design.md`
+- commits：`78b35d4`（7 条原则记录）、`74c8131`（跨题材测试记录）、`b209b64`（streaming+bridge 时序）、`3533397`（段格式强制）
 
 ### 对话式消息数组架构
 
-**背景**：旧架构每轮独立 System Prompt（~3000 tokens），LLM 每轮重新学习格式。
+**背景**：v4 Prompt 模板在单轮测试中表现良好（83% 正确率），但存在架构级问题——**每轮发送独立的 System Prompt（~3000 tokens），LLM 每轮重新学习格式规则。** 这意味着：(1) ~3000 tokens/轮的格式开销，(2) 无跨轮记忆——LLM 不知道前几轮发生了什么，(3) 每轮都有格式偏差的独立风险。
 
-**决策**：messages 数组架构——Round 1 永久锚定 + 滑动窗口（WINDOW_SIZE=3）+ checkpoint 压缩（FIRST_COMPRESSION_AT=5）。目标 ≤50K tokens。
+**架构迁移**：
 
-**上下文预估**（medium ~20 轮）：~23,000 tokens。
+| 维度 | 旧（v4/v5） | 新（对话式） |
+|------|------------|------------|
+| 消息结构 | 每轮独立 system + user | messages 数组，持续对话 |
+| 格式规则 | 每轮重复 ~3000 tokens | Round 1 教一次，后续靠对话历史维持 |
+| Round 1 输出 | 不保留 | 永久保留在 messages[1]——作为格式 few-shot 范例 |
+| bridge_text | 嵌入 user message | 从 assistant XML 输出提取，作为下一轮 user message 的一部分 |
+| 对话历史 | 无 | 最近 3 轮完整 user/assistant 对保留 |
+| 历史压缩 | 无 | 滑出窗口的轮次压缩为 checkpoint 摘要消息对 |
+
+**消息数组结构**：
+```
+messages = [
+  {role: "user",      content: Round1_完整Prompt},        // 永久锚定（格式规范 + 故事上下文 + XML 示例）
+  {role: "assistant", content: Round1_XML输出},            // 永久锚定（few-shot 范例 ~1500 tokens）
+  // ── 滑出窗口 → 压缩 ──
+  {role: "user",      content: "以下是之前发生的主要事件：\n- ch1: ...\n- ch2: ..."},
+  {role: "assistant", content: "（以上为已发生事件的摘要。当前故事继续推进。）"},
+  // ── 窗口内（WINDOW_SIZE=3）→ 完整保留 ──
+  {role: "user",      content: Round_N-3_上下文},
+  {role: "assistant", content: Round_N-3_XML输出},
+  {role: "user",      content: Round_N-2_上下文},
+  {role: "assistant", content: Round_N-2_XML输出},
+  {role: "user",      content: Round_N-1_上下文},
+  {role: "assistant", content: Round_N-1_XML输出},
+  // ── 当前轮 ──
+  {role: "user",      content: Round_N_上下文},            // 轻量：进度 + 状态 + bridge_text + 错误反馈
+]
+```
+
+**关键参数**（`src/storyloom/config.py`）：
+- `WINDOW_SIZE = 3`：保留最近 3 轮的完整对话历史
+- `FIRST_COMPRESSION_AT = 5`：Round 5 触发首次压缩（此时窗口满 + 2 轮 buffer）
+- `MAX_CONTEXT_TOKENS = 50_000`：上下文预算上限（目标值，非硬截断）
+
+**压缩策略**：
+- 压缩来源：滑出窗口轮次的 `<checkpoint summary="...">` 属性值
+- 合并为一个 user/assistant 消息对——多轮摘要以列表形式累积
+- 首次压缩 Round 5：压缩 Round 2
+- Round N：压缩 Round 2 ~ N-4（窗口保留 [N-3, N-2, N-1]）
+
+**上下文预估**（medium 故事 ~20 轮）：
+- Round 1 Prompt：~2,500 tokens
+- Round 1 输出：~1,500 tokens
+- 3 轮完整窗口（含 user 上下文 + assistant 输出）：~18,000 tokens
+- 压缩消息对：~500 tokens
+- 当前轮消息：~500 tokens
+- **总计：~23,000 tokens**——远低于 50K 目标，有大量余量
+
+**格式错误纠正策略**：
+- 仅当上一轮解析出现格式错误时追加纠正提示（单条，简短）
+- 正确时不追加——不打断 LLM 从最近正确输出中的自然学习
+- 不删除 Round 1 中的格式范例——范例仅 ~500 tokens，占 50K 上下文的 1%
+
+**边界情况处理**：
+- Round 1：调用 `build_round1()`，非 `build_round_n()`。`bridge_text` 为空
+- `compressed_summaries` 为空：不注入压缩消息对（Round 2-4 无压缩）
+- `rejected_changes` 为空：不注入反馈节
+- `format_error` 为 None：不注入纠正提示
+- `ending_flag=True`：不组装叙事 Prompt——走冒险日志路径（独立 LLM 调用）
+
+**实现模块**：
+- `ContextManager`：管理 messages 数组、滑动窗口、压缩触发和消息对构建
+- `PromptBuilder`：构建单条消息的**内容**（非完整 messages 数组）
 
 **依据**：
-- [[conversation-architecture]] — 设计讨论
-- `docs/superpowers/specs/2026-07-04-conversation-prompt-design.md`
-- prompt-design.md §4.1 + data-model.md §A.5
+- [[conversation-architecture]] — 初始设计讨论（方案 vs 替代方案）
+- `docs/superpowers/specs/2026-07-04-conversation-prompt-design.md`（完整设计）
+- `docs/superpowers/plans/2026-07-04-conversation-prompt-implementation.md`（实现计划）
+- prompt-design.md §4.1（消息数组架构 + 压缩时序）
+- data-model.md §A.5（窗口和压缩参数）
 
-### 变量系统：从硬编码到 LLM 自定义
+### 变量系统：从硬编码模板到 LLM 自定义
 
-**背景**：三套硬编码状态模板（romance/adventure/mystery，`templates/states.json`）——变量有限，换题材即失效。
+**背景**：初版设计使用三套硬编码状态模板——`templates/states.json` 存储 romance（恋爱）、adventure（冒险）、mystery（悬疑）的预定义变量。`GENRE_TEMPLATE_MAP` 做题材→模板映射。这是 Phase 2"LLM 自定义变量"之前的临时方案。
 
-**决策**：
-1. 砍掉模板系统（删除 `templates/states.json`、`TEMPLATES_PATH`、`GENRE_TEMPLATE_MAP`、`state_template`）
-2. 新增 Step 3.5：LLM 自定义变量生成（`=== variables ===`）
-3. 同时修复 4 处规范矛盾（结局 bridge 必选、adventure_log 独立调用、声明关键字统一、条件优先级统一）
+**硬编码模板的问题**：
+1. **变量有限**：每种题材仅 5 个固定变量——"换题材即失效"
+2. **题材绑死**：只能从 3 种题材中选择——完全不符合"任何故事"的项目定位
+3. **维护成本**：新增题材需要：（a）设计变量→（b）编写 JSON→（c）加入 `GENRE_TEMPLATE_MAP`→（d）可能需要调整 Prompt
+4. **与长期目标冲突**：Phase 2 计划实现 LLM 自定义变量——硬编码模板是死路
+
+**决策**：**Phase 1 即实现 LLM 自定义变量**——不在 Phase 2 之前打地桩。
+
+**砍掉的内容**：
+| 移除项 | 原位置 | 替代方案 |
+|--------|--------|---------|
+| `templates/states.json` | 文件系统 | LLM 在 Step 3.5 生成变量定义 |
+| `TEMPLATES_PATH` 常量 | `config.py` | 不再加载模板文件 |
+| `GENRE_TEMPLATE_MAP` 常量 | `config.py` | 题材降级为自由文本标签 |
+| 三套题材概念 | `story_config.genre` | genre 变为自由文本，不驱动变量选择 |
+| `state_template` 字段 | GameState / 存档 | 变量定义存储在 `story_config.variables` |
+
+**新增 Step 3.5**：在 story_config 生成（Step 3）和大纲生成（Step 4）之间插入变量定义步骤：
+```
+Step 3: 生成故事设定（=== story_config ===）
+    ↓
+Step 3.5: 生成变量定义（=== variables ===）  ← 新增
+    ↓
+Step 4: 生成大纲树（=== outline ===）
+```
+
+**变量约束（初始设计，后续 07-05 收紧为 ≤3）**：
+- 5-8 个变量（中文名，2-5 字）
+- number 型：[0, 100]，支持 `+N`/`-N`/`=N`
+- string 型：替代枚举（不设枚举类型，枚举归入 string），仅支持 `=值`
+- list 型：元素为 string，支持 `+元素`/`-元素`
+- LLM 输出格式：`=== variables ===` 后每行 `变量名: 类型, 初始 值`
+
+**程序校验规则**：
+- 变量名唯一、非空、不含非法字符（`\n`, `:`）
+- 类型仅限 number/string/list
+- number 初始值在 [0, 100] 范围内
+- string 初始值非空
+- list 初始值可为空数组 `[]`，元素须为 string
+- 校验失败 → 重试（附带错误提示），最多 `MAX_RETRIES`（2）次
+
+**同时修复的 4 处规范矛盾**（文档审查中发现的直接冲突）：
+1. **结局轮是否需要 bridge**：决议"需要"——bridge 在结局轮是必选的。程序在 bridge 处检测 `ending_flag` → 发起冒险日志调用
+2. **adventure_log 生成方式**：决议"独立 LLM 调用"——不嵌入叙事循环的 LLM 输出，不走解析管线
+3. **options 声明关键字**：统一用 `choice:`（无文本块 → XML 后此问题自然解决，但语义仍保留在 choice_dict 命名中）
+4. **条件变量解析优先级**：统一为 `choice_dict > state_vars`——适用于所有条件求值场景（options 置灰、set 条件、route 条件）
+
+**对现有系统的影响**：
+- `GameState` 初始化：`state_template` → `story_config.variables` 驱动
+- state 变更校验：变量类型定义来源从模板 → `story_config.variables`
+- 存档：移除 `state_template` 字段，新增 `story_config.variables`
+- Prompt：System Prompt 中状态部分直接格式化 `state_vars`（无模板驱动）
 
 **依据**：
-- `docs/superpowers/specs/2026-07-04-variable-system-and-spec-fixes-design.md`
-- commit `56847d8`
-- exec-flow.md §3.5 + data-model.md §B 约定 #8
+- `docs/superpowers/specs/2026-07-04-variable-system-and-spec-fixes-design.md`（完整设计，含移除项清单和影响分析）
+- commit `56847d8` — `docs: apply variable system refactor and contradiction fixes to spec files`
+- exec-flow.md §3.5（Step 3.5 描述）+ data-model.md §B 约定 #8（错误隔离）
 
 ---
 
@@ -467,18 +995,32 @@
 
 ### Phase 1 规范体系建立与项目启动
 
-**背景**：项目从零开始。
+**07-02：项目骨架**：
+- Initial commit（`64d2a8b`）：项目目录、文档骨架
+- Phase 1 MVP 需求 spec（`1942360`）：分阶段路线图（Phase 1 CLI → Phase 2 Web + 动态系统 → Phase 3 完整体验）
+- 核心设计概念确立：bridge 机制、双层分支（段内/大纲）、本地真相源
 
-**关键活动**：
-- 07-02：项目骨架 + 文档目录 + Phase 1 MVP 需求 spec + 分阶段路线图
-- 07-03：26 题 grill-me 审查 → 10 项决定 → 规范成形
-- 执行流程文档 5 章节建立（§1-§5）
-- 命名规范两次迭代：括号→冒号格式、key→choice、name→branch
-- 常量体系确立（§A + §B）
+**07-03：规范成形**：
+- 26 题 grill-me 审查（commit `e62318a`）——系统性质疑每个设计假设
+- 10 项决定（commit `4287193`）：bridge 必选、adventure_log 独立调用、超时截断策略、用户决策权等
+- exec-flow.md 5 章节（§1-§5）在一天内建立：启动与主菜单 → 共创阶段 → 叙事循环 → 结局阶段 → 存档系统
+- 常量体系（§A + §B）：从设计中提取可配置参数，建立"常量化"原则
+
+**命名规范两次迭代**：
+1. 区块名：括号格式 `--- narrative(main) ---` → 冒号格式 `--- narrative:main ---`（commit `ba338f0`）
+2. 变量命名：`key`/`key_dict` → `choice`/`choice_dict`（commit `3a302fc`）——"key" 在多个上下文中被使用，`choice` 更精确
+3. 分支命名：`name`/`current_name` → `branch`/`current_branch`（commit `fa5da09`）——与 XML 元素名 `<branch>` 保持一致
+
+**关键 spec 修订（07-03 内）**：
+- bridge 约束澄清（commit `c91acc0`）：提取规则、区块数量限制、结局轮 bridge 位置
+- 常量体系扩展（commit `80081da`）：新增故事档位系统（short/medium/long × 节点数范围）
+- `--- ending ---` 区块移除（commit `98efc20`）：结局由 checkpoint `end` 触发，不需要独立区块
+- 全局约定建立（10 条规则，commit `5671c71`）：Prompt 语言、XML 元素名、变量命名、XML 转义、重试策略、用户决策权、错误隔离、静默错误、常量引用、编号宽容
 
 **依据**：
-- commits `64d2a8b`（Initial commit）→ `1942360`（MVP spec）→ `4287193`（grill-me 后修订）
+- commits：`64d2a8b`（Initial commit）→ `e62318a`（grill-me 审查）→ `4287193`（10 项决定）→ exec-flow.md/data-model.md 的 30+ 个细化 commits
 - `docs/spec/exec-flow.md`、`docs/spec/data-model.md` 的核心结构在此阶段成形
+- `docs/README.md`：分阶段路线图（原计划 Phase 2 Web，实际被提前至并行分支）
 
 ---
 
@@ -487,8 +1029,8 @@
 - **格式**：`## YYYY-MM-DD（周X）` → `### 主题` → 背景/决策/依据三段式
 - **依据**：优先引用 commit hash + message、spec 文档章节号、memory 文件名。避免模糊表述
 - **跨日引用**：同一主题跨多日时，最早出现日写完整背景，后续日用"见 X 日日志"链接
-- **废弃决策**：保留不删，在后续日期标注"推翻/替代"并交叉引用
-- **扩充**：新日志追加在最新日期上方（倒序），保持最近工作最先可见
+- **废弃/推翻决策**：保留不删，在后续日期标注"推翻/替代"并交叉引用到修正决策
+- **扩充**：新日志插入在最新日期下方（倒序），保持最近工作最先可见
 
 ---
 
