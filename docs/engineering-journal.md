@@ -8,6 +8,40 @@
 
 ## 2026-07-11（周六）
 
+### Bridge pre-fetch 时机缺陷 —— 未在 `<bridge/>` 处即时触发
+
+**背景**：2026-07-11 规范合规审查发现，`exec-flow.md` §4.3 明确要求：
+
+> 当程序解析到 `<bridge/>` 时，立即通过 bridge pre-fetch 在后台线程发起下一轮 API 调用 — 同时继续展示 post-bridge 段落（bridge_text）。
+
+但当前实现的实际时序为：
+
+```
+流式接收全部 token
+  └─ _stream_parse_chunk 仅处理 SEGMENT 事件
+     └─ BRIDGE 事件被 StreamingXmlParser 内部消费（设置 _post_bridge=True）
+         ↓  —— GameLoop 完全不感知 bridge 时刻 ——
+全部 token 接收完毕
+  └─ sp.get_result()          # 完整解析
+  └─ sp.get_bridge_text()     # 过滤 bridge_text
+  └─ add_round(...)           # 存入 ContextManager
+  └─ _launch_prefetch(...)    # 组装下一轮 Prompt
+```
+
+**核心问题**：`_stream_parse_chunk()`（`game_loop.py:1062`）只对 `EventType.SEGMENT` 做分支过滤和产出，`EventType.BRIDGE` 事件被丢弃。GameLoop 无法在 bridge 时刻触发 pre-fetch，必须等待全部 token 接收完毕。
+
+**后果**：pre-fetch 竞争的不是"bridge_text 展示时长 vs TTFT"，而是"bridge_text 展示时长（10-20s）vs **完整生成时间 + 下一轮 TTFT**（35-80s）"。这违背了 bridge 机制的核心设计意图——利用 bridge_text 展示时间掩盖 API 延迟。
+
+**待解决**：
+1. `_stream_parse_chunk` 需要产出 `{"type": "bridge"}` 事件
+2. `continue_round_stream` 在收到 bridge 事件时：已积累的 pre-bridge 数据（sets、checkpoint、routes）足以组装下一轮 Prompt；bridge_text 在流式接收中逐步附加
+3. 预取线程在 bridge 时刻启动，与 post-bridge 展示并发执行
+
+**依据**：
+- `exec-flow.md` §4.3 — 明确要求 bridge 时刻即时触发 pre-fetch
+- `exec-flow.md` §4.4 — "利用 NNN| 行号前缀使每行成为自包含的 XML 片段，逐行正则匹配产出事件"
+- [[2026-07-11-streaming-parser-timing-flaw]] — 此前已分析过全量解析导致 pre-fetch 必然失败
+
 ### StreamingXmlParser 恢复与集成 —— 流式解析落地
 
 **背景**：经过时序缺陷讨论（见下一条），确认 `StreamingXmlParser` 必须恢复。同时明确了三个架构认知：
