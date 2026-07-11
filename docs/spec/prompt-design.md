@@ -135,7 +135,7 @@
 
 - **输入**：已确认的 story_config。
 - **输出**：`=== variables ===` 后每行一个变量。
-- **约束**：number [0,100]、string 替代枚举、list 元素为 string。5-8 个。中文变量名 2-5 字。
+- **约束**：number [0,100]、string 替代枚举、list 元素为 string。≤3 个（≤2 number + ≤1 string/list）。中文变量名 2-5 字。
 - **程序校验**：变量名唯一、类型合法、初始值合规。失败 → 重试。
 
 #### Prompt

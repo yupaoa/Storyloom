@@ -280,7 +280,7 @@ saves/*.json 存在？
      - 数值型变量范围统一 [0, 100]
      - 字符串型替代枚举（不设枚举类型，枚举归入 string）
      - 列表型元素为 string
-     - 建议 5–8 个变量
+     - ≤3 个变量（≤2 number + ≤1 string/list）
    → LLM 返回 === variables === 格式文本
 
 3. 解析（正则按 === variables === 分割，逐行提取）：
