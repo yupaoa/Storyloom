@@ -241,8 +241,21 @@ def run_game(
             adv = game_loop.get_adventure_log(timeout=30.0)
             if adv:
                 ui.write(adv)
+                if observer is not None:
+                    _record_adv(observer, game_loop, adv)
             else:
-                ui.write("[Adventure log unavailable]")
+                err = game_loop.adventure_log_error
+                if err:
+                    ui.show_error(f"Adventure log failed: {err}")
+                else:
+                    ui.write("[Adventure log still generating...]")
+                    adv = game_loop.get_adventure_log(timeout=60.0)
+                    if adv:
+                        ui.write(adv)
+                        if observer is not None:
+                            _record_adv(observer, game_loop, adv)
+                    else:
+                        ui.write("[Adventure log unavailable]")
             return
 
         # Next round's prompt was just sent by stream_round() Phase 5
@@ -310,6 +323,22 @@ def _wait_enter(ui: TerminalUi, pause: PauseHandler) -> None:
         pass
     finally:
         pause.enable()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Adventure log recording
+# ═══════════════════════════════════════════════════════════════════
+
+def _record_adv(observer: DevObserver, game_loop: GameLoop, response: str) -> None:
+    """Rebuild adventure log prompt and record prompt + response."""
+    from storyloom.core.prompt_builder import PromptBuilder
+    prompt = PromptBuilder.build_adventure_log_prompt(
+        story_config=game_loop.story_config,
+        state_vars=game_loop.game_state.state_vars,
+        checkpoint_summaries=game_loop._checkpoint_summaries,
+        checkpoint_history=game_loop.checkpoint_history,
+    )
+    observer.record_adventure_log(prompt, response)
 
 
 # ═══════════════════════════════════════════════════════════════════

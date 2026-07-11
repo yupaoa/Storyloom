@@ -45,6 +45,17 @@ class DevObserver:
         if messages and messages[-1].get("role") == "assistant":
             self._write_response(messages[-1]["content"], None, self._now())
 
+    # ── Adventure log ──────────────────────────────────────────────
+
+    def record_adventure_log(self, prompt: str, response: str) -> None:
+        """Record adventure log prompt + response (separate API call)."""
+        ts = self._now()
+        self._write_messages(
+            [{"role": "user", "content": prompt}],
+            f"── Adventure Log ── {ts} ──",
+        )
+        self._write_response(response, None, ts)
+
     # ── Prompt-at-send-time (called from game_driver) ──────────────
 
     def write_prompt_at_send(self, messages: list[dict], round_num: int) -> None:
