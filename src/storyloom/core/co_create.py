@@ -465,14 +465,12 @@ $own_answer_hint
 
 Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.
 
-When you have enough information (usually 3-5 questions), end your reply with:
-"$start_question"
+Do NOT ask to start generating — the user will decide when they are ready.""")
 
-When the user indicates they are ready, I will ask you to generate the full setup.
 
-# Generation Phase
+CO_CREATE_GENERATION_PROMPT = Template("""Based on our conversation above, generate the complete story setup.
 
-When asked to generate the full setup, output ALL THREE sections below in order. Use EXACTLY the format shown.
+Output ALL THREE sections below in order. Use EXACTLY the format shown.
 
 ## Section 1: story_config
 
@@ -563,14 +561,6 @@ routes:
 Output all three sections in a single response. Do not add commentary before or after.""")
 
 
-GENERATE_ALL_PROMPT = """Based on our conversation above, generate the complete story setup.
-
-Output ALL THREE sections: story_config, variables, and outline.
-Follow the format exactly as specified in the system instructions.
-
-Available variables for the outline: {variable_names}"""
-
-
 # ── Exceptions ──────────────────────────────────────────────────────
 
 class CoCreationAborted(Exception):
@@ -599,9 +589,6 @@ class CoCreateFlow:
         Step 3: Single LLM call generates story_config + variables + outline.
     """
 
-    _START_KEYWORDS = {"开始", "开始吧", "可以", "好的", "行", "ok", "OK", "yes", "go", "start", "begin", "ready"}
-    _QUIT_KEYWORDS = {"不玩了", "退出", "quit", "exit", "q", "stop", "abort"}
-
     @staticmethod
     def _build_system_prompt() -> str:
         """Build the language-aware co-creation system prompt."""
@@ -611,9 +598,18 @@ class CoCreateFlow:
         meta = _LANG_META[lang]
         return CO_CREATE_SYSTEM_PROMPT.substitute(
             language_instruction=meta["instruction"],
-            label_hint=meta["label_hint"],
             own_answer_hint=_("(or write your own answer)"),
-            start_question=_("This should be enough — shall I start generating the story?"),
+        )
+
+    @staticmethod
+    def _build_generation_prompt() -> str:
+        """Build the language-aware generation prompt (user message)."""
+        lang = get_current_lang()
+        if lang not in SUPPORTED_LANGUAGES:
+            lang = DEFAULT_LANGUAGE
+        meta = _LANG_META[lang]
+        return CO_CREATE_GENERATION_PROMPT.substitute(
+            label_hint=meta["label_hint"],
             language=lang,
         )
 
@@ -624,21 +620,20 @@ class CoCreateFlow:
         ]
         self._phase: str = "init"
         self._result: CoCreationResult | None = None
-        self._qa_round = 0
 
     @property
     def messages(self) -> list[dict]:
         """Return the full co-creation conversation messages.
 
-        Contains system prompt, Q&A turns, and the final generation
-        prompt.
+        Contains system prompt, Q&A turns, and (after generate() is
+        called) the generation prompt and LLM response.
         """
         return list(self._messages)
 
     @property
     def phase(self) -> str:
         """Current phase: 'init' | 'awaiting_idea' | 'awaiting_answer'
-           | 'generating' | 'complete' | 'aborted'."""
+           | 'complete' | 'aborted'."""
         return self._phase
 
     @property
@@ -669,140 +664,89 @@ class CoCreateFlow:
         """Abort co-creation immediately."""
         self._phase = "aborted"
 
-    def send(self, user_input: str) -> dict:
-        """Send user input, advance one step, return next event dict.
+    def send(self, user_input: str) -> str:
+        """Send user input to LLM, return reply text.
 
-        Handles phase transitions: awaiting_idea → awaiting_answer →
-        complete/aborted. Blocking during LLM generation.
+        Pure message forward — no keyword detection, no phase
+        transitions.  The UI decides when to call generate() or abort().
 
-        Returns event dict with 'phase' key and phase-specific data.
-        Does NOT call ui methods — communicates solely via return dicts.
+        Args:
+            user_input: The user's message text.  Must be non-empty.
+
+        Returns:
+            LLM reply text.
 
         Raises:
-            RuntimeError: If called before start() or after completion.
+            RuntimeError: If called before start() or after abort.
+            ValueError: If user_input is empty.
         """
         if self._phase == "init":
             raise RuntimeError("call start() first before send()")
-        if self._phase == "complete":
-            raise RuntimeError("co-creation already complete")
         if self._phase == "aborted":
             raise RuntimeError("co-creation was aborted")
 
-        # ── Phase: awaiting_idea ──
-        if self._phase == "awaiting_idea":
-            stripped_idea = user_input.strip()
-            if not stripped_idea:
-                return {"phase": "awaiting_idea",
-                        "prompt": _("Please share some thoughts to begin.")}
+        stripped = user_input.strip()
+        if not stripped:
+            raise ValueError("user input cannot be empty")
 
-            self._phase = "generating"
-            self._messages.append({"role": "user", "content": stripped_idea})
-            try:
-                response = self._api.chat(self._messages)
-            except Exception as e:
-                self._messages.pop()  # Remove orphaned user message
-                self._phase = "awaiting_idea"
-                return {"phase": "error", "message": str(e), "recoverable": True}
+        self._messages.append({"role": "user", "content": stripped})
 
-            self._messages.append({"role": "assistant", "content": response})
-            self._phase = "awaiting_answer"
-            self._qa_round = 1
-            return {"phase": "awaiting_answer", "question": response, "round": 1}
-
-        # ── Phase: awaiting_answer ──
-        if self._phase == "awaiting_answer":
-            stripped = user_input.strip()
-
-            # Check quit keywords
-            if stripped in self._QUIT_KEYWORDS:
-                self._phase = "aborted"
-                return {"phase": "aborted"}
-
-            # Check start/go keywords → trigger generation
-            if stripped in self._START_KEYWORDS:
-                self._phase = "generating"
-                try:
-                    result = self._generate_all()
-                except CoCreationAborted:
-                    self._phase = "aborted"
-                    return {"phase": "aborted"}
-                except Exception as e:
-                    self._phase = "awaiting_answer"
-                    return {"phase": "error", "message": str(e), "recoverable": True}
-
-                self._phase = "complete"
-                self._result = result
-                return {"phase": "complete", "result": result}
-
-            # Normal answer → next Q&A round
-            self._phase = "generating"
-            self._messages.append({"role": "user", "content": stripped})
-            try:
-                response = self._api.chat(self._messages)
-            except Exception as e:
-                self._messages.pop()  # Remove orphaned user message
-                self._phase = "awaiting_answer"
-                return {"phase": "error", "message": str(e), "recoverable": True}
-
-            self._messages.append({"role": "assistant", "content": response})
-            self._phase = "awaiting_answer"
-            self._qa_round += 1
-
-            # Round limit check (max 15 rounds, matching current _step2_questioning)
-            if self._qa_round > 15:
-                self._phase = "generating"
-                try:
-                    result = self._generate_all()
-                except CoCreationAborted:
-                    self._phase = "aborted"
-                    return {"phase": "aborted"}
-                except Exception as e:
-                    self._phase = "awaiting_answer"
-                    return {"phase": "error", "message": str(e), "recoverable": True}
-
-                self._phase = "complete"
-                self._result = result
-                return {"phase": "complete", "result": result}
-
-            return {"phase": "awaiting_answer", "question": response,
-                    "round": self._qa_round}
-
-        # Fallback
-        return {"phase": self._phase}
-
-    def _generate_all(self) -> CoCreationResult:
-        """Generate full story setup with auto-retry on failure.
-
-        Retries API errors up to 3 times silently. On parse/validation
-        errors, appends a correction message to the conversation and
-        retries up to MAX_RETRIES times — no user interaction.
-
-        Used by send() for the state machine API.
-
-        Raises:
-            CoCreationAborted: If all retries are exhausted.
-        """
-        var_names = (
-            "Design per story context (≤3 vars, ≤2 numeric + ≤1 string/list)"
-        )
-        gen_prompt = GENERATE_ALL_PROMPT.format(variable_names=var_names)
-        self._messages.append({"role": "user", "content": gen_prompt})
-
-        # ── API call with silent retry (up to 3 attempts) ──────────
-        response = None
-        for _api_attempt in range(3):
+        # API call with silent retry (up to 3 attempts)
+        for attempt in range(3):
             try:
                 response = self._api.chat(self._messages)
                 break
             except Exception:
-                if _api_attempt == 2:
+                if attempt == 2:
+                    self._messages.pop()
+                    raise RuntimeError(
+                        f"API call failed after 3 retries"
+                    )
+                continue
+
+        self._messages.append({"role": "assistant", "content": response})
+        self._phase = "awaiting_answer"
+        return response
+
+    def generate(self) -> CoCreationResult:
+        """Inject generation prompt, call LLM, parse and validate.
+
+        Appends CO_CREATE_GENERATION_PROMPT as a user message, calls the
+        API, then parses the response into story_config + variables +
+        outline.  Auto-retries on API failure (3 attempts) and on
+        parse/validation failure (MAX_RETRIES attempts).
+
+        Returns:
+            CoCreationResult with story_config, outline_text, outline_nodes.
+
+        Raises:
+            RuntimeError: If not in awaiting_answer phase.
+            CoCreationAborted: If API or validation fails after all retries.
+        """
+        if self._phase != "awaiting_answer":
+            raise RuntimeError(
+                f"Cannot generate in phase: {self._phase}"
+            )
+
+        # Append generation prompt as user message
+        gen_prompt = self._build_generation_prompt()
+        self._messages.append({"role": "user", "content": gen_prompt})
+
+        # API call with silent retry (up to 3 attempts)
+        response = None
+        for attempt in range(3):
+            try:
+                response = self._api.chat(self._messages)
+                break
+            except Exception:
+                if attempt == 2:
                     raise CoCreationAborted()
                 continue
 
         self._messages.append({"role": "assistant", "content": response})
 
-        # ── Parse with auto-retry on validation failure ────────────
-        for _parse_attempt in range(MAX_RETRIES + 1):
+        # Parse with auto-retry on validation failure
+        for parse_attempt in range(MAX_RETRIES + 1):
             blocks = CoCreateParser.split_blocks(response)
 
             # story_config
@@ -811,7 +755,7 @@ class CoCreateFlow:
                     blocks["story_config"]
                 )
             except ValueError as e:
-                if _parse_attempt < MAX_RETRIES:
+                if parse_attempt < MAX_RETRIES:
                     response = self._retry_generation(
                         f"Previous story_config had errors: {e}"
                     )
@@ -822,7 +766,7 @@ class CoCreateFlow:
             variables = CoCreateParser.parse_variables(blocks["variables"])
             var_errors = CoCreateParser.validate_variables(variables)
             if var_errors:
-                if _parse_attempt < MAX_RETRIES:
+                if parse_attempt < MAX_RETRIES:
                     response = self._retry_generation(
                         f"Previous variables had errors: "
                         f"{'; '.join(var_errors)}"
@@ -834,7 +778,7 @@ class CoCreateFlow:
             try:
                 outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
             except ValueError as e:
-                if _parse_attempt < MAX_RETRIES:
+                if parse_attempt < MAX_RETRIES:
                     response = self._retry_generation(
                         f"Previous outline had errors: {e}"
                     )
@@ -846,7 +790,7 @@ class CoCreateFlow:
                 outline_nodes, var_names_list
             )
             if outline_errors:
-                if _parse_attempt < MAX_RETRIES:
+                if parse_attempt < MAX_RETRIES:
                     response = self._retry_generation(
                         f"Outline has errors: "
                         f"{'; '.join(outline_errors)}"
@@ -858,11 +802,13 @@ class CoCreateFlow:
             story_config["variables"] = variables
             outline_text = CoCreateParser.format_outline(outline_nodes)
 
-            return CoCreationResult(
+            self._phase = "complete"
+            self._result = CoCreationResult(
                 story_config=story_config,
                 outline_text=outline_text,
                 outline_nodes=outline_nodes,
             )
+            return self._result
 
         raise CoCreationAborted()
 

@@ -628,7 +628,7 @@ routes:"""
 
 
 class TestCoCreateFlowSend:
-    """Tests for send() method."""
+    """Tests for send() method — pure message forward, returns str."""
 
     def test_send_before_start_raises(self):
         from storyloom.core.co_create import CoCreateFlow
@@ -637,95 +637,88 @@ class TestCoCreateFlowSend:
         with pytest.raises(RuntimeError, match="call start\\(\\) first"):
             flow.send("anything")
 
-    def test_send_after_complete_raises(self):
+    def test_send_after_abort_raises(self):
         from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient()
         flow = CoCreateFlow(api)
-        flow._phase = "complete"
-        with pytest.raises(RuntimeError, match="already complete"):
+        flow._phase = "aborted"
+        with pytest.raises(RuntimeError, match="was aborted"):
             flow.send("anything")
 
-    def test_send_empty_idea_returns_prompt(self):
+    def test_send_empty_input_raises_value_error(self):
         from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient()
         flow = CoCreateFlow(api)
         flow.start()
-        event = flow.send("")
-        assert event["phase"] == "awaiting_idea"
-        assert flow.phase == "awaiting_idea"
+        with pytest.raises(ValueError, match="cannot be empty"):
+            flow.send("")
 
-    def test_send_quit_aborts(self):
-        from storyloom.core.co_create import CoCreateFlow
-        api = MockApiClient()
-        flow = CoCreateFlow(api)
-        flow._phase = "awaiting_answer"
-        event = flow.send("quit")
-        assert event["phase"] == "aborted"
-        assert flow.phase == "aborted"
-
-    def test_send_idea_calls_llm_and_returns_question(self):
+    def test_send_returns_str_not_dict(self):
         from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient()
         api.chat = lambda msgs: "What era would you like?"
         flow = CoCreateFlow(api)
         flow.start()
 
-        event = flow.send("A cyberpunk romance in Neo Tokyo")
+        reply = flow.send("A cyberpunk romance in Neo Tokyo")
 
-        assert event["phase"] == "awaiting_answer"
-        assert event["question"] == "What era would you like?"
-        assert event["round"] == 1
+        assert isinstance(reply, str)
+        assert reply == "What era would you like?"
         assert flow.phase == "awaiting_answer"
 
-    def test_send_answer_continues_qa(self):
+    def test_send_from_awaiting_idea_transitions_to_awaiting_answer(self):
         from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient()
-        api.chat = lambda msgs: "What kind of protagonist?"
+        api.chat = lambda msgs: "First question?"
         flow = CoCreateFlow(api)
-        flow._phase = "awaiting_answer"
-        flow._qa_round = 1
+        assert flow.phase == "init"
+        flow.start()
+        assert flow.phase == "awaiting_idea"
+        flow.send("my idea")
+        assert flow.phase == "awaiting_answer"
 
-        event = flow.send("Neo Tokyo, 2087")
-
-        assert event["phase"] == "awaiting_answer"
-        assert event["round"] == 2
-
-    def test_send_start_keyword_triggers_generation(self):
-        from storyloom.core.co_create import CoCreateFlow, CoCreationResult
+    def test_send_no_keyword_detection(self):
+        """send() does NOT parse user input for start/quit keywords."""
+        from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient()
-        api.chat = lambda msgs: (
-            "=== story_config ===\n"
-            "genre: cyberpunk\ntier: short\nlabel: 测试故事集\n"
-            "setting: Test\nprotagonist_name: T\n"
-            "protagonist_identity: Tester\nprotagonist_traits: Brave\n"
-            "tone: Dark\nconflict: Test\ncharacters:\n  Foo | ally\n"
-            "=== variables ===\n体力: number, 80\n"
-            "=== outline ===\n[node]\nid: ch1\n"
-            "title: Start\ngoal: Begin\nroutes: → ch2\n"
-            "[node]\nid: ch2\ntitle: End\ngoal: Finish\nroutes:\n"
-        )
+        api.chat = lambda msgs: "Interesting, tell me more."
         flow = CoCreateFlow(api)
         flow._phase = "awaiting_answer"
         flow._messages = [
             {"role": "system", "content": "test"},
-            {"role": "user", "content": "test idea"},
-            {"role": "assistant", "content": "a question"},
+            {"role": "user", "content": "idea"},
+            {"role": "assistant", "content": "q"},
         ]
 
-        event = flow.send("开始")
+        # "开始" is just forwarded as text — no generation triggered
+        reply = flow.send("开始")
+        assert isinstance(reply, str)
+        assert reply == "Interesting, tell me more."
+        assert flow.phase == "awaiting_answer"
 
-        assert event["phase"] == "complete"
-        assert "result" in event
-        assert isinstance(event["result"], CoCreationResult)
-        assert flow.phase == "complete"
-        assert flow.result is not None
+    def test_send_appends_to_messages(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        api.chat = lambda msgs: "reply"
+        flow = CoCreateFlow(api)
+        flow._phase = "awaiting_answer"
+        flow._messages = [
+            {"role": "system", "content": "test"},
+        ]
+
+        flow.send("hello")
+
+        user_msgs = [m for m in flow._messages if m["role"] == "user"]
+        assert any("hello" in m["content"] for m in user_msgs)
+        assistant_msgs = [m for m in flow._messages if m["role"] == "assistant"]
+        assert any("reply" in m["content"] for m in assistant_msgs)
 
 
 class TestCoCreateFlowSendEndToEnd:
-    """End-to-end tests using the state machine API (start/send)."""
+    """End-to-end tests — start → send → generate → complete."""
 
     def test_full_flow_success(self):
-        """Idea → Q&A → generation → complete via state machine API."""
+        """Idea → Q&A → generate → complete."""
         from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient(responses=[
             "你想玩什么题材的故事？",
@@ -733,45 +726,50 @@ class TestCoCreateFlowSendEndToEnd:
         ])
         flow = CoCreateFlow(api)
         flow.start()
-        flow.send("赛博朋克冒险")
-        event = flow.send("开始")
+        reply = flow.send("赛博朋克冒险")
+        assert reply == "你想玩什么题材的故事？"
 
-        assert event["phase"] == "complete"
-        result = event["result"]
+        result = flow.generate()
         assert result.story_config["genre"] == "赛博朋克冒险"
         assert result.story_config["tier"] == "medium"
         assert len(result.story_config["variables"]) == 3
         assert "ch1_intro [active]" in result.outline_text
+        assert flow.phase == "complete"
+        assert flow.result is result
 
-    def test_user_says_start_immediately(self):
-        """User can say '开始' right after idea to skip Q&A."""
+    def test_multi_turn_qa_before_generate(self):
+        """Multiple Q&A rounds, then generate."""
         from storyloom.core.co_create import CoCreateFlow
         api = MockApiClient(responses=[
+            "Q1: What genre?",
+            "Q2: What era?",
             FULL_GENERATION_RESPONSE,
         ])
         flow = CoCreateFlow(api)
         flow.start()
-        flow.send("科幻冒险")
-        event = flow.send("开始")
 
-        assert event["phase"] == "complete"
-        assert event["result"].story_config["genre"] == "赛博朋克冒险"
+        r1 = flow.send("idea")
+        assert r1 == "Q1: What genre?"
+
+        r2 = flow.send("cyberpunk")
+        assert r2 == "Q2: What era?"
+
+        result = flow.generate()
+        assert result.story_config["genre"] == "赛博朋克冒险"
 
     def test_user_aborts_during_qa(self):
-        """User types '不玩了' → phase becomes 'aborted'."""
+        """abort() changes phase, independent of send()."""
         from storyloom.core.co_create import CoCreateFlow
-        api = MockApiClient(responses=[
-            "What genre?",
-        ])
+        api = MockApiClient(responses=["What genre?"])
         flow = CoCreateFlow(api)
         flow.start()
         flow.send("科幻")
-        event = flow.send("不玩了")
 
-        assert event["phase"] == "aborted"
+        flow.abort()
+        assert flow.phase == "aborted"
 
-    def test_generation_auto_retry_success(self):
-        """Bad generation (wrong tier) → auto-retry → success."""
+    def test_generate_auto_retry_on_validation_failure(self):
+        """Bad generation → auto-retry on parse error → success."""
         from storyloom.core.co_create import CoCreateFlow
         BAD_RESPONSE = """=== story_config ===
 genre: fantasy
@@ -803,15 +801,14 @@ routes:"""
         flow = CoCreateFlow(api)
         flow.start()
         flow.send("科幻")
-        event = flow.send("开始")
 
-        assert event["phase"] == "complete"
-        assert event["result"].story_config["tier"] == "medium"
+        result = flow.generate()
+        assert result.story_config["tier"] == "medium"
 
-    def test_generation_retry_exhausted_aborts(self):
-        """All auto-retries fail → phase becomes 'aborted'."""
-        from storyloom.core.co_create import CoCreateFlow
-        BAD_RESPONSE = """=== story_config ===
+    def test_generate_retry_exhausted_raises(self):
+        """All auto-retries fail → CoCreationAborted."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
+        BAD = """=== story_config ===
 genre: fantasy
 label: test-story
 
@@ -825,168 +822,100 @@ title: start
 goal: begin
 routes:"""
 
-        api = MockApiClient(responses=[
-            BAD_RESPONSE,
-            BAD_RESPONSE,
-            BAD_RESPONSE,
-            BAD_RESPONSE,
-        ])
+        api = MockApiClient(responses=[BAD, BAD, BAD, BAD])
         flow = CoCreateFlow(api)
         flow.start()
         flow.send("sci-fi")
-        event = flow.send("开始")
 
-        assert event["phase"] == "aborted"
+        with pytest.raises(CoCreationAborted):
+            flow.generate()
 
-
-class TestCoCreateFlowSendErrors:
-    """Tests for send() error handling."""
-
-    def test_api_error_during_idea_returns_error_event(self):
-        """API failure during idea submission returns {phase: 'error', recoverable: True}."""
+    def test_generate_before_first_send_raises(self):
+        """generate() before any Q&A raises RuntimeError."""
         from storyloom.core.co_create import CoCreateFlow
-        api = make_mock_api_client()
-        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("Connection refused"))
+        api = MockApiClient()
         flow = CoCreateFlow(api)
         flow.start()
 
-        event = flow.send("A story idea")
+        with pytest.raises(RuntimeError, match="Cannot generate"):
+            flow.generate()
 
-        assert event["phase"] == "error"
-        assert "Connection refused" in event["message"]
-        assert event["recoverable"] is True
+
+class TestCoCreateFlowSendErrors:
+    """Tests for send() error handling — raises RuntimeError on API failure."""
+
+    def test_send_raises_runtime_error_on_all_retries_exhausted(self):
+        """API fails 3 times → RuntimeError raised, message cleaned up."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = make_mock_api_client()
+        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("fail"))
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        with pytest.raises(RuntimeError, match="3 retries"):
+            flow.send("idea")
+
+        # Phase should be unchanged (still awaiting_idea)
         assert flow.phase == "awaiting_idea"
 
-    def test_retry_after_error_works(self):
-        """After API error, sending again succeeds."""
+    def test_send_succeeds_on_second_attempt(self):
+        """API fails once, succeeds on second → returns reply."""
         from storyloom.core.co_create import CoCreateFlow
         call_count = [0]
         def chat_side_effect(msgs):
             call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("fail")
+            if call_count[0] <= 2:
+                raise Exception("transient")
             return "What kind of story?"
         api = make_mock_api_client()
         api.chat = chat_side_effect
         flow = CoCreateFlow(api)
         flow.start()
 
-        event1 = flow.send("idea")
-        assert event1["phase"] == "error"
-
-        event2 = flow.send("idea")
-        assert event2["phase"] == "awaiting_answer"
-
-    def test_api_error_during_qa_returns_error_event(self):
-        """API failure during Q&A returns error event, stays in awaiting_answer."""
-        from storyloom.core.co_create import CoCreateFlow
-        api = make_mock_api_client()
-        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("API timeout"))
-        flow = CoCreateFlow(api)
-        flow._phase = "awaiting_answer"
-        flow._qa_round = 2
-
-        event = flow.send("my answer")
-
-        assert event["phase"] == "error"
-        assert event["recoverable"] is True
+        reply = flow.send("idea")
+        assert reply == "What kind of story?"
         assert flow.phase == "awaiting_answer"
 
-    def test_generation_api_error_returns_error_event(self):
-        """API error during generation (from go keyword) returns error event."""
+    def test_send_message_integrity_on_failure(self):
+        """API failure after 3 retries cleans up orphaned user message."""
         from storyloom.core.co_create import CoCreateFlow
-        call_count = [0]
-        def chat_side_effect(msgs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return "A question"
-            raise Exception("Generation API timeout")
-
         api = make_mock_api_client()
-        api.chat = chat_side_effect
-        flow = CoCreateFlow(api)
-        flow._phase = "awaiting_answer"
-        flow._messages = [
-            {"role": "system", "content": "test"},
-            {"role": "user", "content": "idea"},
-            {"role": "assistant", "content": "question"},
-        ]
-
-        event = flow.send("开始")
-
-        # Auto-retry exhausts all 3 API attempts, then raises CoCreationAborted.
-        assert event["phase"] == "aborted"
-
-
-class TestCoCreateFlowSendMessageIntegrity:
-    """Tests that send() doesn't pollute messages on API failure."""
-
-    def test_idea_failure_does_not_leave_orphan_message(self):
-        """API failure during idea submission cleans up the user message."""
-        from storyloom.core.co_create import CoCreateFlow
-        call_count = [0]
-        def chat_side_effect(msgs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("fail")
-            return "What era?"
-        api = make_mock_api_client()
-        api.chat = chat_side_effect
+        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("fail"))
         flow = CoCreateFlow(api)
         flow.start()
 
-        # First attempt fails
-        event1 = flow.send("idea one")
-        assert event1["phase"] == "error"
+        try:
+            flow.send("orphan me")
+        except RuntimeError:
+            pass
 
-        # Verify no orphaned user message
         user_msgs = [m for m in flow._messages if m["role"] == "user"]
-        # Should only have initial messages, not "idea one"
-        assert not any("idea one" in m.get("content", "") for m in user_msgs)
+        assert not any("orphan me" in m.get("content", "") for m in user_msgs)
 
-        # Second attempt succeeds
-        event2 = flow.send("idea two")
-        assert event2["phase"] == "awaiting_answer"
 
-    def test_qa_failure_does_not_leave_orphan_message(self):
-        """API failure during Q&A cleans up the user message."""
+class TestGenerate:
+    """Tests for generate() — inject format prompt, parse, validate."""
+
+    def test_generate_success(self):
         from storyloom.core.co_create import CoCreateFlow
-        call_count = [0]
-        def chat_side_effect(msgs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("timeout")
-            return "Next question?"
-        api = make_mock_api_client()
-        api.chat = chat_side_effect
+        api = MockApiClient(responses=[FULL_GENERATION_RESPONSE])
         flow = CoCreateFlow(api)
-        flow._phase = "awaiting_answer"
-        flow._qa_round = 1
         flow._messages = [
             {"role": "system", "content": "test"},
             {"role": "user", "content": "idea"},
-            {"role": "assistant", "content": "question 1"},
+            {"role": "assistant", "content": "q"},
         ]
+        flow._phase = "awaiting_answer"
 
-        event1 = flow.send("answer one")
-        assert event1["phase"] == "error"
+        result = flow.generate()
+        assert result.story_config["genre"] == "赛博朋克冒险"
+        assert len(result.outline_nodes) == 5
+        assert flow.phase == "complete"
 
-        # Verify no orphan
-        user_msgs = [m for m in flow._messages if m["role"] == "user"]
-        assert not any("answer one" in m.get("content", "") for m in user_msgs)
-
-        event2 = flow.send("answer two")
-        assert event2["phase"] == "awaiting_answer"
-
-
-class TestGenerateAllValidation:
-    """Tests that _generate_all validates variables."""
-
-    def test_validation_fails_on_too_many_variables(self):
-        """_generate_all raises CoCreationAborted when variables exceed cap."""
+    def test_generate_validation_fails_on_too_many_variables(self):
+        """generate() raises CoCreationAborted when variables exceed cap."""
         from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
         api = make_mock_api_client()
-        # Response with 4 variables (exceeds VARIABLE_CAP of 3)
         api.chat = lambda msgs: (
             "=== story_config ===\n"
             "genre: test\ntier: short\nlabel: 测试故事书\n"
@@ -1010,5 +939,6 @@ class TestGenerateAllValidation:
         ]
         flow._phase = "awaiting_answer"
 
+        # generate() retries up to MAX_RETRIES times; all fail → abort
         with pytest.raises(CoCreationAborted):
-            flow._generate_all()
+            flow.generate()

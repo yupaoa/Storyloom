@@ -22,6 +22,3 @@ msgstr "请输入一些想法来开始。"
 
 msgid "(or write your own answer)"
 msgstr "（或输入你自己的答案）"
-
-msgid "This should be enough — shall I start generating the story?"
-msgstr "信息应该足够了——要开始生成故事吗？"

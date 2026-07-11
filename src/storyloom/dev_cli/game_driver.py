@@ -85,7 +85,12 @@ def run_co_create(
     session: GameSession,
     observer: DevObserver | None = None,
 ) -> CoCreationResult | None:
-    """Drive the co-creation Q&A loop.  Returns None if user quits."""
+    """Drive the co-creation Q&A loop.  Returns None if user quits.
+
+    UI-level commands (engine does not parse user intent):
+      /go    — trigger story generation
+      /quit  — abort and return to menu
+    """
     flow = session.new_co_create()
 
     try:
@@ -96,61 +101,54 @@ def run_co_create(
     ui.write(event["prompt"])
 
     while True:
-        user_input = ui.ask("")
+        user_input = ui.ask("").strip()
         if user_input == "":
             continue
 
-        # ── Write prompt IMMEDIATELY (before waiting for LLM) ──
+        if user_input == "/quit":
+            flow.abort()
+            ui.write("[Co-creation aborted]")
+            return None
+
+        if user_input == "/go":
+            break
+
+        # ── Forward to LLM ──
         if observer is not None:
             observer.record_co_create_prompt(flow.messages, user_input)
 
         ui.write("[Waiting for LLM...]")
         sys.stdout.flush()
         try:
-            event = flow.send(user_input)
+            reply = flow.send(user_input)
         except KeyboardInterrupt:
             ui.write("\n[Interrupted]")
             return None
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
             ui.show_error(f"Co-creation error: {e}")
             return None
 
-        phase = event["phase"]
-
-        # ── Write response AFTER LLM returns ─────────────────────
         if observer is not None:
             observer.record_co_create_response(flow.messages)
 
-        if phase == "awaiting_idea":
-            ui.write(event["prompt"])
+        ui.write(reply)
 
-        elif phase == "awaiting_answer":
-            ui.write(event["question"])
+    # ── Generate ──
+    ui.write("[Generating story setup...]")
+    sys.stdout.flush()
+    try:
+        result = flow.generate()
+    except Exception as e:
+        ui.show_error(f"Generation failed: {e}")
+        return None
 
-        elif phase == "complete":
-            result = event["result"]
-            if observer is not None:
-                observer.record_co_create_result(
-                    result.story_config, result.outline_text)
-            ui.write(
-                f"\n[Story: {result.story_config.get('label', '?')}]"
-            )
-            ui.write(f"[Genre: {result.story_config.get('genre', '?')}]")
-            ui.write(f"[Outline: {len(result.outline_nodes)} nodes]\n")
-            return result
-
-        elif phase == "aborted":
-            ui.write("[Co-creation aborted]")
-            return None
-
-        elif phase == "error":
-            ui.show_error(event["message"])
-            if not event.get("recoverable", False):
-                return None
-
-        else:
-            ui.show_error(f"Unknown co-create phase: {phase}")
-            return None
+    if observer is not None:
+        observer.record_co_create_result(
+            result.story_config, result.outline_text)
+    ui.write(f"\n[Story: {result.story_config.get('label', '?')}]")
+    ui.write(f"[Genre: {result.story_config.get('genre', '?')}]")
+    ui.write(f"[Outline: {len(result.outline_nodes)} nodes]\n")
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════
