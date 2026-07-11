@@ -928,7 +928,7 @@ class GameLoop:
         # Per exec-flow.md §4.7 the next round's prompt is assembled at
         # <bridge/> time so the post-bridge segments (bridge_text) act as
         # a display buffer that hides the API latency.
-        # MUST be before _emit_parsed() — the background API call runs
+        # MUST be before _emit_options() — the background API call runs
         # concurrently with segment display, so TTFT is absorbed by
         # bridge_text reading time.
         if not parsed.choices and not self.ending_flag:
