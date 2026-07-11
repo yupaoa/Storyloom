@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Callable
 
-from storyloom.config import STREAM_STALL_TIMEOUT_SEC
+from storyloom.config import SAVE_VERSION, STREAM_STALL_TIMEOUT_SEC
 from storyloom.io.api_client import ApiClient
 from storyloom.core.context_manager import ContextManager
 from storyloom.core.prompt_builder import PromptBuilder
@@ -1479,7 +1479,7 @@ class GameLoop:
             self._created_at = now
 
         return {
-            "version": 1,
+            "version": SAVE_VERSION,
             "metadata": {
                 "label": label,
                 "created_at": self._created_at,

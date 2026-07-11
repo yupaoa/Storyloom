@@ -1,5 +1,8 @@
 """Configurable constants for Storyloom."""
 
+# ── Save format ──────────────────────────────────────────────────
+SAVE_VERSION = 1           # save file format version; mismatch → corrupt
+
 # ── Sliding window ─────────────────────────────────────────────
 WINDOW_SIZE = 3          # full rounds to keep in window
 FIRST_COMPRESSION_AT = 5  # round number to trigger first compression

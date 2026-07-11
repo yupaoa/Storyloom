@@ -10,6 +10,8 @@ import re
 import time
 from pathlib import Path
 
+from storyloom.config import SAVE_VERSION
+
 
 class SaveManager:
     """Manage save files on local filesystem.
@@ -90,7 +92,7 @@ class SaveManager:
 
         # Validate version
         version = data.get("version")
-        if version != 1:
+        if version != SAVE_VERSION:
             raise ValueError(
                 f"Save '{label}' version {version} unsupported (expected 1)"
             )
