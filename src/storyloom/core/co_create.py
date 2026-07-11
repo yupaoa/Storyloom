@@ -448,7 +448,7 @@ $language_instruction
 
 # Questioning Phase
 
-Ask one question at a time, focused on these five dimensions. Do NOT reveal specific plot events or spoil story content:
+Ask one question at a time. Here are some dimensions to explore — use them as a guide, not a checklist. Do NOT reveal specific plot events or spoil story content:
 - World setting (era, location, tech/magic level, society)
 - Protagonist (name, identity, personality traits, background)
 - Story tone (dark/light, epic/personal, serious/humorous)
@@ -463,9 +463,7 @@ Ask one question at a time, focused on these five dimensions. Do NOT reveal spec
 $own_answer_hint
 ```
 
-Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.
-
-Do NOT ask to start generating — the user will decide when they are ready.""")
+Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.""")
 
 
 CO_CREATE_GENERATION_PROMPT = Template("""Based on our conversation above, generate the complete story setup.
