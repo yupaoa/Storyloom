@@ -20,6 +20,7 @@ from storyloom.core.context_manager import ContextManager
 from storyloom.core.prompt_builder import PromptBuilder
 from storyloom.parser import (
     ParsedOutput,
+    RouteTarget,
     SetOperation,
 )
 from storyloom.parser.streaming_parser import (
@@ -1214,6 +1215,13 @@ class GameLoop:
             val=event.set_val or "",
             condition=event.set_if,
         )
+        # Evaluate condition BEFORE apply — avoids ambiguity between
+        # "condition not met (skipped)" and "condition met (applied)"
+        # that share the same SetResult shape.
+        if (set_op.condition
+                and not game_state.evaluate_condition(
+                    set_op.condition, choice_dict)):
+            return None  # condition not met — skip silently
         result = game_state.apply_set(set_op, choice_dict)
         change = {
             "var": set_op.var,
@@ -1224,9 +1232,6 @@ class GameLoop:
         }
         if result.reason:
             rejected.append(result.reason)
-        # Condition-skipped sets: accepted=True, no reason, no state change
-        if result.accepted and result.reason is None and set_op.condition:
-            return None  # skipped — condition not met
         return change
 
     def _handle_checkpoint(
@@ -1260,9 +1265,22 @@ class GameLoop:
                 self._format_error += f"Unknown checkpoint node: {cp_node}"
                 return
 
-        # ── Ending detection: empty routes = ending node ─────────
-        # Per data-model.md §2: routes 为空 → 结局节点.
-        if not routes:
+        # ── Ending detection ─────────────────────────────────────
+        # Consult the outline definition for this node.  An outline
+        # node with empty routes IS the ending; a node with routes
+        # is non-ending even if the LLM omitted <route> children
+        # (self-closing checkpoint on a single-path node).
+        outline_routes: list | None = None
+        for n in self._outline_nodes:
+            if n.get("id") == cp_node:
+                outline_routes = n.get("routes", [])
+                break
+
+        is_ending = (
+            outline_routes is not None and not outline_routes
+        ) if self._outline_nodes else not routes
+
+        if is_ending:
             self.ending_flag = True
 
         # ── Mark old node completed ──────────────────────────────
@@ -1276,15 +1294,30 @@ class GameLoop:
                 self._completed_nodes.append(cp_node)
             self.current_node = cp_node
         elif routes:
+            # LLM output contains <route> children — evaluate.
             target = self._evaluate_routes(choice_dict, routes=routes)
             if target:
                 if cp_node not in self._completed_nodes:
                     self._completed_nodes.append(cp_node)
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
+        elif outline_routes:
+            # LLM output has no <route> children (self-closing
+            # checkpoint), but the outline defines routes for this
+            # node — single-path advancement.  Convert outline
+            # dict routes to RouteTarget for _evaluate_routes.
+            if cp_node not in self._completed_nodes:
+                self._completed_nodes.append(cp_node)
+            rt_routes = [
+                RouteTarget(condition=r.get("condition"), target=r.get("target", ""))
+                for r in outline_routes
+            ]
+            target = self._evaluate_routes(choice_dict, routes=rt_routes)
+            if target:
+                self.current_node = target
+                self.goal = self._node_goals.get(target, self.goal or "")
         else:
-            # Single-path node (no routes, not ending): advance to
-            # next node in outline sequence.
+            # No outline loaded — fall back to sequential advance.
             if cp_node not in self._completed_nodes:
                 self._completed_nodes.append(cp_node)
             target = self._next_outline_node()
