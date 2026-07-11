@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from storyloom.core.game_loop import GameLoop, GameState, SetResult, RoundResult
-from storyloom.parser.xml_parser import SetOperation
+from storyloom.parser import SetOperation
 
 
 # ── Fixtures ───────────────────────────────────────────────────────

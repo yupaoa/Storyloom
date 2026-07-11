@@ -1,7 +1,14 @@
-"""DevObserver — writes raw prompt/response/check data to files."""
+"""DevObserver — writes raw prompt/response/check data to dev_output/.
+
+Three fixed files:
+  prompts.txt   — messages array sent to LLM [overwrite]
+  responses.txt — raw LLM response text [overwrite]
+  checks.txt    — round inspection summary [append]
+"""
+
 import json
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 
 from storyloom.core.game_loop import RoundRecord
 
@@ -9,38 +16,51 @@ from storyloom.core.game_loop import RoundRecord
 class DevObserver:
     """Records per-round raw data to dev_output/.
 
-    prompts.txt   — full messages array sent to LLM [overwrite]
-    responses.txt — raw LLM response text [overwrite]
-    checks.txt    — parsed summary [append]
+    Delete this file (and the dev_cli directory) for release builds.
     """
 
     def __init__(self, output_dir: str = "dev_output"):
         self._dir = Path(output_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Game round ──
+    # ── Game round ─────────────────────────────────────────────────
 
     def record_round(self, record: RoundRecord) -> None:
         ts = record.timestamp or self._now()
-        self._write_messages(record, ts)
-        self._write_response(record, ts)
+        self._write_messages(record.messages_sent, f"── Round {record.round_number} ── {ts} ──")
+        self._write_response(record.raw_response, record, ts)
         self._write_checks(record, ts)
 
-    # ── Co-creation ──
+    # ── Co-creation ────────────────────────────────────────────────
 
-    def record_co_create_messages(self, phase: str, messages: list[dict]) -> None:
-        """User + system only — assistant contains LLM-generated content."""
-        header = f"══ Co-Create [{phase}] ══ {self._now()}"
-        body = self._format_messages(messages, skip_assistant=True)
-        self._write_file("prompts.txt", f"{header}\n{body}")
+    def record_co_create_prompt(
+        self, messages: list[dict], user_input: str
+    ) -> None:
+        """Write prompt at send time — called BEFORE ``flow.send()``."""
+        prompt_msgs = list(messages) + [{"role": "user", "content": user_input}]
+        self._write_messages(prompt_msgs, f"══ Co-Create ══ {self._now()}")
 
-    def record_co_create_response(self, text: str) -> None:
-        self._write_file(
-            "responses.txt",
-            f"── Co-Create ── {self._now()} ──\n{text}\n\n",
+    def record_co_create_response(self, messages: list[dict]) -> None:
+        """Write LLM response — called AFTER ``flow.send()``."""
+        if messages and messages[-1].get("role") == "assistant":
+            self._write_response(messages[-1]["content"], None, self._now())
+
+    # ── Prompt-at-send-time (called from game_driver) ──────────────
+
+    def write_prompt_at_send(self, messages: list[dict], round_num: int) -> None:
+        """Write prompt immediately after engine sends it.
+
+        Called right after ``start_game()`` and after each
+        ``stream_round()`` iteration — engine has stored the next
+        round's prompt in ``_pending_messages`` at that point.
+        """
+        self._write_messages(
+            messages,
+            f"── Round {round_num} ── {self._now()} ──",
         )
 
     def record_co_create_result(self, story_config: dict, outline_text: str) -> None:
+        """Record final co-creation result → checks.txt."""
         self._write_file(
             "checks.txt",
             f"══ Co-Create Result ══\n"
@@ -52,61 +72,37 @@ class DevObserver:
             mode="a",
         )
 
-    # ── Private: message formatting ─────────────────────────────
+    # ── Private writers ────────────────────────────────────────────
 
-    @staticmethod
-    def _format_messages(messages: list[dict], skip_assistant: bool = False) -> str:
-        """Format messages array to [role]\\ncontent\\n blocks."""
-        lines = []
+    def _write_messages(self, messages: list[dict], header: str) -> None:
+        parts = []
         for msg in messages:
-            role = msg.get("role", "?")
-            if skip_assistant and role == "assistant":
-                continue
-            lines.append(f"[{role}]")
-            lines.append(msg.get("content", ""))
-            lines.append("")
-        return "\n".join(lines)
+            parts.append(f"[{msg.get('role', '?')}]")
+            parts.append(msg.get("content", ""))
+            parts.append("")
+        self._write_file("prompts.txt", f"{header}\n" + "\n".join(parts))
 
-    # ── Private: per-file writers ───────────────────────────────
-
-    def _write_messages(self, record: RoundRecord, ts: str) -> None:
-        header = f"── Round {record.round_number} ── {ts} ──"
-        body = self._format_messages(record.messages_sent)
-        self._write_file("prompts.txt", f"{header}\n{body}")
-
-    def _write_response(self, record: RoundRecord, ts: str) -> None:
-        meta = ""
-        if record.ttft is not None:
-            meta += f" ttft={record.ttft:.1f}s"
-        if record.tokens:
-            t = record.tokens
-            meta += (
-                f" tokens=prompt:{t.get('prompt', '?')}"
-                f",completion:{t.get('completion', '?')}"
-                f",total:{t.get('total', '?')}"
-            )
-        header = f"── Round {record.round_number} ── {ts}{meta} ──"
-        self._write_file("responses.txt", f"{header}\n{record.raw_response}\n")
+    def _write_response(self, text: str, record: RoundRecord | None, ts: str) -> None:
+        if record is not None:
+            meta = ""
+            if record.ttft is not None:
+                meta += f" ttft={record.ttft:.1f}s"
+            if record.tokens:
+                t = record.tokens
+                meta += f" tokens=prompt:{t.get('prompt','?')},completion:{t.get('completion','?')},total:{t.get('total','?')}"
+            header = f"── Round {record.round_number} ── {ts}{meta} ──"
+        else:
+            header = f"── Co-Create ── {ts} ──"
+        self._write_file("responses.txt", f"{header}\n{text}\n")
 
     def _write_checks(self, record: RoundRecord, ts: str) -> None:
-        lines = [f"── Round {record.round_number} ── {ts} ──"]
-        lines.append(
-            f"Node: {record.node or '(none)'} | "
-            f"Branch: {record.selected_branch or '(none)'}"
-        )
-
+        lines = ["", f"── Round {record.round_number} ── {ts} ──"]
+        lines.append(f"Node: {record.node or '(none)'} | Branch: {record.selected_branch or '(none)'}")
         if record.parsed:
             p = record.parsed
-            lines.append(
-                f"Segments: {p.total_segments} total "
-                f"(pre={p.pre_segments}, post={p.post_segments}) "
-                f"| Bridge: {'✓' if p.bridge_found else '✗'}"
-            )
+            lines.append(f"Segments: {p.total_segments} total (pre={p.pre_segments}, post={p.post_segments}) | Bridge: {'Y' if p.bridge_found else 'N'}")
             if p.checkpoint_node:
-                targets = (
-                    f" → {[r.target for r in p.routes]}" if p.routes else ""
-                )
-                lines.append(f"Checkpoint: {p.checkpoint_node}{targets}")
+                lines.append(f"Checkpoint: {p.checkpoint_node}{' -> ' + str([r.target for r in p.routes]) if p.routes else ''}")
                 if p.checkpoint_summary:
                     lines.append(f"  Summary: {p.checkpoint_summary}")
             if p.sets:
@@ -116,21 +112,16 @@ class DevObserver:
                     lines.append(f"  {s.var} {s.op} {s.val}{cond}")
             if p.choices:
                 c = p.choices[-1]
-                lines.append(f"Choice: {c.get('id', '?')} → {c.get('branches', [])}")
-
+                lines.append(f"Choice: {c.get('id','?')} -> {c.get('branches',[])}")
         if record.ttft is not None:
             lines.append(f"TTFT: {record.ttft:.1f}s")
         if record.tokens:
             t = record.tokens
-            lines.append(
-                f"Tokens: prompt={t.get('prompt', '?')} "
-                f"completion={t.get('completion', '?')} "
-                f"total={t.get('total', '?')}"
-            )
+            lines.append(f"Tokens: prompt={t.get('prompt','?')} completion={t.get('completion','?')} total={t.get('total','?')}")
         lines.append("")
         self._write_file("checks.txt", "\n".join(lines), mode="a")
 
-    # ── I/O helpers ─────────────────────────────────────────────
+    # ── Helpers ───────────────────────────────────────────────────
 
     def _write_file(self, filename: str, content: str, mode: str = "w") -> None:
         path = self._dir / filename
@@ -138,5 +129,6 @@ class DevObserver:
             f.write(content)
             f.flush()
 
-    def _now(self) -> str:
+    @staticmethod
+    def _now() -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

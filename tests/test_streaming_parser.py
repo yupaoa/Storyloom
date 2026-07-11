@@ -1,10 +1,10 @@
 """Tests for StreamingXmlParser and LineBuffer."""
 
 import pytest
-from storyloom.parser.xml_parser import ParsedOutput, XmlParser
 from storyloom.parser.streaming_parser import (
     EventType,
     LineBuffer,
+    ParsedOutput,
     ParseEvent,
     StreamingXmlParser,
 )
@@ -387,90 +387,4 @@ class TestStreamingXmlParser:
         assert seg_events[0].text == "ok"
 
 
-# ── Consistency with XmlParser ──────────────────────────────────
-
-class TestParserConsistency:
-    """Verify StreamingXmlParser produces same results as XmlParser."""
-
-    def test_same_segment_count(self):
-        sp = StreamingXmlParser()
-        for line in VALID_XML.strip().split("\n"):
-            sp.feed_line(line)
-        streaming_result = sp.get_result()
-
-        full_result = XmlParser.parse(VALID_XML)
-
-        assert streaming_result.total_segments == full_result.total_segments
-        assert streaming_result.pre_segments == full_result.pre_segments
-        assert streaming_result.post_segments == full_result.post_segments
-
-    def test_same_choice_extraction(self):
-        sp = StreamingXmlParser()
-        for line in VALID_XML.strip().split("\n"):
-            sp.feed_line(line)
-        streaming_result = sp.get_result()
-
-        full_result = XmlParser.parse(VALID_XML)
-
-        assert streaming_result.choice_id == full_result.choice_id
-        assert streaming_result.choices == full_result.choices
-
-    def test_same_set_extraction(self):
-        sp = StreamingXmlParser()
-        for line in VALID_XML.strip().split("\n"):
-            sp.feed_line(line)
-        streaming_result = sp.get_result()
-
-        full_result = XmlParser.parse(VALID_XML)
-
-        assert len(streaming_result.sets) == len(full_result.sets)
-        for ss, fs in zip(streaming_result.sets, full_result.sets):
-            assert ss.var == fs.var
-            assert ss.op == fs.op
-            assert ss.val == fs.val
-            assert ss.condition == fs.condition
-
-    def test_same_checkpoint_extraction(self):
-        sp = StreamingXmlParser()
-        for line in VALID_XML.strip().split("\n"):
-            sp.feed_line(line)
-        streaming_result = sp.get_result()
-
-        full_result = XmlParser.parse(VALID_XML)
-
-        assert streaming_result.checkpoint_node == full_result.checkpoint_node
-        assert streaming_result.checkpoint_summary == full_result.checkpoint_summary
-
-    def test_same_bridge_text(self):
-        sp = StreamingXmlParser()
-        for line in VALID_XML.strip().split("\n"):
-            sp.feed_line(line)
-        streaming_result = sp.get_result()
-
-        full_result = XmlParser.parse(VALID_XML)
-
-        assert streaming_result.bridge_text == full_result.bridge_text
-
-    def test_same_branches(self):
-        sp = StreamingXmlParser()
-        for line in VALID_XML.strip().split("\n"):
-            sp.feed_line(line)
-        streaming_result = sp.get_result()
-
-        full_result = XmlParser.parse(VALID_XML)
-
-        assert set(streaming_result.pre_branches) == set(full_result.pre_branches)
-        assert set(streaming_result.post_branches) == set(full_result.post_branches)
-
-    def test_roundtrip_with_line_numbers(self):
-        """Line-numbered XML should parse identically."""
-        sp = StreamingXmlParser()
-        for line in VALID_XML_WITH_LINE_NUMBERS.strip().split("\n"):
-            sp.feed_line(line)
-        streaming_result = sp.get_result()
-
-        full_result = XmlParser.parse(VALID_XML_WITH_LINE_NUMBERS)
-
-        assert streaming_result.total_segments == full_result.total_segments
-        assert streaming_result.choice_id == full_result.choice_id
-        assert streaming_result.checkpoint_node == full_result.checkpoint_node
+# ── StreamingXmlParser.get_result() tests ───────────────────────

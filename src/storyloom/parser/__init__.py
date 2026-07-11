@@ -11,10 +11,6 @@ from storyloom.parser.streaming_parser import (
     SetOperation,
     StreamingXmlParser,
 )
-from storyloom.parser.xml_parser import (
-    XmlParser,
-)
-
 __all__ = [
     "EventType",
     "LineBuffer",
@@ -25,5 +21,4 @@ __all__ = [
     "Segment",
     "SetOperation",
     "StreamingXmlParser",
-    "XmlParser",
 ]

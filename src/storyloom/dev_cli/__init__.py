@@ -4,11 +4,12 @@ Independent package. Delete this directory to remove the dev CLI
 from a release build. Zero engine modifications needed.
 
 Usage:
-    python -m storyloom.dev_cli [--mode dev|normal] [--story FILE] [--no-save] [--lang zh-CN|en]
+    python -m storyloom.dev_cli          # observer mode (default)
+    python -m storyloom.dev_cli play      # pure game (no file output)
 """
 
-from storyloom.dev_cli.ui import dev_main, TerminalUi
+from storyloom.dev_cli.cli_ui import TerminalUi
 from storyloom.dev_cli.observer import DevObserver
-from storyloom.dev_cli.args import parse_args, DevCliArgs
+from storyloom.dev_cli.game_driver import dev_main
 
-__all__ = ["dev_main", "TerminalUi", "DevObserver", "parse_args", "DevCliArgs"]
+__all__ = ["dev_main", "TerminalUi", "DevObserver"]

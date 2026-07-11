@@ -25,8 +25,7 @@ from enum import Enum, auto
 
 
 # ── Shared data types ─────────────────────────────────────────────
-# Owned by the streaming parser (the canonical parser).  xml_parser.py
-# imports these from here so the file can be deleted safely later.
+# Owned by the streaming parser (the canonical parser).
 
 
 class ParseError(Exception):

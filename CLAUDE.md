@@ -9,7 +9,7 @@ Storyloom is an AI-powered interactive text fiction game engine. The LLM is the 
 **Status (2026-07-10):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Bridge pre-fetch implemented for auto-advance rounds. Dev CLI (`src/storyloom/dev_cli/`) replaces old `main.py` as the CLI test harness — zero engine changes. Web interface (FastAPI + SSE) under active development on parallel branch.
 
 **Key migrations:**
-1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters (2026-07-04) — see `src/storyloom/parser/xml_parser.py`.
+1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters (2026-07-04) — see `src/storyloom/parser/streaming_parser.py`.
 2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts (2026-07-04) — see `src/storyloom/core/context_manager.py` and `src/storyloom/core/prompt_builder.py`.
 3. **Line-number format** (`NNN| ` prefix) replaced `<seg n="N">` attribute numbering (2026-07-05) — see `tests/prompt_lab/data/prompts/round1-linenum.txt`.
 4. **Bridge pre-fetch** — daemon thread + `queue.Queue` for auto-advance rounds (2026-07-10) — see `src/storyloom/core/game_loop.py` `_launch_prefetch()`.
@@ -30,7 +30,7 @@ Each story segment contains a `<bridge/>` marker. When the program reaches it du
 All game data lives in a local `GameState` object. The LLM can only *suggest* changes via `<set>` elements. The program validates each suggestion — type checks, range checks, variable existence — before applying. Rejected changes are fed back to the LLM in the next round.
 
 ### XML Output Format (current, replacing `--- block ---`)
-LLM output is an XML document (`<story>...</story>`) containing `<seg>`, `<choice>`, `<set>`, `<checkpoint>`, `<bridge/>`, and `<branch>` elements. Parsed by `XmlParser` via `xml.etree.ElementTree`. Full spec: `docs/spec/block-spec.md`.
+LLM output is an XML document (`<story>...</story>`) containing `<seg>`, `<choice>`, `<set>`, `<checkpoint>`, `<bridge/>`, and `<branch>` elements. Parsed line-by-line by `StreamingXmlParser` (streaming). Full spec: `docs/spec/block-spec.md`.
 
 Key advantages over old `--- block ---` format: node IDs as attributes prevent suffix appending; `<branch>` as container prevents missing post-choice narratives; `<bridge/>` as unique tag prevents double-bridge misuse. Achieved 100% correctness vs ~20-74% for text blocks in comparative tests.
 
@@ -61,14 +61,12 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `src/storyloom/core/save_manager.py` | Atomic JSON save/load/delete/list | Implementation |
 | `src/storyloom/core/session.py` | `GameSession` lifecycle coordinator (UI integration API) | Implementation |
 | `src/storyloom/core/ui_interface.py` | UiInterface protocol (UI-agnostic abstraction) | Implementation |
-| `src/storyloom/parser/xml_parser.py` | LLM XML output parser (full document) | Implementation |
+| `src/storyloom/parser/streaming_parser.py` | Line-by-line XML parser, data types, LineBuffer | Implementation |
 | `src/storyloom/io/api_client.py` | OpenAI-compatible API client | Implementation |
-| `src/storyloom/dev_cli/` | Dev CLI — `TerminalUi`, `DevObserver`, argument parsing | Reference |
-| `src/storyloom/io/display.py` | Terminal display (CLI) — **DEPRECATED**, reference only | Reference |
+| `src/storyloom/dev_cli/` | Dev CLI — `TerminalUi`, `DevObserver`, deque-buffered display | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
-| `tests/test_*.py` | Unit tests (mock, no API) — 282 tests | Test |
-| `tests/prompt_lab/` | Prompt design tools and LLM test harnesses (real API) | Tool |
+| `tests/test_*.py` | Unit tests (mock, no API) — 228 tests | Test |
 | `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
 
 **Test structure:** `tests/test_*.py` = pytest unit tests (mock, no API). `tests/prompt_lab/` = ad-hoc prompt design tools (require API key).
@@ -88,7 +86,7 @@ These files implement the narrative engine. UI imports them but never edits them
 | `src/storyloom/core/context_manager.py` | `ContextManager` — sliding window, compression |
 | `src/storyloom/core/prompt_builder.py` | `PromptBuilder` — Round 1 / Round N prompts |
 | `src/storyloom/core/save_manager.py` | `SaveManager` — atomic JSON save/load/delete |
-| `src/storyloom/parser/xml_parser.py` | `XmlParser`, `ParsedOutput` |
+| `src/storyloom/parser/streaming_parser.py` | `StreamingXmlParser`, `ParsedOutput`, data types |
 | `src/storyloom/io/api_client.py` | `ApiClient` — OpenAI-compatible API |
 | `src/storyloom/config.py` | Configurable constants |
 | `src/storyloom/i18n.py` | gettext i18n |
@@ -110,10 +108,7 @@ Engine code must never import from these files:
 
 | File | Contains |
 |------|----------|
-| `src/storyloom/main.py` | CLI test harness (**legacy** — prefer `dev_cli`) |
-| `src/storyloom/cli_utils.py` | CLI observer utilities |
-| `src/storyloom/dev_cli/` | **Dev CLI** (current CLI tool) — `TerminalUi` + `DevObserver` |
-| `src/storyloom/io/display.py` | Terminal `Display` (CLI-only) — **DEPRECATED** |
+| `src/storyloom/dev_cli/` | **Dev CLI** — `TerminalUi` + `DevObserver` + `game_driver` |
 | `src/storyloom/web/` | **Web UI package** (FastAPI + SSE) — recommended location |
 
 ### 🧪 Tests

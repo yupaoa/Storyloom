@@ -1,74 +1,70 @@
 # dev_cli
 
-极简 CLI 游戏界面 + 开发者检查工具。删除此目录即可从发布版本移除。
+极简 CLI 游戏界面 + 开发者观察工具。删除此目录即可从发布版本移除。
 
 ## 快速开始
 
 ```bash
-python -m storyloom.dev_cli
+python3 -m storyloom.dev_cli              # 观察者模式（默认）：instant 展示 + 写 dev_output/
+python3 -m storyloom.dev_cli play         # 纯游戏模式：auto 展示（每段 0.5s）
+python3 -m storyloom.dev_cli play manual  # 纯游戏模式：manual 展示（Enter 推进）
+python3 -m storyloom.dev_cli play instant # 纯游戏模式：instant 展示（无延迟）
 ```
 
-默认进入开发者模式，进行共创 Q&A 后开始游戏，原始数据写入 `dev_output/`。
+## 展示模式
 
-## 参数
+| 模式 | 行为 | 默认场景 |
+|------|------|---------|
+| `instant` | 无延迟，全速输出 | 观察者模式 |
+| `auto` | 每段后 0.5s 间隔 | 纯游戏模式 |
+| `manual` | 每段后等待 Enter | 手动推进 |
+
+## 快捷键
+
+| 按键 | 行为 |
+|------|------|
+| `1`–`9` | 选择分支 |
+| `Space` | 切换暂停（展示冻结，后台 API 继续获取） |
+| `Ctrl+C` | 退出 |
+| `q` / `quit` | 选项时退出 |
+
+选项阶段自然暂停（等待输入），无需额外暂停操作。
+
+## 架构
 
 ```
---mode dev|normal    默认 dev（记录原始数据）
---story FILE         JSON 故事配置，跳过共创
---no-save            禁用自动存档
---lang zh-CN|en      默认 zh-CN
---speed instant|fast|normal|slow  默认 normal（输出速度）
+Receiver (fast)              Deque buffer           Display (paced)
+─────────────────────       ──────────────         ──────────────────
+for event in gen:           collections.deque      _display_loop()
+  event_queue.append()      event_queue.pop()      instant: no delay
+  if options → inline                               auto:    0.5s/seg
+                                                    manual:  Enter/seg
 ```
 
-## 示例
+引擎通过 `queue.Queue` + daemon 线程预取 API 响应，Receiver 全速入队，
+Display 按选定节奏出队展示。两者通过 `collections.deque` 解耦。
 
-```bash
-# 纯游戏模式，跳过共创
-python -m storyloom.dev_cli --mode normal --story tests/data/test_story.json
-
-# 开发者模式，不存档
-python -m storyloom.dev_cli --no-save
-```
-
-## 游戏操作
-
-- 输入数字选择分支
-- 输入 `q` 退出
-- `Ctrl+C` 退出
-
-## 开发者模式输出
+## 观察者输出
 
 `dev_output/` 目录（已 gitignore）：
 
 | 文件 | 内容 | 写入模式 |
 |------|------|---------|
-| `prompts.txt` | 当前轮发送给 LLM 的完整 messages 数组 | 覆盖 |
+| `prompts.txt` | 发送给 LLM 的完整 messages 数组 | 覆盖 |
 | `responses.txt` | LLM 返回的原始文本（含 ttft / token 统计） | 覆盖 |
-| `checks.txt` | 解析摘要（segments、bridge、checkpoint、sets、choices） | 追加 |
+| `checks.txt` | 每轮检查摘要（segment、checkpoint、set、choice、TTFT） | 追加 |
 
-`prompts.txt` 和 `responses.txt` 每次写入覆盖，始终只保留最新一轮数据。
-`checks.txt` 追加写入，跨轮累积。自行清理。
+`prompts.txt` 和 `responses.txt` 始终只保留最新一轮。
+`checks.txt` 跨轮累积。格式错误可通过下一轮的 `prompts.txt` 自查。
 
-## 故事配置文件格式
+## 文件结构
 
-```json
-{
-    "story_config": {
-        "genre": "...",
-        "tier": "short|medium|long",
-        "label": "标题",
-        "setting": "...",
-        "protagonist_name": "...",
-        "protagonist_identity": "...",
-        "protagonist_traits": "...",
-        "tone": "...",
-        "conflict": "...",
-        "characters": "...",
-        "variables": [...]
-    },
-    "outline_text": "ch1 [active] — ...\n  → ch2 [pending]\n...",
-    "outline_nodes": [
-        {"id": "ch1", "status": "active", "goal": "..."}
-    ]
-}
+```
+dev_cli/
+    __init__.py       — 导出：dev_main, TerminalUi, DevObserver
+    __main__.py       — 入口点
+    cli_ui.py         — TerminalUi（UiInterface 协议实现）
+    observer.py       — DevObserver（3 个固定文件输出）
+    game_driver.py    — 游戏流程驱动 + PauseHandler + deque 缓冲
+    README.md         — 本文件
 ```

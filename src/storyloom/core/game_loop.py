@@ -490,6 +490,7 @@ class GameLoop:
         # The UI calls get_adventure_log() to retrieve the result.
         self._adv_thread: threading.Thread | None = None
         self._adv_result: str | None = None
+        self._adv_error: str | None = None
 
         # Pending API state — every round's Phase 5 launches the *next*
         # round's API call in a daemon thread and stores the result queue
@@ -865,8 +866,8 @@ class GameLoop:
             def _fetch_adv() -> None:
                 try:
                     self._adv_result = self.run_adventure_log()
-                except Exception:
-                    self._adv_result = None
+                except Exception as exc:
+                    self._adv_error = str(exc)
 
             self._adv_thread = threading.Thread(target=_fetch_adv, daemon=True)
             self._adv_thread.start()
@@ -1565,3 +1566,13 @@ class GameLoop:
             return None
         self._adv_thread.join(timeout=timeout)
         return self._adv_result
+
+    @property
+    def adventure_log_error(self) -> str | None:
+        """Error message if adventure log generation failed, ``None`` otherwise.
+
+        Check this after ``get_adventure_log()`` returns ``None`` to
+        distinguish "API error" (this property is set) from "still
+        waiting / timeout" (this property is ``None``).
+        """
+        return self._adv_error

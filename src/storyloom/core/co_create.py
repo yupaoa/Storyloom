@@ -589,7 +589,7 @@ class CoCreateFlow:
         """Return the full co-creation conversation messages.
 
         Contains system prompt, Q&A turns, and the final generation
-        prompt. Use with cli_utils.save_prompts() to dump to a file.
+        prompt.
         """
         return list(self._messages)
 
