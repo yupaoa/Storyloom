@@ -58,7 +58,7 @@ game_state.rejected_changes = []
    条件中的变量名按优先级解析（choice_dict > state_vars，见 block-spec.md §2）：
      if 条件 -> route <target_node_id>
      ├── 条件命中 → 目标节点 = target_node_id
-     ├── 条件中引用的变量不存在 → 该条视为无效，跳过
+     ├── 条件中引用的变量不存在 → 条件求值为 False，进入 fallback 链
      ├── 多个命中 → 取第一个
      └── 全部不命中 → 取第一条分支的 target_node_id（兜底）
 

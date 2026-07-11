@@ -278,15 +278,28 @@ class GameState:
         return SetResult(accepted=True)
 
     def _apply_list_op(self, var_name: str, op: str, val: str) -> SetResult:
-        """Apply a list add/remove operation."""
+        """Apply a list add/remove operation.
+
+        Per block-spec.md §5, silent no-ops (duplicate add /
+        non-existent remove) are recorded so the LLM gets feedback
+        in the next round.
+        """
         current: list = self._state_vars[var_name]
 
         if op == "+":
-            if val not in current:
-                current.append(val)
-        elif op == "-":
             if val in current:
-                current.remove(val)
+                return SetResult(
+                    accepted=True,
+                    reason=f"{var_name}: '{val}' already in list, add skipped",
+                )
+            current.append(val)
+        elif op == "-":
+            if val not in current:
+                return SetResult(
+                    accepted=True,
+                    reason=f"{var_name}: '{val}' not in list, remove skipped",
+                )
+            current.remove(val)
 
         return SetResult(accepted=True)
 
@@ -487,6 +500,13 @@ class GameLoop:
         self._pending_user_content: str = ""
         self._pending_messages: list[dict] = []
 
+        # Retry state — when stream_round() encounters a severe error
+        # (API timeout / network failure), it stores the original messages
+        # here so the UI can call retry() after user confirmation.
+        # Cleared on successful round completion.
+        self._retry_messages: list[dict] | None = None
+        self._retry_user_content: str = ""
+
     # ── Properties ─────────────────────────────────────────────────
 
     @property
@@ -663,6 +683,9 @@ class GameLoop:
             try:
                 chunk = result_queue.get(timeout=STREAM_STALL_TIMEOUT_SEC)
             except queue.Empty:
+                # ── Severe error: save messages for retry ─────────
+                self._retry_messages = messages_sent
+                self._retry_user_content = user_content
                 yield {
                     "type": "error",
                     "message": (
@@ -672,6 +695,9 @@ class GameLoop:
                 return
 
             if chunk.get("__api_error__"):
+                # ── Severe error: save messages for retry ─────────
+                self._retry_messages = messages_sent
+                self._retry_user_content = user_content
                 yield {
                     "type": "error",
                     "message": f"API error: {chunk['__api_error__']}",
@@ -845,6 +871,10 @@ class GameLoop:
             self._adv_thread = threading.Thread(target=_fetch_adv, daemon=True)
             self._adv_thread.start()
 
+            # ── Ending reached — clear retry state ────────────────
+            self._retry_messages = None
+            self._retry_user_content = ""
+
             yield {
                 "type": "ending",
                 "adventure_log": None,  # UI calls get_adventure_log() to retrieve
@@ -902,6 +932,10 @@ class GameLoop:
 
         self._launch_api(messages, rn_context)
 
+        # ── Round succeeded — clear retry state ────────────────────
+        self._retry_messages = None
+        self._retry_user_content = ""
+
         # ── Notify observer ─────────────────────────────────────────
         self._notify(RoundRecord(
             round_number=self._context_mgr.round_count,
@@ -956,6 +990,24 @@ class GameLoop:
         self._pending_queue = result_queue
         self._pending_user_content = user_content
         self._pending_messages = list(messages)
+
+    def retry(self) -> None:
+        """Re-launch the last failed round with the same messages.
+
+        Call after receiving an ``{"type": "error", ...}`` event and
+        the user has chosen to retry.  Must be followed by another
+        ``stream_round()`` call to consume the new result queue.
+
+        Raises:
+            RuntimeError: If there is no failed round to retry
+                          (i.e. the last round completed successfully).
+        """
+        if self._retry_messages is None:
+            raise RuntimeError(
+                "No failed round to retry — the last round completed "
+                "successfully or retry() was already called."
+            )
+        self._launch_api(self._retry_messages, self._retry_user_content)
 
     # ── Save / Restore ─────────────────────────────────────────────
 
