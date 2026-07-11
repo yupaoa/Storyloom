@@ -8,63 +8,95 @@
 
 ## 2026-07-11（周六）
 
-### 结局节点设计修订 —— `node="end"` 移除，routes 数量判定结局
+### 叙事循环统一重构 —— stream_round() 单入口
 
-**背景**：当前设计中，结局节点通过 `<checkpoint node="end" .../>` 标识——LLM 必须将结局节点的 `node` 属性硬编码为 `"end"`。此设计存在两个问题：
+**背景**：07-11 前序审计（[[2026-07-11-bridge-processing-audit]]）和 streaming parser 集成后，代码与 spec 仍存在结构性偏离：
 
-1. **命名不清晰**：多结局故事中，多个结局节点同名为 `"end"`，无法从 node 属性区分不同结局路径。
-2. **语义不一致**：非结局节点通过 `routes` 数量表达分支结构（routes≥1 = 分支节点），但结局节点需要额外记住命名约定（node="end"）——LLM 容易遗漏。
+| 偏离 | 根因 |
+|------|------|
+| Round 1 不触发 pre-fetch | `start_round1_stream` 末尾无后台 API 调用 |
+| 条件 set 跨轮延迟 | `continue_round_stream` 将条件 set 推迟到下一轮执行 |
+| pre-fetch/live 双路径 | `_launch_prefetch` 同时做状态清算和 API 启动，live 路径双重调用 `_apply_deferred_step` |
+| bridge_text 过期 | live 路径 `_launch_prefetch` 在 `_finalize_parsed_round` 之前调用，bridge_text 未更新 |
 
-**决策**：移除 `node="end"` 的命名约定。**routes 数量直接判定节点类型**：
+根因：代码未按照 `exec-flow.md` §4.1 的 6 阶段线性流程组织。每轮流程应是固定的、不可分割的。
 
-| routes 数量 | 节点类型 | 处理 |
-|------------|---------|------|
-| ≥1 | 分支节点 | 条件求值，推进到命中的 target |
-| 0（空） | **结局节点** | 标记 `ending_flag`，推进流程同普通节点 |
+**决策**：全面重构 `game_loop.py`——用 `stream_round()` 统一入口替代旧的双路径架构。
 
-**影响范围**：
-- `co_create.py`：`CO_CREATE_SYSTEM_PROMPT` 中移除 `node="end"` 示例，结局节点由 `routes: （结局）` 表达（已存在）
-- `co_create.py`：`validate_outline()` 中最终节点 routes 为空 → 结局（已存在）
-- `game_loop.py`：`_accumulate_checkpoint` / ending 检测逻辑移除 `node == "end"` 硬编码，改为检查 routes 是否为空
-- `StreamingXmlParser`：无需感知 "end" 特殊值
-- `prompt_builder.py`：Round 1 Prompt 中移除 `node="end"` 相关描述
-- Spec 文档：`block-spec.md` §4 checkpoint 节、`data-model.md` §2、`exec-flow.md` §5.2 更新
+**架构**：
+```
+gl.start_game()          # 仅 Round 1：构建 Prompt + 启动后台 API
+gen = gl.stream_round()  # 每轮统一入口
+for event in gen:        # Phase 1-4: 流式解析
+    if event["type"] == "options":
+        gen.send(key)     # </choice> 暂停 → UI 输入 → 恢复
+# Phase 5: </story> → add_round → build next prompt → launch API
+```
+
+**关键设计决策**：
+
+1. **所有 API 调用走 daemon 线程 + queue.Queue**——取消 pre-fetch/live 分叉。每轮 Phase 5 启动后台 API，下一轮 `stream_round()` 消费 queue。Round 1 不例外。
+
+2. **SET 解析时立即求值**——在 `stream_round()` 的 Phase 3 中，收到 `EventType.SET` 即构建 `SetOperation` + 条件求值 + `apply_set`。不再有"条件 set 延迟到下一轮"的概念。删除 `_apply_deferred_step`。
+
+3. **CHECKPOINT 解析时立即处理**——在 `CHECKPOINT_END`（或自闭合 `<checkpoint/>`）时评估 routes、推进节点、accumulate checkpoint、触发 auto-save。删除 `_finalize_parsed_round` 中的 checkpoint 处理。
+
+4. **Choice 暂停 via gen.send(key)**——`</choice>` 时 `yield options`，generator 暂停等 UI 调用 `gen.send(key)`。恢复后 `current_branch` 和 `choice_dict` 更新，后续 set 条件求值使用正确的 choice_dict。
+
+5. **Phase 5 极简化**——`</story>` 后只做：`add_round` → `build_round_n` → `_launch_api`。数据处理（set/route/checkpoint）已在 Phase 3 完成。
+
+6. **每轮数据独立**——`current_branch = "main"`、`choice_dict = {}` 每轮初始化，与 block-spec.md §3 "轮次结束时清空"一致。
+
+**删除的旧代码**（-777 行）：
+`start_round1_stream`、`continue_round_stream`、`start_round1`、`continue_round`、`_launch_prefetch`、`_apply_deferred_step`、`_finalize_parsed_round`、`_take_prefetch`、`_emit_options`、`_stream_parse_chunk`、`_prefetch_lock`、`_prefetch_data`、`_round1_started`
+
+**新增代码**（+541 行）：
+`stream_round()`、`start_game()`、`_launch_api()`、`_handle_set_event()`、`_handle_checkpoint()`
+
+**StreamingXmlParser 变化**：
+- `ParseEvent.choice_data` — `</choice>` 时携带累积的选项数据（id、branches、labels、conditions）
+- `routes` 属性 — 暴露累积的 route 目标列表，供 checkpoint 处理时读取
+
+**修复 A（结局判定）**：`_handle_checkpoint` 原以 LLM 输出是否包含 `<route>` 子元素判定结局。自闭合 checkpoint（中间单路径节点）无 `<route>` → 错误触发 `ending_flag`。修复：查大纲定义中该节点的 `routes` 是否为空。大纲中仅最终节点 `routes: []`。
+
+**修复 B（set 条件求值）**：`_handle_set_event` 原依赖 `apply_set` 返回值区分"跳过"和"应用"。但两者返回相同的 `SetResult(accepted=True, reason=None)`，导致条件满足的 set 变更事件被抑制。修复：调用 `apply_set` 前先求值条件，不满足则直接跳过。
+
+**净效果**：-236 行，293 测试全绿。`dev_cli/ui.py` 待后续适配新 API。
 
 **依据**：
-- block-spec.md §4：`<route>` 属性 target 指向目标节点——无 route 则无目标
-- data-model.md §2：结束节点为 "最后一个节点"（branches 为空）
+- `exec-flow.md` §4.1 — 6 阶段每轮统一
+- `block-spec.md` §3 — 每轮数据独立，轮结束时清空
+- `block-spec.md` §5 — set 在 bridge 前立即执行
+- `data-model.md` §2 — routes 为空 → 结局节点（指大纲定义）
+- commit `04845ce` — `refactor(engine): unify narrative loop into single stream_round() flow`
+- commit `5488d79` — `fix(engine): use outline routes for ending detection, evaluate set conditions before apply`
 
-### Spec-vs-Code 审计 —— 4 项修复 + 叙事循环重构设计
+### Spec-vs-Code 审计 —— 4 项快速修复
 
-**背景**：对 4 份权威 spec 文档与全部核心源代码进行逐条对照审计。发现 7 个问题（2 P0 + 2 P1 + 3 P2），其中 4 项已修复，3 项等待重构。
+**背景**：对 4 份权威 spec 文档与全部核心源代码进行逐条对照审计（前序重构前）。
 
-**已修复**：
+**修复**：
 
 | # | 等级 | 问题 | 修复 |
 |---|------|------|------|
-| 3 | P1 | `GameState.apply_set()` 对未知变量/非法操作 raise ValueError，应静默返回 SetResult(accepted=False) | 4 处 `raise ValueError` → `return SetResult(accepted=False, reason=...)` |
-| 4 | P1 | `ParsedOutput.bridge_text` 不过滤分支，`_last_bridge_text` 含全部 branch 文本 | 两处赋值改用 `sp.get_bridge_text(current_branch)` |
-| 5 | P2 | Adventure Log Prompt 语言 spec-vs-code 不一致（spec 说中文，代码用英文） | Spec 更新为英文（与所有系统 Prompt 一致），`data-model.md` §B #1 + `prompt-design.md` §5 同步 |
-| 6 | P2 | StreamingXmlParser 未校验重复 bridge | 遇到第二个 bridge 时记入 `_format_errors`（与 post-bridge choice/set/checkpoint 同级处理） |
+| 3 | P1 | `apply_set` 对未知变量/非法操作 raise ValueError，应静默返回 | 4 处 `raise` → `return SetResult(accepted=False, reason=...)` |
+| 4 | P1 | `_last_bridge_text` 使用未过滤的 `parsed.bridge_text`，含全部分支文本 | 改用 `sp.get_bridge_text(current_branch)` |
+| 5 | P2 | Adventure Log Prompt 语言 spec-vs-code 不一致（spec 中文，代码英文） | Spec 更新：所有 Prompt 统一英文，输出语言由 story_config.language 决定 |
+| 6 | P2 | StreamingXmlParser 未校验重复 bridge | 第二个 bridge 记入 `_format_errors`（与 post-bridge 违规同级） |
 
-**待重构（1, 2, 7）**：
+**依据**：commit `e5611da`
 
-叙事循环当前实现与 spec 存在结构性偏离：
+### 结局节点设计修订 —— routes 数量判定结局
 
-| 偏离 | 说明 |
-|------|------|
-| Round 1 无 pre-fetch | `start_round1_stream` 末尾未启动后台 API 调用 |
-| 条件 set 跨轮延迟 | 有条件的 `<set>` 推迟到下一轮执行，而非轮内求值 |
-| 无轮内暂停 | `<choice>` 解析不暂停等 UI 输入，options 打包到 `</story>` 后统一 yield |
-| `_launch_prefetch` 双重角色 | 同时负责状态清算和 Prompt 预取，live 路径中导致双重调用 |
+**背景**：原设计用 `node="end"` 特殊值标识结局节点。问题：(1) 多结局故事中命名冲突，(2) LLM 需额外记住命名约定。
 
-重构方向：统一每轮流程为 `stream_round()` 单入口，API 调用全部走 daemon 线程 + queue.Queue，所有 set/route 在解析时立即处理。
+**决策**：移除 `node="end"` 特殊值。结局判定改为：**大纲定义中 routes 为空 = 结局节点**。`co_create.py:validate_outline` 已确保仅最终节点 routes 为空。
 
-此外发现结局节点设计需要修订——`node="end"` 命名约定改为 routes 数量判定。详见上一条日志。
+**影响文件**：`block-spec.md` §4、`data-model.md` §2、`exec-flow.md` §5.2、`prompt-design.md` §3.4、`co_create.py`（CO_CREATE_SYSTEM_PROMPT + parse_outline）
 
-**依据**：
-- 本 session 审计报告
-- [[2026-07-11-bridge-processing-audit]]（关联）
+**依据**：spec 文档在上述 commit 中同步更新。
+
+---
 
 ---
 
