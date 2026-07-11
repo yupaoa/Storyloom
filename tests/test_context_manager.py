@@ -143,6 +143,8 @@ class TestGetMessagesForRound:
 
 class TestBridgeText:
     def test_bridge_text_is_stored_for_next_round(self):
+        from storyloom.parser.streaming_parser import StreamingXmlParser
+
         cm = ContextManager()
         cm.set_round1("p", "o")
         xml = (
@@ -152,7 +154,13 @@ class TestBridgeText:
             '<seg>耗子: 跟我来。</seg>\n'
             '</story>'
         )
-        cm.add_round("r2 context", xml)
+        # GameLoop would extract bridge_text via the streaming parser
+        # using the current_branch active at <bridge/> time.
+        sp = StreamingXmlParser()
+        for line in xml.split("\n"):
+            sp.feed_line(line)
+        bridge_text = sp.get_bridge_text()
+        cm.add_round("r2 context", xml, bridge_text=bridge_text)
         bridge = cm.get_last_bridge_text()
         assert "你对耗子点了点头" in bridge
         assert "耗子: 跟我来" in bridge

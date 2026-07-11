@@ -80,6 +80,8 @@ ROUND2_OUTPUT = """<story>
 class TestIntegration:
     def test_full_5_round_conversation_flow(self):
         """Simulate 5 rounds and verify message structure at each step."""
+        from storyloom.parser.streaming_parser import StreamingXmlParser
+
         pb = PromptBuilder()
         cm = ContextManager()
 
@@ -87,7 +89,11 @@ class TestIntegration:
         r1_prompt = pb.build_round1(
             SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易"
         )
-        cm.set_round1(r1_prompt, ROUND1_OUTPUT)
+        sp1 = StreamingXmlParser()
+        for line in ROUND1_OUTPUT.split("\n"):
+            sp1.feed_line(line)
+        cm.set_round1(r1_prompt, ROUND1_OUTPUT,
+                      bridge_text=sp1.get_bridge_text())
         msgs = cm.get_messages()
         assert len(msgs) == 2
         assert cm.round_count == 1
@@ -103,21 +109,37 @@ class TestIntegration:
             state_vars={"体力": 80, "信任度": 15},
             bridge_text=bridge1,
         )
-        cm.add_round(r2_prompt, ROUND2_OUTPUT)
+        sp2 = StreamingXmlParser()
+        for line in ROUND2_OUTPUT.split("\n"):
+            sp2.feed_line(line)
+        cm.add_round(r2_prompt, ROUND2_OUTPUT,
+                     bridge_text=sp2.get_bridge_text())
         assert cm.round_count == 2
         assert cm.get_compressed_rounds() == []
 
         # Round 3
-        cm.add_round("r3 context", ROUND2_OUTPUT)
+        sp3 = StreamingXmlParser()
+        for line in ROUND2_OUTPUT.split("\n"):
+            sp3.feed_line(line)
+        cm.add_round("r3 context", ROUND2_OUTPUT,
+                     bridge_text=sp3.get_bridge_text())
         assert cm.round_count == 3
 
         # Round 4
-        cm.add_round("r4 context", ROUND2_OUTPUT)
+        sp4 = StreamingXmlParser()
+        for line in ROUND2_OUTPUT.split("\n"):
+            sp4.feed_line(line)
+        cm.add_round("r4 context", ROUND2_OUTPUT,
+                     bridge_text=sp4.get_bridge_text())
         assert cm.round_count == 4
         assert cm.get_compressed_rounds() == []
 
         # Round 5 — triggers compression
-        cm.add_round("r5 context", ROUND2_OUTPUT)
+        sp5 = StreamingXmlParser()
+        for line in ROUND2_OUTPUT.split("\n"):
+            sp5.feed_line(line)
+        cm.add_round("r5 context", ROUND2_OUTPUT,
+                     bridge_text=sp5.get_bridge_text())
         assert cm.round_count == 5
         compressed = cm.get_compressed_rounds()
         assert len(compressed) >= 1
@@ -146,12 +168,18 @@ class TestIntegration:
 
     def test_bridge_text_flows_between_rounds(self):
         """Bridge text extracted from round N feeds into round N+1 context."""
+        from storyloom.parser.streaming_parser import StreamingXmlParser
+
         pb = PromptBuilder()
         cm = ContextManager()
 
+        sp = StreamingXmlParser()
+        for line in ROUND1_OUTPUT.split("\n"):
+            sp.feed_line(line)
         cm.set_round1(
             pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易"),
             ROUND1_OUTPUT,
+            bridge_text=sp.get_bridge_text(),
         )
 
         bridge1 = cm.get_last_bridge_text()
@@ -161,16 +189,26 @@ class TestIntegration:
 
     def test_compression_format(self):
         """Compressed messages use the correct format."""
+        from storyloom.parser.streaming_parser import StreamingXmlParser
+
         pb = PromptBuilder()
         cm = ContextManager()
 
+        sp = StreamingXmlParser()
+        for line in ROUND1_OUTPUT.split("\n"):
+            sp.feed_line(line)
         cm.set_round1(
             pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易"),
             ROUND1_OUTPUT,
+            bridge_text=sp.get_bridge_text(),
         )
 
         for i in range(2, 6):
-            cm.add_round(f"r{i}", ROUND2_OUTPUT)
+            sp_n = StreamingXmlParser()
+            for line in ROUND2_OUTPUT.split("\n"):
+                sp_n.feed_line(line)
+            cm.add_round(f"r{i}", ROUND2_OUTPUT,
+                         bridge_text=sp_n.get_bridge_text())
 
         msgs = cm.get_messages()
         contents = [m["content"] for m in msgs]

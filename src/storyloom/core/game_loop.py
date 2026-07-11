@@ -602,8 +602,12 @@ class GameLoop:
         if format_errors:
             self._format_error = "; ".join(format_errors)
 
-        # Store in context manager
-        self._context_mgr.set_round1(r1_prompt, response)
+        # Store in context manager with bridge_text filtered by the
+        # current_branch that was active when <bridge/> was parsed.
+        self._context_mgr.set_round1(
+            r1_prompt, response,
+            bridge_text=sp.get_bridge_text(self._current_branch),
+        )
 
         # Clear previous format error on successful parse
         self._format_error = None
@@ -883,7 +887,11 @@ class GameLoop:
                 self._completed_nodes.append("end")
 
         # ── Step 8: Store round in context manager ──────────────────
-        self._context_mgr.add_round(rn_context, response, selected_branch)
+        self._context_mgr.add_round(
+            rn_context, response,
+            bridge_text=sp.get_bridge_text(self._current_branch),
+            selected_branch=selected_branch,
+        )
 
         # ── Step 9: Apply this round's unconditional sets ───────────
         step9_changes: list[dict] = []
@@ -1336,7 +1344,8 @@ class GameLoop:
         self._context_mgr.add_round(
             prefetch["user_content"],
             response,
-            prefetch.get("selected_branch"),
+            bridge_text=sp.get_bridge_text(current_branch),
+            selected_branch=prefetch.get("selected_branch"),
         )
 
         # ── Step 9: apply this round's unconditional sets ──────────

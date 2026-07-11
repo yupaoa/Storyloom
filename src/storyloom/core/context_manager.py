@@ -31,21 +31,22 @@ class ContextManager:
     def round_count(self) -> int:
         return self._round_count
 
-    def set_round1(self, user_content: str, assistant_content: str) -> None:
+    def set_round1(
+        self, user_content: str, assistant_content: str, bridge_text: str = ""
+    ) -> None:
         """Set Round 1 messages (permanent anchor). Can only be called once."""
         if self._round1_user is not None:
             raise RuntimeError("Round 1 already set")
         self._round1_user = user_content
         self._round1_assistant = assistant_content
         self._round_count = 1
-
-        # Extract bridge_text for next round
-        self._last_bridge_text = self._extract_bridge_from_xml(assistant_content)
+        self._last_bridge_text = bridge_text
 
     def add_round(
         self,
         user_content: str,
         assistant_content: str,
+        bridge_text: str = "",
         selected_branch: str | None = None,
     ) -> None:
         """Add a new round's messages and trigger compression if needed.
@@ -53,6 +54,8 @@ class ContextManager:
         Args:
             user_content: The Round N context message sent to the LLM.
             assistant_content: The LLM's XML response.
+            bridge_text: Post-bridge text filtered by ``current_branch``
+                         at parse time (provided by GameLoop).
             selected_branch: The branch name the player chose (None if no
                             choice was presented or Round 1).
         """
@@ -70,10 +73,7 @@ class ContextManager:
         })
         self._round_count += 1
 
-        # Extract bridge_text for next round (filtered by selected branch)
-        self._last_bridge_text = self._extract_bridge_from_xml(
-            assistant_content, selected_branch
-        )
+        self._last_bridge_text = bridge_text
 
         self._maybe_compress()
 
@@ -158,34 +158,6 @@ class ContextManager:
         """Extract checkpoint summary from XML output."""
         match = re.search(r'<checkpoint[^>]*summary="([^"]*)"', xml)
         return match.group(1) if match else ""
-
-    @staticmethod
-    def _extract_bridge_from_xml(
-        xml: str,
-        current_branch: str | None = None,
-    ) -> str:
-        """Extract bridge text from assistant XML output.
-
-        Uses ``StreamingXmlParser`` in batch mode — feeds all lines then
-        calls ``get_bridge_text()`` with optional branch filtering.
-
-        Args:
-            xml: Raw LLM XML output.
-            current_branch: If provided, only include post-bridge text
-                            from the matching ``<branch>`` (plus bare
-                            ``<seg>`` elements — the implicit "main").
-
-        Returns:
-            Filtered bridge text, or empty string on any error.
-        """
-        try:
-            from storyloom.parser.streaming_parser import StreamingXmlParser
-            sp = StreamingXmlParser()
-            for line in xml.split("\n"):
-                sp.feed_line(line)
-            return sp.get_bridge_text(current_branch)
-        except Exception:
-            return ""
 
     @staticmethod
     def _build_compression_messages(summaries: list[str]) -> tuple[str, str]:
