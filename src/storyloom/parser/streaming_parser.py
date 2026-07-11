@@ -394,6 +394,11 @@ class StreamingXmlParser:
         if m:
             if_cond = m.group(1)  # None if no if="..."
             target = m.group(2)
+            # Note: does not gate on self._in_checkpoint.  Per spec
+            # <route> only appears inside <checkpoint>, but enforcing
+            # this at parse time adds complexity without benefit —
+            # downstream consumers (GameLoop._evaluate_routes) treat
+            # routes as checkpoint-scoped by construction.
             self._routes.append(RouteTarget(condition=if_cond,
                                             target=target))
             return [ParseEvent(type=EventType.ROUTE,
