@@ -495,6 +495,34 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 > API 调用失败**不自动重试**，始终由用户决策。
 
+**三层时序模型**：
+
+bridge pre-fetch 的时序依赖三个独立流的速率关系：
+
+```
+LLM 生成流（token 产出）
+    ≥
+程序解析流（StreamingXmlParser 逐行解析）
+    ≥
+UI 展示流（用户阅读 / 自动推进）
+```
+
+| 流 | 负责层 | 说明 |
+|------|---------|------|
+| LLM 生成流 | API 服务端 | token 逐块产出，TTFT 10-30s + 生成 25-50s |
+| 程序解析流 | 引擎（`game_loop.py`） | 逐行流式解析，与生成流几乎同步（生成即解析） |
+| UI 展示流 | UI 层（CLI / Web） | 消费引擎产出的事件，按自身节奏展示 |
+
+**流间同步规则**：
+
+- **生成→解析**：几乎同步。token 到达后立即经 `LineBuffer`→`StreamingXmlParser.feed_line()` 产出事件。
+- **解析→展示**：通常同步（每段解析后立即 yield 给 UI）。**例外**：选择点处解析流暂停等待 UI 反馈（玩家输入），之后继续快速解析。
+- **bridge→`</story>` 区间**：解析流**不需要等待 UI 反馈**——post-bridge 仅含纯叙事（`<seg>`/`<branch>`），无交互元素。解析此区间极快（微秒级）。
+
+> **关键洞察**：程序解析到 `<bridge/>` 时，LLM 生成流通常已完成 post-bridge 内容的产出（生成流领先于解析流）。因此 bridge→`</story>`→pre-fetch 启动这一路径在引擎侧是**几乎不间断的同步执行**。引擎在 `</story>`（解析完成）处立即组装 Prompt 并启动后台 API 调用。
+
+> **UI 队列缓冲建议**：UI 层应使用队列缓冲接收引擎产出的事件——一侧持续接收（非阻塞），一侧按自身节奏展示（固定间隔 / 用户确认）。这样引擎的 bridge→`</story>`→pre-fetch 路径不会被 UI 展示延迟阻塞。
+
 ### 4.4 响应解析
 
 利用 `NNN| ` 行号前缀使每行成为自包含的 XML 片段，逐行正则匹配产出事件，不等完整文档。
@@ -547,6 +575,11 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 **命名 narrative 展示**：遍历时仅 `current_branch` 匹配的 narrative 进入展示队列。
 
+> **UI 队列缓冲模式（推荐）**：引擎通过 generator 逐段 yield 事件给 UI 层。为避免引擎的 bridge→`</story>`→pre-fetch 路径被 UI 展示延迟阻塞，UI 层应使用队列缓冲：
+> - **接收侧**：非阻塞地从 generator 取出事件，立即放入内部队列（`collections.deque`）
+> - **展示侧**：按自身节奏从队列取出并展示（固定间隔 / 用户确认）
+> - 这样引擎的 post-bridge 解析和 pre-fetch 启动不会因 UI 展示而暂停，实现真正的"解析完成即发送"。
+
 ### 4.6 玩家交互
 
 **选项展示**：
@@ -586,8 +619,29 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 ### 4.7 下一轮准备与结局检测
 
+`<bridge/>` 元素具有**双重角色**：
+
+**对 LLM 的结构约束**（主要方面）：
+- 标记交互区与叙事区的硬分界——bridge 之后严格禁止 `<choice>`、`<set>`、`<checkpoint>`
+- 强制 LLM 在交互断点之前完成所有状态变更和路由声明
+- Post-bridge 仅提供叙事缓冲（`<seg>`、`<branch>`），为下一轮 Prompt 组装争取时间
+
+**对程序的行为切换**（桥接解析阶段）：
+- **模式切换**：解析器从"交互+叙事"模式切换到"纯叙事"模式（`_post_bridge = True`）
+- **快速解析**：Post-bridge 区间无交互元素，不需要等待 UI 反馈，全速解析
+- **错误捕获**：Post-bridge 区间出现的 `<choice>`/`<set>`/`<checkpoint>` 记入 `_format_errors`，不传递给 UI
+- **bridge_text 捕获**：Post-bridge 的 `<seg>` 文本按 `current_branch` 过滤后存储，注入下一轮 Prompt
+
+**Prompt 组装与 Pre-fetch 触发**：
+
+程序的实际触发点是**解析完成**（`</story>`），而非 `<bridge/>` 本身。但 bridge→`</story>` 区间解析极快（纯叙事、无 UI 阻塞），两者可视为几乎同时：
+
 ```
-程序执行到 <bridge/>：
+解析到 <bridge/>
+    │  ← 模式切换（微秒级）
+    │  ← 快速解析 post-bridge 内容（微秒级，无 UI 反馈等待）
+    ▼
+解析到 </story>（解析完成）
     │
     ├── ending_flag == true？
     │   └── 是 → 组装冒险日志 Prompt（§5.4）→ 发 LLM → 继续展示 bridge_text
@@ -596,10 +650,12 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
     └── 否 → 正常准备：
         1. bridge_text 提取（见 block-spec.md §4 `<bridge/>` 节）
         2. round_count += 1
-        3. 组装下一轮 Prompt → Round N+1
+        3. 组装下一轮 Prompt → 启动后台 API 调用 → Round N+1
 ```
 
 > `ending_flag` 由 checkpoint 处理为 `end` 时设置（见 data-model.md）。
+>
+> **时序说明**：此处"解析完成"指引擎侧流式接收完毕、`StreamingXmlParser.get_result()` 返回的时刻。Prompt 组装和后台 API 调用在此刻立即执行（不间断同步代码块），与 UI 展示 post-bridge 段落并发进行。
 
 ---
 

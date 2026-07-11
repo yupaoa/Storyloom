@@ -1070,17 +1070,30 @@ class GameLoop:
         """Feed a token chunk through the streaming parse pipeline.
 
         Token chunks are accumulated into complete lines by *lb*; each
-        complete line is fed to *sp*.  Segment events pass through a
-        pre-bridge branch filter (bare segs always pass; named-branch
-        segs pass only when they match *current_branch*).
+        complete line is fed to *sp*.
 
-        Yields ``{"type": "segment", ...}`` events as lines complete.
+        Branch filter (applies to *both* pre- and post-bridge): bare
+        ``<seg>`` elements (no enclosing ``<branch>``) always pass;
+        named-branch segs pass only when they match *current_branch*.
+
+        Post-bridge ``<choice>`` / ``<set>`` / ``<checkpoint>`` are
+        flagged as format errors by ``StreamingXmlParser`` but are never
+        yielded to the UI — they are surfaced via ``sp.format_errors``
+        after ``get_result()``.
+
+        Yields ``{"type": "segment", ...}`` and ``{"type": "bridge"}``
+        events as lines complete.
         """
         for line in lb.feed(text):
             for event in sp.feed_line(line):
-                if event.type == EventType.SEGMENT:
-                    if (event.position == "pre"
-                            and event.branch_name
+                if event.type == EventType.BRIDGE:
+                    yield {"type": "bridge"}
+                elif event.type == EventType.SEGMENT:
+                    # Bare segs (branch_name is None) always pass.
+                    # Named-branch segs pass only when they match
+                    # current_branch.  Applies to both pre- and
+                    # post-bridge per block-spec.md §3.
+                    if (event.branch_name
                             and event.branch_name != current_branch):
                         continue
                     yield {
