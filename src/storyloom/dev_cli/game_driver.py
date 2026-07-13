@@ -15,11 +15,23 @@ Ctrl+C: always quit immediately.
 """
 
 import collections
-import select
 import sys
-import termios
 import time
-import tty
+
+# Platform-specific terminal raw-mode support
+try:
+    import select
+    import termios
+    import tty
+    _HAS_UNIX_TERMINAL = True
+except ImportError:
+    _HAS_UNIX_TERMINAL = False
+
+if not _HAS_UNIX_TERMINAL:
+    try:
+        import msvcrt  # Windows-only
+    except ImportError:
+        msvcrt = None  # pragma: no cover — exotic Python, pause won't work
 
 from storyloom.core.session import GameSession
 from storyloom.core.co_create import CoCreationResult
@@ -35,39 +47,49 @@ from storyloom.dev_cli.observer import DevObserver
 # ═══════════════════════════════════════════════════════════════════
 
 class PauseHandler:
-    """Terminal raw-mode key detection.
+    """Terminal key detection — cross-platform.
 
     Space → toggle pause.  Ctrl+C → quit.
     Call ``disable()`` before any ``input()`` call, ``enable()`` after.
+
+    On Unix: uses ``termios`` + ``tty`` raw mode + ``select`` polling.
+    On Windows: uses ``msvcrt.kbhit()`` / ``msvcrt.getch()`` in normal mode.
     """
 
     def __init__(self):
         self.paused = False
         self.quit_requested = False
-        self._fd = sys.stdin.fileno()
-        self._old: list | None = None
+        if _HAS_UNIX_TERMINAL:
+            self._fd = sys.stdin.fileno()
+            self._old: list | None = None
 
     def enable(self) -> None:
-        """Switch terminal to cbreak mode for instant key detection."""
-        self._old = termios.tcgetattr(self._fd)
-        tty.setcbreak(self._fd)
+        """Switch to raw/cbreak mode (Unix only). No-op on Windows."""
+        if _HAS_UNIX_TERMINAL:
+            self._old = termios.tcgetattr(self._fd)
+            tty.setcbreak(self._fd)
 
     def disable(self) -> None:
-        """Restore normal terminal mode (for ``input()`` calls)."""
-        if self._old is not None:
+        """Restore normal terminal mode (Unix only). No-op on Windows."""
+        if _HAS_UNIX_TERMINAL and self._old is not None:
             termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old)
 
     def poll(self) -> None:
         """Check for pending keystrokes.  Non-blocking."""
-        r, _, _ = select.select([sys.stdin], [], [], 0)
-        if not r:
-            return
-        ch = sys.stdin.read(1)
+        ch = None
+        if _HAS_UNIX_TERMINAL:
+            r, _, _ = select.select([sys.stdin], [], [], 0)
+            if r:
+                ch = sys.stdin.read(1)
+        elif msvcrt is not None:
+            if msvcrt.kbhit():
+                ch = msvcrt.getch().decode("utf-8", errors="replace")
+        # else: neither Unix nor Windows — pause keys unavailable
+
         if ch == " ":
             self.paused = not self.paused
         elif ch == "\x03":                      # Ctrl+C
             self.quit_requested = True
-        # Discard other keys
 
     def wait_while_paused(self) -> None:
         """Block until unpaused or quit."""
