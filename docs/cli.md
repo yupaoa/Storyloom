@@ -231,9 +231,11 @@ from storyloom.core.co_create import CoCreateFlow
 from storyloom.io.api_client import ApiClient
 from storyloom.cli_utils import save_prompts
 
-# 运行共创（需要真实的 UiInterface 实现）
-flow = CoCreateFlow(api_client=ApiClient(), ui=my_ui)
-result = flow.run()
+# 运行共创（使用 GameSession + 状态机 API）
+session = GameSession()
+flow = session.new_co_create()
+event = flow.start()
+# ... drive flow.send() / flow.generate() ...
 
 # 导出全部对话 Prompt（含 system prompt、Q&A、最终生成 prompt）
 save_prompts(flow.messages, Path("co_create_prompts.md"))

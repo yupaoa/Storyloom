@@ -4,7 +4,7 @@
 
 ## Project
 
-Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward. It is a **single Python application** (not client-server) — the core engine is UI-agnostic via the `UiInterface` protocol, with a terminal CLI on `main` and a web interface under active parallel development.
+Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward. It is a **single Python application** (not client-server) — the core engine is UI-agnostic via generator-based event streaming, with a terminal CLI on `main` and a web interface under active parallel development.
 
 **Status (2026-07-10):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Bridge pre-fetch implemented for auto-advance rounds. Dev CLI (`src/storyloom/dev_cli/`) replaces old `main.py` as the CLI test harness — zero engine changes. Web interface (FastAPI + SSE) under active development on parallel branch.
 
@@ -60,10 +60,10 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `src/storyloom/core/co_create.py` | Co-creation flow (Q&A → story_config → outline) | Implementation |
 | `src/storyloom/core/save_manager.py` | Atomic JSON save/load/delete/list | Implementation |
 | `src/storyloom/core/session.py` | `GameSession` lifecycle coordinator (UI integration API) | Implementation |
-| `src/storyloom/core/ui_interface.py` | UiInterface protocol (UI-agnostic abstraction) | Implementation |
+
 | `src/storyloom/parser/streaming_parser.py` | Line-by-line XML parser, data types, LineBuffer | Implementation |
 | `src/storyloom/io/api_client.py` | OpenAI-compatible API client | Implementation |
-| `src/storyloom/dev_cli/` | Dev CLI — `TerminalUi`, `DevObserver`, deque-buffered display | Reference |
+| `src/storyloom/dev_cli/` | Dev CLI — `DevObserver`, deque-buffered display | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
 | `tests/test_*.py` | Unit tests (mock, no API) — 228 tests | Test |
@@ -97,7 +97,6 @@ These are the public API surface for UI integration:
 
 | File | Contains |
 |------|----------|
-| `src/storyloom/core/ui_interface.py` | `UiInterface` protocol |
 | `src/storyloom/core/session.py` | `GameSession` — lifecycle coordinator |
 
 UI imports: `from storyloom.core import GameSession, CoCreationResult`
@@ -108,7 +107,7 @@ Engine code must never import from these files:
 
 | File | Contains |
 |------|----------|
-| `src/storyloom/dev_cli/` | **Dev CLI** — `TerminalUi` + `DevObserver` + `game_driver` |
+| `src/storyloom/dev_cli/` | **Dev CLI** — `DevObserver` + `game_driver` |
 | `src/storyloom/web/` | **Web UI package** (FastAPI + SSE) — recommended location |
 
 ### 🧪 Tests

@@ -38,7 +38,6 @@ from storyloom.core.co_create import CoCreationResult
 from storyloom.core.game_loop import GameLoop
 from storyloom.i18n import init_i18n
 
-from storyloom.dev_cli.cli_ui import TerminalUi
 from storyloom.dev_cli.observer import DevObserver
 
 
@@ -99,11 +98,30 @@ class PauseHandler:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Terminal I/O helpers
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _ask(prompt: str) -> str:
+    """Read a line from stdin.  Returns stripped input."""
+    if prompt:
+        print(prompt)
+    try:
+        return input("> ").strip()
+    except EOFError:
+        return ""
+
+
+def _error(text: str) -> None:
+    """Print an error message to stderr."""
+    print(f"[Error] {text}", file=sys.stderr)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Co-creation driver
 # ═══════════════════════════════════════════════════════════════════
 
 def run_co_create(
-    ui: TerminalUi,
     session: GameSession,
     observer: DevObserver | None = None,
 ) -> CoCreationResult | None:
@@ -118,19 +136,19 @@ def run_co_create(
     try:
         event = flow.start()
     except RuntimeError as e:
-        ui.show_error(f"Co-creation failed to start: {e}")
+        _error(f"Co-creation failed to start: {e}")
         return None
-    ui.write(event["prompt"])
-    ui.write("[/go to generate  /quit to exit]")
+    print(event["prompt"])
+    print("[/go to generate  /quit to exit]")
 
     while True:
-        user_input = ui.ask("").strip()
+        user_input = _ask("").strip()
         if user_input == "":
             continue
 
         if user_input == "/quit":
             flow.abort()
-            ui.write("[Co-creation aborted]")
+            print("[Co-creation aborted]")
             return None
 
         if user_input == "/go":
@@ -140,29 +158,29 @@ def run_co_create(
         if observer is not None:
             observer.record_co_create_prompt(flow.messages, user_input)
 
-        ui.write("[Waiting for LLM...]")
+        print("[Waiting for LLM...]")
         sys.stdout.flush()
         try:
             reply = flow.send(user_input)
         except KeyboardInterrupt:
-            ui.write("\n[Interrupted]")
+            print("\n[Interrupted]")
             return None
         except (RuntimeError, ValueError) as e:
-            ui.show_error(f"Co-creation error: {e}")
+            _error(f"Co-creation error: {e}")
             return None
 
         if observer is not None:
             observer.record_co_create_response(flow.messages)
 
-        ui.write(reply)
+        print(reply)
 
     # ── Generate ──
-    ui.write("[Generating story setup...]")
+    print("[Generating story setup...]")
     sys.stdout.flush()
     try:
         result = flow.generate()
     except Exception as e:
-        ui.show_error(f"Generation failed: {e}")
+        _error(f"Generation failed: {e}")
         return None
 
     if observer is not None:
@@ -172,9 +190,9 @@ def run_co_create(
         observer.record_co_create_response(flow.messages)
         observer.record_co_create_result(
             result.story_config, result.outline_text)
-    ui.write(f"\n[Story: {result.story_config.get('label', '?')}]")
-    ui.write(f"[Genre: {result.story_config.get('genre', '?')}]")
-    ui.write(f"[Outline: {len(result.outline_nodes)} nodes]\n")
+    print(f"\n[Story: {result.story_config.get('label', '?')}]")
+    print(f"[Genre: {result.story_config.get('genre', '?')}]")
+    print(f"[Outline: {len(result.outline_nodes)} nodes]\n")
     return result
 
 
@@ -183,7 +201,6 @@ def run_co_create(
 # ═══════════════════════════════════════════════════════════════════
 
 def run_game(
-    ui: TerminalUi,
     game_loop: GameLoop,
     display_mode: str,
     pause: PauseHandler,
@@ -230,9 +247,9 @@ def run_game(
                 # Options must be handled inline — needs gen.send()
                 if evt["type"] == "options":
                     # Drain non-option events ahead of options first
-                    _drain_non_options(ui, event_queue, display_mode, pause)
+                    _drain_non_options(event_queue, display_mode, pause)
                     # Now handle the choice
-                    key = _show_choices(ui, evt, pause)
+                    key = _show_choices(evt, pause)
                     if key is None:
                         return
                     # Pop options event, resume generator
@@ -245,42 +262,42 @@ def run_game(
                 event_queue.popleft()
 
                 if evt["type"] == "error":
-                    ui.show_error(evt.get("message", ""))
+                    _error(evt.get("message", ""))
                     pause.disable()
-                    ans = ui.ask("Retry? (y/n)").strip().lower()
+                    ans = _ask("Retry? (y/n)").strip().lower()
                     pause.enable()
                     if ans in ("y", "yes") and retry_msgs:
                         game_loop._launch_api(retry_msgs, retry_content)
                         break  # exit for loop, while loop re-calls stream_round()
                     return
 
-                _display_one(ui, evt)
+                _display_one(evt)
 
                 # Pacing after segment display
                 if display_mode == "auto" and evt["type"] == "segment":
                     _sleep(1.0, pause)
                 elif display_mode == "manual" and evt["type"] == "segment":
-                    _wait_enter(ui, pause)
+                    _wait_enter(pause)
 
         if game_loop.ending_flag:
             adv = game_loop.get_adventure_log(timeout=30.0)
             if adv:
-                ui.write(adv)
+                print(adv)
                 if observer is not None:
                     _record_adv(observer, game_loop, adv)
             else:
                 err = game_loop.adventure_log_error
                 if err:
-                    ui.show_error(f"Adventure log failed: {err}")
+                    _error(f"Adventure log failed: {err}")
                 else:
-                    ui.write("[Adventure log still generating...]")
+                    print("[Adventure log still generating...]")
                     adv = game_loop.get_adventure_log(timeout=60.0)
                     if adv:
-                        ui.write(adv)
+                        print(adv)
                         if observer is not None:
                             _record_adv(observer, game_loop, adv)
                     else:
-                        ui.write("[Adventure log unavailable]")
+                        print("[Adventure log unavailable]")
             return
 
         # Next round's prompt was just sent by stream_round() Phase 5
@@ -296,7 +313,6 @@ def run_game(
 # ═══════════════════════════════════════════════════════════════════
 
 def _drain_non_options(
-    ui: TerminalUi,
     queue: collections.deque,
     mode: str,
     pause: PauseHandler,
@@ -306,10 +322,10 @@ def _drain_non_options(
     while queue and queue[0]["type"] != "options":
         drained.append(queue.popleft())
     for evt in drained:
-        _display_one(ui, evt)
+        _display_one(evt)
 
 
-def _display_one(ui: TerminalUi, evt: dict) -> None:
+def _display_one(evt: dict) -> None:
     """Render a single event to the terminal.
 
     Only parsed content (segments) is displayed.  Raw token deltas are
@@ -318,10 +334,10 @@ def _display_one(ui: TerminalUi, evt: dict) -> None:
     etype = evt.get("type", "")
 
     if etype == "segment":
-        ui.write(evt.get("text", ""))
+        print(evt.get("text", ""))
 
     elif etype == "bridge":
-        ui.write("---")
+        print("---")
 
     # token, story_begin, story_end, done, state, ending — silent
     # ending.adventure_log is always None from the engine; adventure
@@ -339,11 +355,11 @@ def _sleep(duration: float, pause: PauseHandler) -> None:
             return
 
 
-def _wait_enter(ui: TerminalUi, pause: PauseHandler) -> None:
+def _wait_enter(pause: PauseHandler) -> None:
     """Wait for Enter keypress.  Ctrl+C propagates to top-level handler."""
     pause.disable()
     try:
-        ui.ask("[Enter to continue]")
+        _ask("[Enter to continue]")
     except EOFError:
         pass
     finally:
@@ -371,7 +387,7 @@ def _record_adv(observer: DevObserver, game_loop: GameLoop, response: str) -> No
 # ═══════════════════════════════════════════════════════════════════
 
 def _show_choices(
-    ui: TerminalUi, evt: dict, pause: PauseHandler,
+    evt: dict, pause: PauseHandler,
 ) -> str | None:
     """Display choice options and get player selection.
 
@@ -387,18 +403,18 @@ def _show_choices(
         branches = choice.get("branches", [])
         for i, (label, branch) in enumerate(zip(labels, branches)):
             branch_str = f" ({branch})" if branch else ""
-            ui.write(f"  [{total + i + 1}] {label}{branch_str}")
+            print(f"  [{total + i + 1}] {label}{branch_str}")
         total += len(branches)
 
     pause.disable()
     try:
         while True:
-            raw = ui.ask("").lower()
+            raw = _ask("").lower()
             if raw in ("q", "quit", "exit"):
                 return None
             if raw.isdigit() and 1 <= int(raw) <= total:
                 return raw
-            ui.write(f"  Enter 1-{total}, or q to quit")
+            print(f"  Enter 1-{total}, or q to quit")
     except (EOFError, KeyboardInterrupt):
         return None
     finally:
@@ -446,7 +462,6 @@ def dev_main(argv: list[str] | None = None) -> None:
             display_mode = argv[1]
 
     # ── Setup ─────────────────────────────────────────────────────
-    ui = TerminalUi()
     session = GameSession()
     observer = DevObserver() if is_observer else None
     pause = PauseHandler()
@@ -454,56 +469,56 @@ def dev_main(argv: list[str] | None = None) -> None:
     # ── Main menu + game loop ─────────────────────────────────────
     while True:
         saves = session.list_saves()
-        ui.write("\nStoryloom")
-        ui.write("  [1] New Game")
-        ui.write(f"  [2] Continue" + (f" ({len(saves)} saves)" if saves else ""))
-        ui.write("  [3] Exit")
+        print("\nStoryloom")
+        print("  [1] New Game")
+        print(f"  [2] Continue" + (f" ({len(saves)} saves)" if saves else ""))
+        print("  [3] Exit")
 
-        choice = ui.ask("").strip()
+        choice = _ask("").strip()
 
         if choice == "1":
             # ── New game: co-creation → game ──────────────────────
             try:
-                result = run_co_create(ui, session, observer)
+                result = run_co_create(session, observer)
             except KeyboardInterrupt:
-                ui.write("\n[Interrupted]")
+                print("\n[Interrupted]")
                 continue
             if result is None:
                 continue
             pause.enable()
             try:
                 game_loop = session.start_game(result)
-                run_game(ui, game_loop, display_mode, pause, observer)
+                run_game(game_loop, display_mode, pause, observer)
             except KeyboardInterrupt:
                 pass
             finally:
                 pause.disable()
-            ui.write("\n[Game over]")
+            print("\n[Game over]")
             continue
 
         elif choice == "2":
             if not saves:
-                ui.write("  No saves found.")
+                print("  No saves found.")
                 continue
             for i, s in enumerate(saves):
-                ui.write(f"  [{i + 1}] {s.get('label', '?')} "
+                print(f"  [{i + 1}] {s.get('label', '?')} "
                          f"(round {s.get('round_count', '?')})")
-            pick = ui.ask("").strip()
+            pick = _ask("").strip()
             if not (pick.isdigit() and 1 <= int(pick) <= len(saves)):
                 continue
             try:
                 game_loop = session.load_game(saves[int(pick) - 1]["label"])
             except Exception as e:
-                ui.show_error(f"Load failed: {e}")
+                _error(f"Load failed: {e}")
                 continue
             pause.enable()
             try:
-                run_game(ui, game_loop, display_mode, pause, observer)
+                run_game(game_loop, display_mode, pause, observer)
             except KeyboardInterrupt:
                 pass
             finally:
                 pause.disable()
-            ui.write("\n[Game over]")
+            print("\n[Game over]")
             continue
 
         elif choice == "3":

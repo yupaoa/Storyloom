@@ -7,8 +7,8 @@
 ## Architecture
 
 Storyloom is a **single Python application** — not a client-server system.
-The core engine is UI-agnostic: it produces structured events consumed by
-any presentation layer via the `UiInterface` protocol.
+The core engine is UI-agnostic: it exposes a generator-based event stream
+consumed by any presentation layer via `GameSession`.
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -20,7 +20,7 @@ any presentation layer via the `UiInterface` protocol.
 │  │PromptBldr│ │CoCreate   │ │GameState     │  │
 │  └──────────┘ └───────────┘ └─────────────┘  │
 └──────────────────┬───────────────────────────┘
-                   │ UiInterface + GameSession
+                   │ GameSession coordinator
            ┌───────┴───────┐
            ▼               ▼
     ┌────────────┐  ┌─────────────────┐
@@ -80,9 +80,8 @@ Each round:
 | `storyloom.core.prompt_builder` | Round 1 / Round N prompt assembly |
 | `storyloom.core.co_create` | Co-creation flow (Q&A → story_config → outline) |
 | `storyloom.core.save_manager` | Atomic JSON save/load/delete/list |
-| `storyloom.core.session` | `GameSession` lifecycle coordinator — UI integration API |
-| `storyloom.core.ui_interface` | `UiInterface` protocol for UI-agnostic design |
-| `storyloom.dev_cli` | Dev CLI — `TerminalUi`, `DevObserver`, argument parsing |
+| `storyloom.core.session` | `GameSession` lifecycle coordinator — primary UI integration API |
+| `storyloom.dev_cli` | Dev CLI — `DevObserver`, argument parsing |
 | `storyloom.parser.xml_parser` | LLM XML output parsing (full document) |
 | `storyloom.io.api_client` | OpenAI-compatible API client (stream + non-stream) |
 | `storyloom.io.display` | Terminal display (CLI) — **deprecated**, reference only |

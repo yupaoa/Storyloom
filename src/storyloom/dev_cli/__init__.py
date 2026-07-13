@@ -8,8 +8,7 @@ Usage:
     python -m storyloom.dev_cli play      # pure game (no file output)
 """
 
-from storyloom.dev_cli.cli_ui import TerminalUi
 from storyloom.dev_cli.observer import DevObserver
 from storyloom.dev_cli.game_driver import dev_main
 
-__all__ = ["dev_main", "TerminalUi", "DevObserver"]
+__all__ = ["dev_main", "DevObserver"]

@@ -61,10 +61,9 @@ Display 按选定节奏出队展示。两者通过 `collections.deque` 解耦。
 
 ```
 dev_cli/
-    __init__.py       — 导出：dev_main, TerminalUi, DevObserver
+    __init__.py       — 导出：dev_main, DevObserver
     __main__.py       — 入口点
-    cli_ui.py         — TerminalUi（UiInterface 协议实现）
     observer.py       — DevObserver（3 个固定文件输出）
-    game_driver.py    — 游戏流程驱动 + PauseHandler + deque 缓冲
+    game_driver.py    — 游戏流程驱动 + CLI I/O + PauseHandler + deque 缓冲
     README.md         — 本文件
 ```

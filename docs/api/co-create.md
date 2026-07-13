@@ -26,11 +26,11 @@ compatibility only.
 
 ### State Machine API (recommended for all UIs)
 
-Communicates via return dicts. Does **not** require a `UiInterface` —
+Communicates via return dicts. The engine has no UI dependency —
 ideal for web UIs where each step is a separate HTTP request.
 
 ```python
-flow = CoCreateFlow(api_client)  # ui=None — no UiInterface needed
+flow = CoCreateFlow(api_client)  # no UI dependency
 
 # Step 1 — collect story idea
 event = flow.start()
@@ -75,17 +75,10 @@ flow.result   # CoCreationResult | None (only set when phase == 'complete')
 flow.messages # list of conversation messages (for debug/prompt saving)
 ```
 
-### Legacy `run()` (CLI backward compat)
+### Legacy `run()` (removed)
 
-Synchronous, blocking. Requires a `UiInterface` for all I/O. Preserved
-unchanged for the CLI test harness.
-
-```python
-flow = CoCreateFlow(api_client, ui=my_ui_impl)
-result = flow.run()  # blocks until co-creation completes
-```
-
-Raises `RuntimeError` if constructed without a `UiInterface`.
+The synchronous `run()` method was removed in 2026-07-10. Use the state
+machine API above.
 
 ## Output
 
