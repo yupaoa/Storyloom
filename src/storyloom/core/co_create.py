@@ -456,12 +456,10 @@ Ask one question at a time. Here are some dimensions to explore — use them as 
 - Story length (short ~10 rounds / medium ~20 rounds / long ~40 rounds)
 
 **After each question, offer 2-3 example answers as numbered suggestions** — these help the user express themselves, but they are free to write their own answer. Format:
-```
 [1] example answer one
 [2] example answer two
 [3] example answer three
 $own_answer_hint
-```
 
 Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.""")
 
@@ -472,7 +470,6 @@ Output ALL THREE sections below in order. Use EXACTLY the format shown.
 
 ## Section 1: story_config
 
-```
 === story_config ===
 genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
 tier: {short / medium / long}
@@ -487,7 +484,6 @@ conflict: {one sentence, core tension}
 characters:
   {name} | {role} | {relationship to protagonist}
   (at least 1)
-```
 
 ## Section 2: variables
 
@@ -505,12 +501,10 @@ Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
   Wuxia → inner_power
   Horror → sanity
 
-```
 === variables ===
 体力: number, 80
 信任度: number, 10
 所属势力: string, 自由佣兵
-```
 
 ## Section 3: outline
 
@@ -521,7 +515,6 @@ Design a directed graph of key story nodes. Rules:
 - Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
 - node_id format: ch{number}_{english_abbreviation}
 
-```
 === outline ===
 [node]
 id: ch1_intro
@@ -554,7 +547,6 @@ id: ch4_ending
 title: {node title}
 goal: {narrative goal}
 routes:
-```
 
 Output all three sections in a single response. Do not add commentary before or after.""")
 
