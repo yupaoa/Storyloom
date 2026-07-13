@@ -23,6 +23,10 @@ class CoCreateParser:
 
     BLOCK_DELIMITER = re.compile(r"^=== (story_config|variables|outline) ===\s*$")
 
+    # Some LLMs wrap each block in Markdown code fences (```).
+    # Strip them so the line-by-line parsers don't choke.
+    _FENCE_RE = re.compile(r"^\s*```\s*$")
+
     @staticmethod
     def split_blocks(text: str) -> dict[str, str]:
         """Split LLM response into {story_config, variables, outline} blocks.
@@ -39,6 +43,9 @@ class CoCreateParser:
         lines: list[str] = []
 
         for line in text.split("\n"):
+            # Skip markdown code fences within a block
+            if current_block and CoCreateParser._FENCE_RE.match(line):
+                continue
             m = CoCreateParser.BLOCK_DELIMITER.match(line.strip())
             if m:
                 if current_block and current_block in result:
@@ -126,15 +133,17 @@ class CoCreateParser:
 
         return result
 
-    VAR_LINE_RE = re.compile(
-        r"^([^:]+):\s*(\S+),\s*(.+)$"
-    )
+    # Two acceptable formats (LLMs vary):
+    #   <name>: <type>, <value>
+    #   <name> | <type> | <value>
+    VAR_LINE_RE_COLON = re.compile(r"^([^:]+):\s*(\S+),\s*(.+)$")
+    VAR_LINE_RE_PIPE = re.compile(r"^([^|]+)\s*\|\s*(\S+)\s*\|\s*(.+)$")
 
     @staticmethod
     def parse_variables(text: str) -> list[dict]:
         """Parse variables block into list of {name, type, initial} dicts.
 
-        Format: ``<name>: <type>, <value>`` (var names in story language).
+        Accepts ``name: type, value`` or ``name | type | value``.
 
         Args:
             text: Raw text of the variables block.
@@ -154,11 +163,13 @@ class CoCreateParser:
             if not line:
                 continue
 
-            m = CoCreateParser.VAR_LINE_RE.match(line)
+            m = (CoCreateParser.VAR_LINE_RE_COLON.match(line)
+                 or CoCreateParser.VAR_LINE_RE_PIPE.match(line))
             if not m:
                 raise ValueError(
                     f"Cannot parse variable line: '{line}'. "
                     f"Expected format: <name>: <type>, <value>"
+                    f"  or  <name> | <type> | <value>"
                 )
 
             name = m.group(1)
