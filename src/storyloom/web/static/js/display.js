@@ -79,21 +79,6 @@ const Display = {
                 optionCounts.push(labels.length);
             }
 
-            // ── Custom text input ──────────────────────────────────
-            const customRow = document.createElement("div");
-            customRow.className = "choice-custom";
-            const customInput = document.createElement("input");
-            customInput.type = "text";
-            customInput.placeholder = "或输入自定义操作... (Enter 确认)";
-            customInput.addEventListener("keydown", (e) => {
-                if (e.key === "Enter" && customInput.value.trim()) {
-                    // Send as first option (engine needs a numeric key)
-                    _select(panel, resolve, "1");
-                }
-            });
-            customRow.appendChild(customInput);
-            panel.appendChild(customRow);
-
             // ── Keyboard shortcuts ──────────────────────────────────
             const onKey = (e) => {
                 // Number keys 1-9 → select corresponding option
@@ -183,11 +168,12 @@ const Display = {
         const el = document.getElementById("outline-list");
         if (!el) return;
 
+        // Only show reached nodes — hide future chapters (spoiler prevention)
+        const visible = nodes.filter(n => n.status === "completed" || n.status === "active");
         let html = "";
-        for (const node of nodes) {
-            const icon = node.status === "completed" ? "●" :
-                         node.status === "active" ? "▶" : "·";
-            const cls = "outline-" + (node.status || "pending");
+        for (const node of visible) {
+            const icon = node.status === "completed" ? "●" : "▶";
+            const cls = "outline-" + node.status;
             html += `<div class="outline-node ${cls}"><span class="outline-icon">${icon}</span> ${Display._esc(node.title || node.id)}</div>`;
         }
         el.innerHTML = html || '<span class="text-muted">—</span>';
