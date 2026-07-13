@@ -1,0 +1,393 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Storyloom Web — Dark Terminal Aesthetic
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-panel: rgba(22, 33, 62, 0.85);
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0b0;
+    --text-accent: #4ecca3;
+    --text-warning: #f0a050;
+    --text-error: #e05555;
+    --border-color: #2a2a4a;
+    --button-bg: #0f3460;
+    --button-hover: #1a5080;
+    --button-accent: #4ecca3;
+    --font-mono: "Consolas", "Courier New", monospace;
+    --font-serif: "Georgia", "Noto Serif SC", serif;
+    --font-sans: "Segoe UI", "PingFang SC", sans-serif;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    line-height: 1.6;
+}
+
+#app {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    min-height: 100vh;
+}
+
+/* ── Typography ─────────────────────────────────────────────────── */
+
+h1, h2, h3 {
+    color: var(--text-accent);
+    font-family: var(--font-mono);
+    font-weight: normal;
+}
+
+h1 { font-size: 1.8rem; margin-bottom: 1.5rem; }
+h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+
+a {
+    color: var(--text-accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+
+button, .btn {
+    display: inline-block;
+    padding: 0.6rem 1.4rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+button:hover, .btn:hover {
+    background: var(--button-hover);
+    border-color: var(--text-accent);
+    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+}
+
+button:disabled, .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+button.accent, .btn-accent {
+    background: var(--text-accent);
+    color: var(--bg-primary);
+    border-color: var(--text-accent);
+}
+
+button.accent:hover {
+    box-shadow: 0 0 12px rgba(78, 204, 163, 0.4);
+}
+
+button.danger {
+    border-color: var(--text-error);
+    color: var(--text-error);
+}
+
+button.danger:hover {
+    background: var(--text-error);
+    color: var(--bg-primary);
+}
+
+/* ── Input ───────────────────────────────────────────────────────── */
+
+input[type="text"], textarea {
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+}
+
+input[type="text"]:focus, textarea:focus {
+    outline: none;
+    border-color: var(--text-accent);
+    box-shadow: 0 0 6px rgba(78, 204, 163, 0.15);
+}
+
+/* ── Panels / Cards ──────────────────────────────────────────────── */
+
+.panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1.2rem;
+    margin-bottom: 1rem;
+}
+
+/* ── Story Area ──────────────────────────────────────────────────── */
+
+.story-area {
+    max-height: 60vh;
+    overflow-y: auto;
+    font-family: var(--font-serif);
+    line-height: 1.8;
+}
+
+.story-segment {
+    margin-bottom: 1rem;
+    white-space: pre-line;   /* preserve \n from engine text */
+    animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.story-placeholder {
+    font-style: italic;
+}
+
+/* ── Game Layout ─────────────────────────────────────────────────── */
+
+.game-view {
+    display: flex;
+    flex-direction: column;
+    max-width: 1200px;
+    width: 100%;
+}
+
+.game-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.5rem 0.8rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.game-body {
+    display: flex;
+    gap: 1.5rem;
+    flex: 1;
+}
+
+.game-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.game-sidebar {
+    width: 260px;
+    flex-shrink: 0;
+}
+
+.toolbar-label {
+    color: var(--text-secondary);
+}
+
+.toolbar-spacer {
+    color: var(--border-color);
+}
+
+#speed-preset {
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    margin-left: 0.5rem;
+}
+
+/* ── Choice Panel ────────────────────────────────────────────────── */
+
+.choice-panel {
+    margin-top: 1rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+}
+
+.choice-btn {
+    font-size: 0.95rem;
+}
+
+/* ── Manual Continue ─────────────────────────────────────────────── */
+
+.manual-continue {
+    display: block;
+    margin: 1rem auto;
+    font-size: 1rem;
+    padding: 0.5rem 2rem;
+    border: 1px dashed var(--text-accent);
+    background: transparent;
+    color: var(--text-accent);
+}
+
+.manual-continue:hover {
+    background: rgba(78, 204, 163, 0.1);
+}
+
+/* ── Error Panel ─────────────────────────────────────────────────── */
+
+.error-panel {
+    border-color: var(--text-error);
+}
+
+/* ── Co-Create Chat ──────────────────────────────────────────────── */
+
+.chat-area {
+    max-height: 50vh;
+    overflow-y: auto;
+    font-family: var(--font-serif);
+    line-height: 1.7;
+}
+
+.chat-msg {
+    margin-bottom: 0.6rem;
+    white-space: pre-line;
+}
+
+.chat-system {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+}
+
+.chat-user {
+    color: var(--text-accent);
+}
+
+.chat-assistant {
+    color: var(--text-primary);
+}
+
+.chat-error {
+    color: var(--text-error);
+}
+
+/* ── Input Row ───────────────────────────────────────────────────── */
+
+.input-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.8rem;
+}
+
+.input-row input {
+    flex: 1;
+}
+
+/* ── Menu ────────────────────────────────────────────────────────── */
+
+.menu-view {
+    text-align: center;
+    padding-top: 4rem;
+}
+
+.menu-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 2rem;
+}
+
+.menu-buttons button {
+    width: 280px;
+    font-size: 1rem;
+}
+
+/* ── Save List ───────────────────────────────────────────────────── */
+
+.save-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.btn-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/* ── Outline ─────────────────────────────────────────────────────── */
+
+.outline-node {
+    font-size: 0.85rem;
+    margin-bottom: 0.3rem;
+    padding: 0.2rem 0;
+}
+
+.outline-icon {
+    margin-right: 0.3rem;
+}
+
+.outline-completed {
+    color: var(--text-secondary);
+}
+
+.outline-active {
+    color: var(--text-accent);
+    font-weight: bold;
+}
+
+.outline-pending {
+    color: var(--text-secondary);
+    opacity: 0.6;
+}
+
+/* ── State Vars ──────────────────────────────────────────────────── */
+
+.var-item {
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+    display: flex;
+    justify-content: space-between;
+}
+
+.var-name {
+    color: var(--text-secondary);
+}
+
+.var-value {
+    color: var(--text-accent);
+    font-family: var(--font-mono);
+}
+
+/* ── Adventure Log ───────────────────────────────────────────────── */
+
+.adventure-log {
+    font-family: var(--font-serif);
+    line-height: 1.8;
+    max-height: 50vh;
+    overflow-y: auto;
+}
+
+/* ── Utility ─────────────────────────────────────────────────────── */
+
+.hidden { display: none !important; }
+
+.text-muted { color: var(--text-secondary); }
+.text-accent { color: var(--text-accent); }
+.text-error { color: var(--text-error); }
+.text-mono { font-family: var(--font-mono); }
