@@ -81,9 +81,13 @@
             });
         }
 
-        // Exit button
+        // Exit button — show farewell
         document.getElementById("btn-exit")?.addEventListener("click", () => {
-            if (confirm(t("exit") + "?")) window.close();
+            app.innerHTML = `
+                <div class="menu-view">
+                    <h1>Storyloom</h1>
+                    <p class="text-muted">感谢游玩。关闭此页面即可退出。</p>
+                </div>`;
         });
     }
 

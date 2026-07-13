@@ -16,6 +16,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +47,16 @@ _STATIC_DIR = _WEB_DIR / "static"
 # ── App ────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Storyloom Web", version="0.1.0")
+
+# Allow cross-origin requests (needed when frontend is served separately)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
