@@ -1,4 +1,4 @@
-# Storyloam translations
+# Storyloom translations
 msgid ""
 msgstr ""
 "Project-Id-Version: Storyloom\n"

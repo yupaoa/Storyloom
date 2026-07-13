@@ -5,10 +5,10 @@
 ## 快速开始
 
 ```bash
-python3 -m storyloom.dev_cli              # 观察者模式（默认）：instant 展示 + 写 dev_output/
-python3 -m storyloom.dev_cli play         # 纯游戏模式：auto 展示（每段 0.5s）
-python3 -m storyloom.dev_cli play manual  # 纯游戏模式：manual 展示（Enter 推进）
-python3 -m storyloom.dev_cli play instant # 纯游戏模式：instant 展示（无延迟）
+python -m storyloom.dev_cli              # 观察者模式（默认）：instant 展示 + 写 dev_output/
+python -m storyloom.dev_cli play         # 纯游戏模式：auto 展示（每段 0.5s）
+python -m storyloom.dev_cli play manual  # 纯游戏模式：manual 展示（Enter 推进）
+python -m storyloom.dev_cli play instant # 纯游戏模式：instant 展示（无延迟）
 ```
 
 ## 展示模式
