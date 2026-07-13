@@ -20,10 +20,15 @@ class TerminalUi:
         print(f"[Error] {text}", file=sys.stderr)
 
     def ask(self, prompt: str) -> str:
-        """Ask user for input. Returns stripped response."""
+        """Ask user for input. Returns stripped response.
+
+        KeyboardInterrupt is NOT caught here — it propagates so each
+        caller can handle it at the appropriate level (e.g. co-create
+        returns to menu, game loop exits gracefully).
+        """
         if prompt:
             print(prompt)
         try:
             return input("> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             return ""
