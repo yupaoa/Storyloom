@@ -185,8 +185,9 @@ const Display = {
 
         let html = "";
         for (const node of nodes) {
-            const icon = node.status === "completed" ? "●" :
-                         node.status === "active" ? "▶" : "·";
+            // Only show completed and active nodes — hide future (pending) nodes
+            if (node.status === "pending") continue;
+            const icon = node.status === "completed" ? "●" : "▶";
             const cls = "outline-" + (node.status || "pending");
             html += `<div class="outline-node ${cls}"><span class="outline-icon">${icon}</span> ${Display._esc(node.title || node.id)}</div>`;
         }
@@ -213,6 +214,63 @@ const Display = {
             .replace(/\n/g, "<br>");
         div.innerHTML = `<h2>📜 ${t("adventure_log")}</h2><p>${html}</p>`;
         area.appendChild(div);
+    },
+
+    /**
+     * Show a confirmation dialog.  Returns a Promise that resolves
+     * with true (confirmed) or false (cancelled).
+     *
+     * @param {string} message — prompt text shown to the user
+     * @param {string} confirmLabel — text on the confirm button (default: "是")
+     * @param {string} cancelLabel — text on the cancel button (default: "否")
+     */
+    showConfirm(message, confirmLabel = "是", cancelLabel = "否") {
+        return new Promise((resolve) => {
+            const overlay = document.createElement("div");
+            overlay.className = "modal-overlay";
+
+            const dialog = document.createElement("div");
+            dialog.className = "modal-dialog";
+            dialog.innerHTML = `
+                <p>${Display._esc(message)}</p>
+                <div class="modal-buttons">
+                    <button class="accent confirm-btn">${Display._esc(confirmLabel)}</button>
+                    <button class="cancel-btn">${Display._esc(cancelLabel)}</button>
+                </div>
+            `;
+
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            const cleanup = () => overlay.remove();
+
+            dialog.querySelector(".confirm-btn").addEventListener("click", () => {
+                cleanup();
+                resolve(true);
+            });
+            dialog.querySelector(".cancel-btn").addEventListener("click", () => {
+                cleanup();
+                resolve(false);
+            });
+
+            // Click overlay background to cancel
+            overlay.addEventListener("click", (e) => {
+                if (e.target === overlay) {
+                    cleanup();
+                    resolve(false);
+                }
+            });
+
+            // Escape key → cancel
+            const onKey = (e) => {
+                if (e.key === "Escape") {
+                    cleanup();
+                    document.removeEventListener("keydown", onKey);
+                    resolve(false);
+                }
+            };
+            document.addEventListener("keydown", onKey);
+        });
     },
 
     /** Escape HTML entities. */

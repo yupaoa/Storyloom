@@ -150,6 +150,13 @@
 
         // Generate handler
         async function doGenerate() {
+            const confirmed = await Display.showConfirm(
+                "确定要生成故事设定吗？生成后将无法再修改故事想法。",
+                "是，生成设定",
+                "否，继续编辑"
+            );
+            if (!confirmed) return;
+
             appendMessage("system", t("generating_story"));
             document.getElementById("btn-send").disabled = true;
             document.getElementById("btn-generate").disabled = true;
@@ -205,6 +212,13 @@
         document.getElementById("btn-send").addEventListener("click", doSend);
         document.getElementById("btn-generate").addEventListener("click", doGenerate);
         document.getElementById("btn-quit").addEventListener("click", async () => {
+            const confirmed = await Display.showConfirm(
+                "确定要退出吗？当前共创进度将不会保存。",
+                "是，退出",
+                "否，继续编辑"
+            );
+            if (!confirmed) return;
+
             if (sessionId) {
                 await API.post("/api/co-create/abort", { session_id: sessionId });
             }
@@ -269,16 +283,11 @@
                 </div>
                 <div class="game-sidebar">
                     <div class="panel">
-                        <h3>📊 State</h3>
-                        <div id="state-vars"></div>
-                    </div>
-                    <div class="panel">
                         <h3>🗺️ Outline</h3>
                         <div id="outline-list"></div>
                     </div>
                     <div class="panel">
-                        <button id="btn-save">${t("save")}</button>
-                        <button id="btn-menu" class="danger" style="margin-top:0.5rem;">${t("back_to_menu")}</button>
+                        <button id="btn-menu" class="danger">${t("back_to_menu")}</button>
                     </div>
                 </div>
                 </div><!-- .game-body -->
