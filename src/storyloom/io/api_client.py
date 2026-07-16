@@ -78,14 +78,12 @@ class ApiClient:
         env_path = project_root / ".env"
         env_vars = _load_dotenv(env_path)
 
-        self.api_key = env_vars.get("DEEPSEEK_API_KEY") or os.environ.get(
-            "DEEPSEEK_API_KEY"
-        )
-        self.base_url = env_vars.get("DEEPSEEK_BASE_URL") or os.environ.get(
-            "DEEPSEEK_BASE_URL"
-        )
-        self.model = env_vars.get("DEEPSEEK_MODEL") or os.environ.get(
-            "DEEPSEEK_MODEL", DEFAULT_MODEL
+        self.api_key = env_vars.get("LLM_API_KEY") or os.environ.get("LLM_API_KEY")
+        self.base_url = env_vars.get("LLM_BASE_URL") or os.environ.get("LLM_BASE_URL")
+        self.model = (
+            env_vars.get("LLM_MODEL")
+            or os.environ.get("LLM_MODEL")
+            or DEFAULT_MODEL
         )
 
         # Normalize base_url: strip trailing slash
@@ -99,13 +97,13 @@ class ApiClient:
         if not self.api_key:
             raise RuntimeError(
                 "API Key not found. Create a .env file at the project root "
-                "with DEEPSEEK_API_KEY=your-key-here "
+                "with LLM_API_KEY=your-key-here "
                 "(see .env.example)"
             )
         if not self.base_url:
             raise RuntimeError(
                 "Base URL not found. Create a .env file at the project root "
-                "with DEEPSEEK_BASE_URL=https://api.deepseek.com "
+                "with LLM_BASE_URL=https://api.deepseek.com "
                 "(see .env.example)"
             )
 

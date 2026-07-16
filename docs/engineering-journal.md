@@ -33,7 +33,7 @@
 | 13 | P2 | data-model.md | 缺失 `SUPPORTED_LANGUAGES`、`DEFAULT_LANGUAGE` | 追加到 §A.2 |
 | 14 | P2 | prompt-design.md | outline 状态图例行（代码中无） | 删除 |
 | 15 | P2 | exec-flow.md | 引用废弃 `AUTO_ADVANCE_DELAY_MS` + M 键约束 | 删除，UI 自行管理 |
-| — | P1 | exec-flow.md | `STORYLOOM_API_KEY` → `DEEPSEEK_API_KEY` | **跳过**（设计预留，后续扩充） |
+| — | P1 | exec-flow.md | `STORYLOOM_API_KEY` → `DEEPSEEK_API_KEY` | ~~跳过~~ → 2026-07-16 统一为 `LLM_API_KEY`（去品牌化） |
 
 **4 项文档精简**：exec-flow.md 删除与 prompt-design.md 重叠的消息数组结构、Round N 内容表、压缩概念描述，净减 ~32 行。各文档职责更清晰：
 - `exec-flow.md` — 执行管线（何时调用、如何流转）
@@ -715,6 +715,25 @@ flow.result                               # CoCreationResult | None（只读）
 **依据**：
 - commit `f283d24` — `docs: sync spec format to NNN| line-number prefix, fix 8 issues`
 - [[2026-07-07-doc-audit-and-format-sync]]
+
+---
+
+## 2026-07-16（周三）
+
+### API 配置去品牌化：DEEPSEEK_* → LLM_*
+
+**背景**：`api_client.py` 和 `.env.example` 中的环境变量名为 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`，将配置绑定到了特定提供方。但 `ApiClient` 使用的是 OpenAI 兼容的 `/v1/chat/completions` 接口，DeepSeek、OpenAI、Groq、Ollama、vLLM 等数十个提供方均支持此协议。变量名中的 "DEEPSEEK" 前缀：(1) 误导用户以为仅支持 DeepSeek；(2) 切换到其他兼容提供方时变量名与实际用途不一致。
+
+**决策**：统一重命名为 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`——去品牌化、通用化。不做向后兼容 fallback（`.env` 文件修改变量名即可，无迁移成本）。
+
+**变更范围**：
+- `src/storyloom/io/api_client.py`：env var 读取 + 错误消息
+- `.env.example`：模板变量名 + 添加多提供方说明注释
+- `tests/prompt_lab/run_prompt_test.py`：env var 读取
+- `docs/spec/data-model.md` §A.6：`DEEPSEEK_MODEL` → `LLM_MODEL`
+- `docs/spec/exec-flow.md` §1：`STORYLOOM_API_KEY` → `LLM_API_KEY`
+
+**依据**：用户决策——统一全局变量优于按提供方分变量；OpenAI-compatible API 的行业标准地位意味着单组变量覆盖所有提供方。
 
 ---
 

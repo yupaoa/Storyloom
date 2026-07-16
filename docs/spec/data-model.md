@@ -227,7 +227,7 @@ load_save(filepath):
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `DEFAULT_MODEL` | `"deepseek-v4-pro"` | 默认模型标识。可通过 `.env` 的 `DEEPSEEK_MODEL` 覆盖 |
+| `DEFAULT_MODEL` | `"deepseek-v4-pro"` | 默认模型标识。可通过 `.env` 的 `LLM_MODEL` 覆盖 |
 | `STREAM_STALL_TIMEOUT_SEC` | 180 | 流式输出停顿超时秒数。当前 context ~50K tokens 时 TTFT 通常 10-30s，180s 提供充足 margin |
 | `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏。定义于 `config.py` |
 

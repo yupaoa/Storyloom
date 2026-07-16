@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick test: send a prompt to DeepSeek N times sequentially, save results.
+"""Quick test: send a prompt to LLM N times sequentially, save results.
 
 Usage:
   # Test a single prompt version (5 runs, sequential, streaming by default)
@@ -16,7 +16,7 @@ Usage:
   python3 tests/run_prompt_test.py --prompt tests/prompt_lab/data/prompts/v2.txt
 
 Setup:
-  1. Copy .env.example to .env and fill in your DEEPSEEK_API_KEY
+  1. Copy .env.example to .env and fill in your LLM_API_KEY
   2. Put prompt files in tests/prompt_lab/data/prompts/ (or anywhere)
   3. Results auto-saved to tests/prompt_lab/data/output/<prompt_name>/
 
@@ -70,12 +70,12 @@ def load_env(path: Path) -> dict[str, str]:
 
 env = load_env(PROJECT_ROOT / ".env")
 
-API_KEY = env.get("DEEPSEEK_API_KEY", "")
-BASE_URL = env.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-MODEL = env.get("DEEPSEEK_MODEL", "deepseek-chat")
+API_KEY = env.get("LLM_API_KEY", "")
+BASE_URL = env.get("LLM_BASE_URL", "https://api.deepseek.com")
+MODEL = env.get("LLM_MODEL", "deepseek-chat")
 
 if "your-api-key" in API_KEY or not API_KEY:
-    print("[ERROR] Fill in DEEPSEEK_API_KEY in .env first.")
+    print("[ERROR] Fill in LLM_API_KEY in .env first.")
     sys.exit(1)
 
 
@@ -221,7 +221,7 @@ def run_one(args: dict) -> dict:
 # ── Main ─────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
-        description="Send a prompt to DeepSeek N times sequentially, save results. Multi-threaded execution has been removed for safety."
+        description="Send a prompt to LLM N times sequentially, save results."
     )
     parser.add_argument(
         "--prompt", type=Path, required=True,
