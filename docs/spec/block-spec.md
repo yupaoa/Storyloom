@@ -155,7 +155,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 |------|------|------|
 | 玩家选择 | 选中的 `<opt>` 的 `branch` 属性 | 选 `key="1"` 且 `branch="direct"` → `current_branch = "direct"` |
 
-**`choice_dict` 修改来源**：`<choice>` 的 `id` 属性声明 choice 名，玩家选择后 `choice_dict[id] = 选项字母序号`。
+**`choice_dict` 修改来源**：`<choice>` 的 `id` 属性声明 choice 名，玩家选择后 `choice_dict[id] = 选项数字键序号`。
 
 > **条件变量解析优先级**（适用于所有条件求值场景）：`choice_dict > state_vars`。
 

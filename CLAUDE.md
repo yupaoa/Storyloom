@@ -12,8 +12,8 @@ Storyloom is an AI-powered interactive text fiction game engine. The LLM is the 
 1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters (2026-07-04) — see `src/storyloom/parser/streaming_parser.py`.
 2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts (2026-07-04) — see `src/storyloom/core/context_manager.py` and `src/storyloom/core/prompt_builder.py`.
 3. **Line-number format** (`NNN| ` prefix) replaced `<seg n="N">` attribute numbering (2026-07-05) — see `tests/prompt_lab/data/prompts/round1-linenum.txt`.
-4. **Bridge pre-fetch** — daemon thread + `queue.Queue` for auto-advance rounds (2026-07-10) — see `src/storyloom/core/game_loop.py` `_launch_prefetch()`.
-5. **StreamingXmlParser deleted** (2026-07-10) — bridge pre-fetch + `ElementTree` full parse proved sufficient. See `docs/engineering-journal.md`.
+4. **Bridge pre-fetch** — daemon thread + `queue.Queue` for auto-advance rounds (2026-07-10) — see `src/storyloom/core/game_loop.py` `_launch_api()`.
+5. **StreamingXmlParser restored** (2026-07-11) — streaming parse restored and integrated into all API call paths; bridge pre-fetch depends on it for correct timing. See `docs/engineering-journal.md`.
 
 ## Core Design Concepts
 
@@ -66,7 +66,7 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `src/storyloom/dev_cli/` | Dev CLI — `DevObserver`, deque-buffered display | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
-| `tests/test_*.py` | Unit tests (mock, no API) — 228 tests | Test |
+| `tests/test_*.py` | Unit tests (mock, no API) — 236 tests | Test |
 | `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
 
 **Test structure:** `tests/test_*.py` = pytest unit tests (mock, no API). `tests/prompt_lab/` = ad-hoc prompt design tools (require API key).

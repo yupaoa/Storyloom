@@ -187,6 +187,8 @@ load_save(filepath):
 | `VARIABLE_CAP` | 3 | 变量总数上限（per 2026-07-05 variable-cap spec） |
 | `VARIABLE_NUMERIC_CAP` | 2 | number 型变量上限 |
 | `VARIABLE_LABEL_CAP` | 1 | string/list 型变量上限 |
+| `SUPPORTED_LANGUAGES` | `{"zh-CN", "en"}` | 支持的语言集合 |
+| `DEFAULT_LANGUAGE` | `"zh-CN"` | 默认语言（语言未指定或不受支持时的 fallback） |
 
 ### A.3 故事规模档位
 

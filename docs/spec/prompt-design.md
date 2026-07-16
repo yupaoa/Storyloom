@@ -271,19 +271,19 @@ Round N:  压缩 Round 2~N-4 → 窗口保留 [N-3, N-2, N-1]
 
 压缩摘要格式：
 ```
-user: 以下是之前发生的主要事件：
+user: Key events so far:
 
 - ch1_bar：在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式
 - ch2_confrontation：与耗子完成芯片交易，耗子透露芯片来自荒坂R&D
 
-assistant: （以上为已发生事件的摘要。当前故事继续推进。）
+assistant: (Summary of previous events. The story continues.)
 ```
 
 #### 格式错误纠正
 
 仅当上一轮解析出现格式错误时，在当前 Round N 消息末尾追加纠正提示：
 ```
-上一轮输出存在格式问题——{format_error}。请严格遵循 XML 格式规范。
+Format reminder: last round had format issues — {format_error}. Please strictly follow the XML format specification.
 ```
 正确时不追加。不删除 Round 1 中的格式范例——LLM 自然从最近的正确输出学习。
 
@@ -469,7 +469,6 @@ Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single pa
 
 **Outline:**
 {outline_text}
-[completed]=已完成 [active]=当前 [pending]=待推进
 
 **Active Node:** {active_node} — {node_goal}
 
@@ -503,19 +502,19 @@ The active node indicates the current direction; decide whether to complete it t
 #### 格式示例（Round N）
 
 ```
-当前节点：ch3_ally — 盟友之路：通过地下网络逃离
-已完成节点：ch1_bar, ch2_confrontation
+Current node: ch3_ally — 盟友之路：通过地下网络逃离
+Completed nodes: ch1_bar, ch2_confrontation
 
-已完成的章节摘要：
+Completed chapter summaries:
 - 在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式
 - 与耗子完成芯片交易，耗子透露芯片来自荒坂R&D
 
-当前状态：
-  体力：60 / 100
-  信任度：25 / 100
-  所属势力：自由佣兵
+Current state:
+  体力: 60
+  信任度: 25
+  所属势力: 自由佣兵
 
-上一轮结尾：
+Last round ending:
 你对耗子点了点头。
 耗子: 跟我来。
 ```

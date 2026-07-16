@@ -327,11 +327,9 @@ Round N 开始
 │ 5. </story> — 解析完成，打包 + 发送（§4.7）             │
 │   • get_result() → ParsedOutput                       │
 │   • add_round() → ContextManager                      │
-│   • 应用无条件 set（block-spec.md §5）                   │
-│   • 节点推进与存档（data-model.md §2）                   │
+│   • 合并格式错误（解析器采集 + checkpoint 校验）         │
 │   • 自动推进 + 非结局：组装下轮 Prompt → 后台 API 调用    │
 │   • 结局：组装冒险日志 Prompt → 后台 LLM 调用（§5）      │
-│   • 触发 STORY_END 事件                                │
 └──────────────────────┬───────────────────────────────┘
                        ▼
 ┌──────────────────────────────────────────────────────┐
@@ -373,26 +371,7 @@ API 错误 / 解析失败
 
 ### 4.2 每轮 Prompt 的组成
 
-采用**对话式消息数组架构**，由 `ContextManager` 管理。每轮发送给 LLM 的 requests 格式为 messages 数组：
-
-```
-messages = [
-  {role: "user",      content: Round1_完整Prompt},      // 永久锚定，不压缩不删除
-  {role: "assistant", content: Round1_XML输出},          // 永久锚定，作为格式 few-shot 范例
-  // ── 以下为滑出窗口的轮次 → 压缩为摘要 ──
-  {role: "user",      content: "已发生的主要事件：..."},
-  {role: "assistant", content: "（以上为已发生事件的摘要。当前故事继续推进。）"},
-  // ── 窗口内轮次 → 完整保留 ──
-  {role: "user",      content: Round_N-3_上下文},
-  {role: "assistant", content: Round_N-3_XML输出},
-  {role: "user",      content: Round_N-2_上下文},
-  {role: "assistant", content: Round_N-2_XML输出},
-  {role: "user",      content: Round_N-1_上下文},
-  {role: "assistant", content: Round_N-1_XML输出},
-  // ── 当前轮 ──
-  {role: "user",      content: Round_N_上下文},           // 由 PromptBuilder.build_round_n() 构建
-]
-```
+采用**对话式消息数组架构**，由 `ContextManager` 管理。详见 [`prompt-design.md`](./prompt-design.md) §4.1。
 
 #### Round 1（永久锚定）
 
@@ -406,19 +385,7 @@ messages = [
 
 #### Round N 上下文（N ≥ 2）
 
-由 `PromptBuilder.build_round_n()` 构建，作为自然消息追加在对话末尾。不含角色定义、格式规范、故事上下文：
-
-| 内容 | 来源 |
-|------|------|
-| 当前节点 ID 与目标 | `outline` 进度 |
-| 已完成节点列表 | `progress` |
-| 压缩摘要（滑出窗口轮次） | `ContextManager` 的压缩列表 |
-| 当前状态快照 | `state_vars` |
-| 被拒变更反馈 | `rejected_changes`（仅当非空） |
-| 格式错误纠正 | `format_error`（仅当存在） |
-| 上一轮结尾 | `bridge_text`（从上一轮 assistant XML 输出中提取） |
-
-> 完整的 Prompt 模板与示例见 [`prompt-design.md`](./prompt-design.md) §4.2-4.4。
+由 `PromptBuilder.build_round_n()` 构建，作为自然消息追加在对话末尾。不含角色定义、格式规范、故事上下文。消息内容详见 [`prompt-design.md`](./prompt-design.md) §4.3。
 
 ### 4.3 API 调用与响应接收
 
@@ -432,13 +399,14 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 > **关键**：TTFT 主要受 Prompt 大小（输入 tokens 数）影响，而非输出长度。精简 System Prompt 可显著缩短 TTFT。
 >
-> **实现**：bridge pre-fetch 在 `GameLoop._launch_prefetch()` 中实现 — daemon 线程通过 `queue.Queue` 流式传输 API chunks。仅对无选项轮次触发（choice 轮次无法预计算下一轮的 messages 数组）。详见 `game_loop.py`。
+> **实现**：bridge pre-fetch 在 `GameLoop._launch_api()` 中实现 — daemon 线程通过 `queue.Queue` 流式传输 API chunks。所有轮次统一使用此方法（Round 1 也不例外）。详见 `game_loop.py`。
 
 **流程**：
 
 ```
-1. prompt_builder.assemble() → system_prompt, user_message
-2. api_client.stream_chat(system_prompt, user_message)
+1. context_mgr.get_messages() → messages 数组
+2. prompt_builder.build_round_n(...) → 追加当前轮 user 消息
+3. api_client.stream_chat_iter(messages)
    │
    ├── 正常完成 → 完整 LLM 响应文本
    │
@@ -513,10 +481,10 @@ UI 展示流（用户阅读 / 自动推进）
 
 **展示模式**：支持自动和手动两种，用户可随时切换。
 
-| 模式 | 行为 | 切换键 |
-|------|------|--------|
-| **自动**（默认） | 每段之间延迟 AUTO_ADVANCE_DELAY_MS 后自动继续 | 按 `M` 切换至手动 |
-| **手动** | 每段展示后等待用户按任意键继续 | 按 `M` 切换回自动 |
+| 模式 | 行为 |
+|------|------|
+| **自动**（默认） | 每段之间以固定间隔自动继续 |
+| **手动** | 每段展示后等待用户确认继续 |
 
 **展示流程**：
 
@@ -524,8 +492,8 @@ UI 展示流（用户阅读 / 自动推进）
 1. 从展示队列取匹配 current_branch 的 narrative 正文
 2. 按数字编号分割为展示段（见 block-spec.md §2）
 3. 剥离编号前缀，逐段展示纯文本：
-   ├── 自动模式：打印段文本 → delay(AUTO_ADVANCE_DELAY_MS) → 继续下一段
-   └── 手动模式：打印段文本 → 等待按键 → 继续下一段
+   ├── 自动模式：逐段展示，固定间隔后自动继续
+   └── 手动模式：逐段展示，等待用户确认后继续
 
 4. narrative 展示完毕后：
    ├── 有 <choice>？→ 展示选项面板（§4.6）
@@ -698,7 +666,7 @@ UI 展示流（用户阅读 / 自动推进）
 **程序行为**：
 ```
 prompt = build_adventure_log_prompt(story_config, state_vars, checkpoint_summaries, checkpoint_history)
-response = api_client.call(prompt)   // 非流式，快速生成
+response = api_client.chat([{"role": "user", "content": prompt}])   // 非流式，快速生成
 展示 response 正文
 ```
 

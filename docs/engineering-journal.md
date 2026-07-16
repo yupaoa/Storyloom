@@ -6,6 +6,47 @@
 
 ---
 
+## 2026-07-13（周日）
+
+### Spec-vs-Code 审计与精简 —— 16 项修复 + 4 项重叠消除
+
+**背景**：距离上次审计（2026-07-11）约两天，项目继续演进（UiInterface 删除、Web 文件夹初始化、co_create prompt 清理）。重新全面对照 4 份 spec 文档与全部核心源码，发现 16 项不一致（8 P1 + 8 P2），以及 4 处文档间重叠。
+
+**决策**：
+
+**16 项修复**：
+
+| # | 级别 | 文件 | 问题 | 处理 |
+|---|------|------|------|------|
+| 1 | P1 | CLAUDE.md | "StreamingXmlParser deleted" 断言错误（已于 07-11 恢复） | 改为 "restored" + 准确描述 |
+| 2 | P1 | CLAUDE.md | `_launch_prefetch()` 方法名过时 | → `_launch_api()` |
+| 3 | P2 | CLAUDE.md | 测试数 228 → 236 | 更新 |
+| 4 | P1 | CLAUDE.local.md | 引用已删除的 `ui_interface.py` | 移除 |
+| 5 | P1 | exec-flow.md | Phase 5 描述 SET/checkpoint 过时（应在 Phase 3） | 更新 |
+| 6 | P2 | exec-flow.md | STORY_END 事件时机（Phase 5→Phase 3） | 从 Phase 5 移除 |
+| 7 | P1 | exec-flow.md | `_launch_prefetch()` → `_launch_api()` | 更新 + 补充"所有轮次统一使用" |
+| 8 | P1 | exec-flow.md | `prompt_builder.assemble()` 方法不存在 | → 实际调用链 |
+| 9 | P1 | prompt-design.md | Round N 标签中文→英文（与代码对齐） | 更新示例 |
+| 10 | P1 | prompt-design.md + exec-flow.md | 压缩消息/格式错误纠正中文→英文 | 同步两文档 |
+| 11 | P2 | block-spec.md | "选项字母序号"→"选项数字键序号" | 修正 |
+| 12 | P2 | exec-flow.md | `api_client.call()` → `api_client.chat()` | 修正 |
+| 13 | P2 | data-model.md | 缺失 `SUPPORTED_LANGUAGES`、`DEFAULT_LANGUAGE` | 追加到 §A.2 |
+| 14 | P2 | prompt-design.md | outline 状态图例行（代码中无） | 删除 |
+| 15 | P2 | exec-flow.md | 引用废弃 `AUTO_ADVANCE_DELAY_MS` + M 键约束 | 删除，UI 自行管理 |
+| — | P1 | exec-flow.md | `STORYLOOM_API_KEY` → `DEEPSEEK_API_KEY` | **跳过**（设计预留，后续扩充） |
+
+**4 项文档精简**：exec-flow.md 删除与 prompt-design.md 重叠的消息数组结构、Round N 内容表、压缩概念描述，净减 ~32 行。各文档职责更清晰：
+- `exec-flow.md` — 执行管线（何时调用、如何流转）
+- `prompt-design.md` — Prompt 内容结构
+- `block-spec.md` — XML 元素语法与校验
+- `data-model.md` — 数据结构与常量
+
+**依据**：
+- 227 tests pass
+- 上次审计：[[2026-07-11-bridge-processing-audit]]
+
+---
+
 ## 2026-07-11（周六）
 
 ### CoCreateFlow API 重构 —— Q&A 与生成分离，i18n 清理
