@@ -405,9 +405,8 @@ def _show_choices(
     for choice in choices:
         labels = choice.get("labels", [])
         branches = choice.get("branches", [])
-        for i, (label, branch) in enumerate(zip(labels, branches)):
-            branch_str = f" ({branch})" if branch else ""
-            print(f"  [{total + i + 1}] {label}{branch_str}")
+        for i, label in enumerate(labels):
+            print(f"  [{total + i + 1}] {label}")
         total += len(branches)
 
     pause.disable()
