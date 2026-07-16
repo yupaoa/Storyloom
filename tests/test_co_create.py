@@ -769,153 +769,9 @@ class TestCoCreateFlowSendEndToEnd:
         flow.abort()
         assert flow.phase == "aborted"
 
-    def test_generate_auto_retry_on_validation_failure(self):
-        """Bad generation → auto-retry on parse error → success."""
-        from storyloom.core.co_create import CoCreateFlow
-        BAD_RESPONSE = """=== story_config ===
-genre: fantasy
-tier: epic
-label: test-story
-setting: somewhere
-protagonist_name: Kael
-protagonist_identity: warrior
-protagonist_traits: brave
-tone: dark
-conflict: a war
-characters:
-  Mouse | spy | friend
-
-=== variables ===
-hp: number, 80
-
-=== outline ===
-[node]
-id: ch1
-title: start
-goal: begin
-routes:"""
-
-        api = MockApiClient(responses=[
-            BAD_RESPONSE,
-            FULL_GENERATION_RESPONSE,
-        ])
-        flow = CoCreateFlow(api)
-        flow.start()
-        flow.send("科幻")
-
-        result = flow.generate()
-        assert result.story_config["tier"] == "medium"
-
-    def test_generate_retry_exhausted_raises(self):
-        """All auto-retries fail → CoCreationAborted."""
-        from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
-        BAD = """=== story_config ===
-genre: fantasy
-label: test-story
-
-=== variables ===
-hp: number, 80
-
-=== outline ===
-[node]
-id: ch1
-title: start
-goal: begin
-routes:"""
-
-        api = MockApiClient(responses=[BAD, BAD, BAD, BAD])
-        flow = CoCreateFlow(api)
-        flow.start()
-        flow.send("sci-fi")
-
-        with pytest.raises(CoCreationAborted):
-            flow.generate()
-
-    def test_generate_before_first_send_raises(self):
-        """generate() before any Q&A raises RuntimeError."""
-        from storyloom.core.co_create import CoCreateFlow
-        api = MockApiClient()
-        flow = CoCreateFlow(api)
-        flow.start()
-
-        with pytest.raises(RuntimeError, match="Cannot generate"):
-            flow.generate()
-
-
-class TestCoCreateFlowSendErrors:
-    """Tests for send() error handling — raises RuntimeError on API failure."""
-
-    def test_send_raises_runtime_error_on_all_retries_exhausted(self):
-        """API fails → RuntimeError raised, message cleaned up."""
-        from storyloom.core.co_create import CoCreateFlow
-        api = make_mock_api_client()
-        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("fail"))
-        flow = CoCreateFlow(api)
-        flow.start()
-
-        with pytest.raises(RuntimeError, match="attempts"):
-            flow.send("idea")
-
-        # Phase should be unchanged (still awaiting_idea)
-        assert flow.phase == "awaiting_idea"
-
-    def test_send_succeeds_on_second_attempt(self):
-        """API fails once, succeeds on retry → returns reply."""
-        from storyloom.core.co_create import CoCreateFlow
-        call_count = [0]
-        def chat_side_effect(msgs):
-            call_count[0] += 1
-            if call_count[0] <= 1:
-                raise ApiError("transient")
-            return "What kind of story?"
-        api = make_mock_api_client()
-        api.chat = chat_side_effect
-        flow = CoCreateFlow(api)
-        flow.start()
-
-        reply = flow.send("idea")
-        assert reply == "What kind of story?"
-        assert flow.phase == "awaiting_answer"
-
-    def test_send_message_integrity_on_failure(self):
-        """API failure cleans up orphaned user message."""
-        from storyloom.core.co_create import CoCreateFlow
-        api = make_mock_api_client()
-        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("fail"))
-        flow = CoCreateFlow(api)
-        flow.start()
-
-        try:
-            flow.send("orphan me")
-        except RuntimeError:
-            pass
-
-        user_msgs = [m for m in flow._messages if m["role"] == "user"]
-        assert not any("orphan me" in m.get("content", "") for m in user_msgs)
-
-
-class TestGenerate:
-    """Tests for generate() — inject format prompt, parse, validate."""
-
-    def test_generate_success(self):
-        from storyloom.core.co_create import CoCreateFlow
-        api = MockApiClient(responses=[FULL_GENERATION_RESPONSE])
-        flow = CoCreateFlow(api)
-        flow._messages = [
-            {"role": "system", "content": "test"},
-            {"role": "user", "content": "idea"},
-            {"role": "assistant", "content": "q"},
-        ]
-        flow._phase = "awaiting_answer"
-
-        result = flow.generate()
-        assert result.story_config["genre"] == "赛博朋克冒险"
-        assert len(result.outline_nodes) == 5
-        assert flow.phase == "complete"
-
-    def test_generate_validation_fails_on_too_many_variables(self):
-        """generate() raises CoCreationAborted when variables exceed cap."""
-        from storyloom.core.co_create import CoCreateFlow, CoCreationAborted
+    def test_generate_validation_fails_raises_cocreate_error(self):
+        """Parse validation failure → CoCreateError with phase='generate_parse'."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreateError
         api = make_mock_api_client()
         api.chat = lambda msgs: (
             "=== story_config ===\n"
@@ -940,6 +796,203 @@ class TestGenerate:
         ]
         flow._phase = "awaiting_answer"
 
-        # generate() retries up to MAX_RETRIES times; all fail → abort
-        with pytest.raises(CoCreationAborted):
+        with pytest.raises(CoCreateError) as exc_info:
             flow.generate()
+        assert exc_info.value.phase == "generate_parse"
+        assert flow._retry_state is not None
+        assert flow._retry_state[0] == "generate_parse"
+
+    def test_retry_generate_after_parse_failure(self):
+        """After parse failure, retry_generate() adds correction, re-calls API."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreateError
+        BAD = """=== story_config ===
+genre: fantasy
+tier: epic
+label: test-story
+setting: somewhere
+protagonist_name: Kael
+protagonist_identity: warrior
+protagonist_traits: brave
+tone: dark
+conflict: a war
+characters:
+  Mouse | spy | friend
+
+=== variables ===
+hp: number, 80
+
+=== outline ===
+[node]
+id: ch1
+title: start
+goal: begin
+routes:"""
+        api = MockApiClient(responses=[BAD, FULL_GENERATION_RESPONSE])
+        flow = CoCreateFlow(api)
+        flow._messages = [
+            {"role": "system", "content": "test"},
+            {"role": "user", "content": "idea"},
+            {"role": "assistant", "content": "q"},
+        ]
+        flow._phase = "awaiting_answer"
+
+        # First generate() fails on parse → CoCreateError
+        try:
+            flow.generate()
+        except CoCreateError:
+            pass
+
+        # retry_generate() adds correction, calls API, succeeds
+        result = flow.retry_generate()
+        assert result.story_config["tier"] == "medium"
+        assert flow.phase == "complete"
+        assert flow._retry_state is None
+
+    def test_retry_generate_raises_when_no_failure(self):
+        """retry_generate() raises RuntimeError when no previous failure."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = make_mock_api_client()
+        flow = CoCreateFlow(api)
+        flow._phase = "awaiting_answer"
+
+        with pytest.raises(RuntimeError, match="No failed generate"):
+            flow.retry_generate()
+
+    def test_generate_before_first_send_raises(self):
+        """generate() before any Q&A raises RuntimeError."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient()
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        with pytest.raises(RuntimeError, match="Cannot generate"):
+            flow.generate()
+
+
+class TestCoCreateFlowSendErrors:
+    """Tests for send() error handling — raises CoCreateError, manual retry."""
+
+    def test_send_raises_cocreate_error_on_api_failure(self):
+        """API fails → CoCreateError raised with phase='send'."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreateError
+        api = make_mock_api_client()
+        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("fail"))
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        with pytest.raises(CoCreateError) as exc_info:
+            flow.send("idea")
+        assert exc_info.value.phase == "send"
+        assert "fail" in exc_info.value.message
+        # Phase unchanged — user can retry
+        assert flow.phase == "awaiting_idea"
+
+    def test_send_preserves_message_on_failure(self):
+        """API failure keeps user message in _messages for retry."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreateError
+        api = make_mock_api_client()
+        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("fail"))
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        try:
+            flow.send("retry me")
+        except CoCreateError:
+            pass
+
+        # User message must remain for manual retry
+        user_msgs = [m for m in flow._messages if m["role"] == "user"]
+        assert any("retry me" in m.get("content", "") for m in user_msgs)
+
+    def test_send_sets_retry_state_on_failure(self):
+        """API failure sets _retry_state to ('send', user_input)."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreateError
+        api = make_mock_api_client()
+        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("fail"))
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        try:
+            flow.send("my idea")
+        except CoCreateError:
+            pass
+
+        assert flow._retry_state is not None
+        assert flow._retry_state[0] == "send"
+        assert flow._retry_state[1] == "my idea"
+
+    def test_retry_send_raises_when_no_failure(self):
+        """retry_send() raises RuntimeError when no previous failure."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = make_mock_api_client()
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        with pytest.raises(RuntimeError, match="No failed send"):
+            flow.retry_send()
+
+    def test_retry_send_reattempts_api(self):
+        """After send fails, retry_send() re-calls API and returns reply."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreateError
+        api = make_mock_api_client()
+        api.chat = lambda msgs: "Hello from retry!"
+        flow = CoCreateFlow(api)
+        flow.start()
+
+        # Simulate a failed send
+        flow._retry_state = ("send", "idea")
+        flow._messages.append({"role": "user", "content": "idea"})
+
+        reply = flow.retry_send()
+        assert reply == "Hello from retry!"
+        assert flow.phase == "awaiting_answer"
+        assert flow._retry_state is None  # cleared
+
+    def test_retry_send_clears_state_on_success(self):
+        """retry_send() clears _retry_state after success."""
+        from storyloom.core.co_create import CoCreateFlow
+        api = make_mock_api_client()
+        api.chat = lambda msgs: "ok"
+        flow = CoCreateFlow(api)
+        flow.start()
+        flow._retry_state = ("send", "idea")
+        flow._messages.append({"role": "user", "content": "idea"})
+
+        flow.retry_send()
+        assert flow._retry_state is None
+
+    def test_retry_send_reraises_api_error(self):
+        """retry_send() raises CoCreateError again if API still fails."""
+        from storyloom.core.co_create import CoCreateFlow, CoCreateError
+        api = make_mock_api_client()
+        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("still broken"))
+        flow = CoCreateFlow(api)
+        flow.start()
+        flow._retry_state = ("send", "idea")
+        flow._messages.append({"role": "user", "content": "idea"})
+
+        with pytest.raises(CoCreateError) as exc_info:
+            flow.retry_send()
+        assert "still broken" in exc_info.value.message
+        # _retry_state preserved for another attempt
+        assert flow._retry_state is not None
+
+
+class TestGenerate:
+    """Tests for generate() — inject format prompt, parse, validate."""
+
+    def test_generate_success(self):
+        from storyloom.core.co_create import CoCreateFlow
+        api = MockApiClient(responses=[FULL_GENERATION_RESPONSE])
+        flow = CoCreateFlow(api)
+        flow._messages = [
+            {"role": "system", "content": "test"},
+            {"role": "user", "content": "idea"},
+            {"role": "assistant", "content": "q"},
+        ]
+        flow._phase = "awaiting_answer"
+
+        result = flow.generate()
+        assert result.story_config["genre"] == "赛博朋克冒险"
+        assert len(result.outline_nodes) == 5
+        assert flow.phase == "complete"

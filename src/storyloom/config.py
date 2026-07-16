@@ -27,7 +27,6 @@ MIN_TAIL_LINES = 25           # minimum lines per branch after bridge
 MAX_CONTEXT_TOKENS = 50_000   # target ceiling
 
 # ── Co-creation ──────────────────────────────────────────────────
-MAX_RETRIES = 1
 
 # Variable caps (per 2026-07-05 variable-cap spec)
 VARIABLE_CAP = 3            # max total variables

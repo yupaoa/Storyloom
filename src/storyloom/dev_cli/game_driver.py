@@ -23,7 +23,7 @@ import time
 import tty
 
 from storyloom.core.session import GameSession
-from storyloom.core.co_create import CoCreationResult
+from storyloom.core.co_create import CoCreateError, CoCreationResult
 from storyloom.core.game_loop import GameLoop
 from storyloom.i18n import init_i18n
 
@@ -154,14 +154,22 @@ def run_co_create(
 
         print("[Waiting for LLM...]")
         sys.stdout.flush()
-        try:
-            reply = flow.send(user_input)
-        except KeyboardInterrupt:
-            print("\n[Interrupted]")
-            return None
-        except (RuntimeError, ValueError) as e:
-            _error(f"Co-creation error: {e}")
-            return None
+        while True:
+            try:
+                reply = flow.send(user_input) if user_input else flow.retry_send()
+                break  # success
+            except KeyboardInterrupt:
+                print("\n[Interrupted]")
+                return None
+            except CoCreateError as e:
+                _error(e.message)
+                ans = _ask("Retry? (y/n)").strip().lower()
+                if ans not in ("y", "yes"):
+                    return None
+                user_input = ""  # subsequent attempts use retry_send()
+            except (RuntimeError, ValueError) as e:
+                _error(f"Co-creation error: {e}")
+                return None
 
         if observer is not None:
             observer.record_co_create_response(flow.messages)
@@ -171,11 +179,21 @@ def run_co_create(
     # ── Generate ──
     print("[Generating story setup...]")
     sys.stdout.flush()
-    try:
-        result = flow.generate()
-    except Exception as e:
-        _error(f"Generation failed: {e}")
-        return None
+    while True:
+        try:
+            result = flow.generate() if flow._retry_state is None else flow.retry_generate()
+            break  # success
+        except KeyboardInterrupt:
+            print("\n[Interrupted]")
+            return None
+        except CoCreateError as e:
+            _error(e.message)
+            ans = _ask("Retry? (y/n)").strip().lower()
+            if ans not in ("y", "yes"):
+                return None
+        except Exception as e:
+            _error(f"Generation failed: {e}")
+            return None
 
     if observer is not None:
         # Record generation prompt + response (generate() appends both to messages)
@@ -274,7 +292,19 @@ def run_game(
             else:
                 err = game_loop.adventure_log_error
                 if err:
+                    # ── API error — offer manual retry ────────────
                     _error(f"Adventure log failed: {err}")
+                    ans = _ask("Retry? (y/n)").strip().lower()
+                    if ans in ("y", "yes"):
+                        game_loop.retry_adventure_log()
+                        adv = game_loop.get_adventure_log(timeout=60.0)
+                        if adv:
+                            print(adv)
+                            if observer is not None:
+                                _record_adv(observer, game_loop, adv)
+                        else:
+                            _error("Adventure log retry failed")
+                    return
                 else:
                     print("[Adventure log still generating...]")
                     adv = game_loop.get_adventure_log(timeout=60.0)

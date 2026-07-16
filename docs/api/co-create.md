@@ -56,7 +56,8 @@ reply = flow.send("A cyberpunk story set in 2087 Tokyo")
 # → "That sounds exciting! Tell me more about the protagonist..."
 ```
 
-- API failure: auto-retries **3 times**, then raises `RuntimeError`.
+- On API failure, raises `CoCreateError` (phase="send") — UI can call
+  `retry_send()` to re-attempt with the same messages array.
 - Raises `RuntimeError` if called before `start()` or after `abort()`.
 - Raises `ValueError` if `user_input` is empty or whitespace-only.
 - After returning, `phase` transitions to `"awaiting_answer"`.
@@ -77,11 +78,11 @@ result = flow.generate()
 ```
 
 - Must be in `"awaiting_answer"` phase; raises `RuntimeError` otherwise.
-- API failure: auto-retries **3 times**, then raises `CoCreationAborted`.
-- Parse/validation failure: auto-retries up to **`MAX_RETRIES`** times
-  (config constant, default 2), feeding error descriptions back to the
-  LLM for correction. Raises `CoCreationAborted` if all retries
-  exhausted.
+- On API failure, raises `CoCreateError` (phase="generate_api") — UI can
+  call `retry_generate()` to re-attempt.
+- On parse/validation failure, raises `CoCreateError` (phase="generate_parse")
+  with an error description. `retry_generate()` appends a correction prompt
+  and re-calls the LLM.
 - On success, `phase` → `"complete"` and `result` is set.
 
 #### `abort() → None`
@@ -91,6 +92,37 @@ Abort co-creation immediately. Sets `phase` to `"aborted"`.
 ```python
 flow.abort()
 ```
+
+#### `retry_send() → str`
+
+Re-attempt the last failed `send()` API call. The user message is
+preserved in the conversation array — no need to pass it again.
+
+```python
+try:
+    reply = flow.send(user_input)
+except CoCreateError as e:
+    if e.phase == "send":
+        reply = flow.retry_send()   # re-calls API with same messages
+```
+
+Raises `RuntimeError` if no failed send to retry.
+
+#### `retry_generate() → CoCreationResult`
+
+Re-attempt the last failed `generate()`. For API failures, re-sends the
+same messages. For parse/validation failures, appends a correction
+prompt before calling the API.
+
+```python
+try:
+    result = flow.generate()
+except CoCreateError as e:
+    if e.phase in ("generate_api", "generate_parse"):
+        result = flow.retry_generate()   # re-calls API with correction
+```
+
+Raises `RuntimeError` if no failed generation to retry.
 
 ### Properties
 
@@ -102,14 +134,14 @@ flow.abort()
 
 ### Error Handling
 
-Errors during co-creation are propagated as **exceptions**:
+Errors during co-creation are propagated as `CoCreateError` exceptions. The `phase` field indicates which retry method to call:
 
 | Method | Failure | Exception |
 |--------|---------|-----------|
-| `send()` | API fails 3 times | `RuntimeError` |
+| `send()` | API failure | `CoCreateError` (phase="send") |
 | `send()` | Wrong phase / empty input | `RuntimeError` / `ValueError` |
-| `generate()` | API fails 3 times | `CoCreationAborted` |
-| `generate()` | Parse/validation fails after `MAX_RETRIES` | `CoCreationAborted` |
+| `generate()` | API failure | `CoCreateError` (phase="generate_api") |
+| `generate()` | Parse/validation failure | `CoCreateError` (phase="generate_parse") |
 | `generate()` | Wrong phase | `RuntimeError` |
 
 UI code should wrap these calls in try/except and present appropriate
@@ -118,7 +150,7 @@ messages to the user.
 ### Usage Example
 
 ```python
-from storyloom.core import GameSession, CoCreationAborted
+from storyloom.core import GameSession, CoCreateError
 
 session = GameSession()
 flow = session.new_co_create()
@@ -132,8 +164,11 @@ idea = get_user_input()         # e.g. "A cyberpunk love story"
 try:
     reply = flow.send(idea)
     print(reply)                # LLM asks a follow-up question
-except RuntimeError:
-    show_error("API failed. Try again?")
+except CoCreateError as e:
+    if ask_retry():
+        reply = flow.retry_send()
+    else:
+        return
 
 # ... more Q&A turns as needed ...
 
@@ -142,8 +177,11 @@ if user_wants_to_generate():
     try:
         result = flow.generate()
         gl = session.start_game(result)
-    except CoCreationAborted:
-        show_error("Generation failed. Returning to menu.")
+    except CoCreateError as e:
+        if ask_retry():
+            result = flow.retry_generate()
+        else:
+            show_error("Generation failed. Returning to menu.")
 ```
 
 ## Output
@@ -171,8 +209,9 @@ The engine validates all LLM output during generation:
 - **outline:** all route targets exist in node IDs, final node has no
   routes (ending node), node count within tier range.
 
-Failures trigger auto-retry with LLM correction prompts. Exhausted
-retries raise `CoCreationAborted`.
+Failures raise `CoCreateError` with a specific `phase` and error
+description. The UI presents the error to the user, who can retry
+(via `retry_generate()`) or return to the menu.
 
 ## Reference
 

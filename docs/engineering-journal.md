@@ -8,6 +8,18 @@
 
 ## 2026-07-16（周三）
 
+### 异常处理统一：移除自动重试，三阶段行为对齐
+
+**背景**：引擎三个阶段的异常处理各自独立设计，行为不一致——共创阶段有自动重试（`MAX_RETRIES`），叙事阶段 yield error 事件 + 手动重试，冒险日志阶段无重试机制。用户期望所有严重异常由 UI 决策，引擎不做自动恢复。
+
+**决策**：
+1. 删除 `MAX_RETRIES` 全局常量——仅共创阶段使用，语义不统一。
+2. 共创阶段：`send()` 和 `generate()` 移除自动重试循环，失败时抛 `CoCreateError(phase, message)`，保存 `_retry_state`；新增 `retry_send()` 和 `retry_generate()` 公开方法，与叙事阶段 `retry()` / `retry_adventure_log()` 模式一致。
+3. 冒险日志阶段：`run_adventure_log()` 保存 prompt 到 `_adv_retry_prompt`；新增 `retry_adventure_log()` 方法。
+4. UI 侧（`game_driver.py`）：三阶段均展示错误并询问重试。
+
+**依据**：`src/storyloom/core/co_create.py`、`src/storyloom/core/game_loop.py`、`docs/spec/data-model.md` §B-5。
+
 ### Spec-vs-Code 审计 + 文档同步 —— 9 项修复
 
 **背景**：距离上次审计（07-13）约三天。全面对照 4 份 spec + 全部核心源码 + 接口文档 + CLI 文档/代码，排查规范落实与文档一致性。

@@ -253,26 +253,27 @@ UI 调用 `CoCreateFlow.generate()` → 引擎注入 `CO_CREATE_GENERATION_PROMP
 
 4. 逐 block 解析 + 校验：
    story_config：
-   ├── 解析成功？→ 否：重试（附带缺失字段提示）
+   ├── 解析成功？→ 否：抛 CoCreateError（附带缺失字段提示）
    └── 是 → 继续
 
    variables：
    ├── 解析成功？
-   │   └── 否 → 重试（附带格式提示）
+   │   └── 否 → 抛 CoCreateError（附带格式提示）
    ├── 校验：变量名唯一、类型合法、初始值合规、≤3 个变量
    └── 通过 → 继续
 
    outline：
    ├── 解析成功？
-   │   └── 否 → 重试
+   │   └── 否 → 抛 CoCreateError
    ├── 静态校验：route 目标存在、变量引用存在、最后节点 routes 为空
    └── 通过 → 继续
 
 5. 全部通过 → 返回 CoCreationResult
-   任一重试耗尽 → 抛出 CoCreationAborted（UI 向用户展示错误）
+   API 失败 / 解析失败 → 抛 CoCreateError（含 phase 和错误描述）
+   UI 捕获后向用户展示错误并询问重试 / 退出
 ```
 
-> 三个 section 的格式规范、字段定义和完整示例见 [`prompt-design.md` §3](./prompt-design.md)。引擎内自动重试最多 `MAX_RETRIES` 次后再向用户报告失败。
+> 三个 section 的格式规范、字段定义和完整示例见 [`prompt-design.md` §3](./prompt-design.md)。API 失败或解析失败通过 `CoCreateError` 异常向 UI 报告，由用户决定重试或退出。
 
 ### 3.5 Step 4: 初始化 GameState
 

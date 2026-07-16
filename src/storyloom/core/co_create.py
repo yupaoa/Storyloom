@@ -6,7 +6,6 @@ from string import Template
 from storyloom.io.api_client import ApiClient, ApiError
 from storyloom.i18n import _, get_current_lang
 from storyloom.config import (
-    MAX_RETRIES,
     STORY_LABEL_MIN_CHARS,
     STORY_LABEL_MAX_CHARS,
     VARIABLE_CAP,
@@ -559,9 +558,18 @@ Output all three sections in a single response. Do not add commentary before or 
 
 # ── Exceptions ──────────────────────────────────────────────────────
 
-class CoCreationAborted(Exception):
-    """Raised when user chooses to abort co-creation and return to menu."""
-    pass
+@dataclass
+class CoCreateError(Exception):
+    """Serious error during co-creation — UI can retry or quit.
+
+    Mirrors the narrative phase's ``{"type": "error"}`` event pattern.
+    ``phase`` tells the UI which retry method to call:
+    ``"send"`` → ``CoCreateFlow.retry_send()``
+    ``"generate_api"`` → ``CoCreateFlow.retry_generate()``
+    ``"generate_parse"`` → ``CoCreateFlow.retry_generate()`` (adds correction)
+    """
+    phase: str
+    message: str
 
 
 # ── Result ───────────────────────────────────────────────────────────
@@ -616,6 +624,8 @@ class CoCreateFlow:
         ]
         self._phase: str = "init"
         self._result: CoCreationResult | None = None
+        self._retry_state: tuple[str, str] | None = None
+        # ("send", user_input) | ("generate_api", "") | ("generate_parse", error_desc)
 
     @property
     def messages(self) -> list[dict]:
@@ -666,6 +676,9 @@ class CoCreateFlow:
         Pure message forward — no keyword detection, no phase
         transitions.  The UI decides when to call generate() or abort().
 
+        On API failure, raises ``CoCreateError`` (phase="send") and
+        saves ``_retry_state`` so the UI can call ``retry_send()``.
+
         Args:
             user_input: The user's message text.  Must be non-empty.
 
@@ -675,6 +688,7 @@ class CoCreateFlow:
         Raises:
             RuntimeError: If called before start() or after abort.
             ValueError: If user_input is empty.
+            CoCreateError: On API failure (UI can retry with retry_send()).
         """
         if self._phase == "init":
             raise RuntimeError("call start() first before send()")
@@ -687,37 +701,66 @@ class CoCreateFlow:
 
         self._messages.append({"role": "user", "content": stripped})
 
-        # API call with silent retry
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                response = self._api.chat(self._messages)
-                break
-            except ApiError:
-                if attempt == MAX_RETRIES:
-                    self._messages.pop()
-                    raise RuntimeError(
-                        f"API call failed after {MAX_RETRIES + 1} attempts"
-                    )
-                continue
+        try:
+            response = self._api.chat(self._messages)
+        except ApiError as e:
+            # Save retry state — user message stays in _messages for retry
+            self._retry_state = ("send", stripped)
+            raise CoCreateError(
+                phase="send",
+                message=f"API call failed: {e}",
+            ) from e
 
         self._messages.append({"role": "assistant", "content": response})
         self._phase = "awaiting_answer"
         return response
 
+    def retry_send(self) -> str:
+        """Re-attempt the last failed ``send()`` API call.
+
+        The user message is still in ``_messages`` (not popped on failure),
+        so we just re-call the API with the same messages array.
+
+        Returns:
+            LLM reply text.
+
+        Raises:
+            RuntimeError: If no failed send to retry.
+            CoCreateError: If the API call fails again (keeps
+                           ``_retry_state`` for another attempt).
+        """
+        if self._retry_state is None or self._retry_state[0] != "send":
+            raise RuntimeError(
+                "No failed send to retry — the last send() completed "
+                "successfully or retry_send() was already called successfully."
+            )
+        try:
+            response = self._api.chat(self._messages)
+        except ApiError as e:
+            raise CoCreateError(
+                phase="send",
+                message=f"API call failed: {e}",
+            ) from e
+
+        self._messages.append({"role": "assistant", "content": response})
+        self._phase = "awaiting_answer"
+        self._retry_state = None
+        return response
+
     def generate(self) -> CoCreationResult:
         """Inject generation prompt, call LLM, parse and validate.
 
-        Appends CO_CREATE_GENERATION_PROMPT as a user message, calls the
-        API, then parses the response into story_config + variables +
-        outline.  Auto-retries on API failure (3 attempts) and on
-        parse/validation failure (MAX_RETRIES attempts).
+        Appends ``CO_CREATE_GENERATION_PROMPT`` as a user message, calls
+        the API once, then parses the response.  On API failure or
+        parse/validation failure, raises ``CoCreateError`` and saves
+        ``_retry_state`` so the UI can call ``retry_generate()``.
 
         Returns:
             CoCreationResult with story_config, outline_text, outline_nodes.
 
         Raises:
             RuntimeError: If not in awaiting_answer phase.
-            CoCreationAborted: If API or validation fails after all retries.
+            CoCreateError: On API or validation failure (UI can retry).
         """
         if self._phase != "awaiting_answer":
             raise RuntimeError(
@@ -728,108 +771,160 @@ class CoCreateFlow:
         gen_prompt = self._build_generation_prompt()
         self._messages.append({"role": "user", "content": gen_prompt})
 
-        # API call with silent retry
-        response = None
-        for attempt in range(MAX_RETRIES + 1):
-            try:
-                response = self._api.chat(self._messages)
-                break
-            except ApiError:
-                if attempt == MAX_RETRIES:
-                    raise CoCreationAborted()
-                continue
-
-        self._messages.append({"role": "assistant", "content": response})
-
-        # Parse with auto-retry on validation failure
-        for parse_attempt in range(MAX_RETRIES + 1):
-            blocks = CoCreateParser.split_blocks(response)
-
-            # story_config
-            try:
-                story_config = CoCreateParser.parse_story_config(
-                    blocks["story_config"]
-                )
-            except ValueError as e:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Previous story_config had errors: {e}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            # variables
-            variables = CoCreateParser.parse_variables(blocks["variables"])
-            var_errors = CoCreateParser.validate_variables(variables)
-            if var_errors:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Previous variables had errors: "
-                        f"{'; '.join(var_errors)}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            # outline
-            try:
-                outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
-            except ValueError as e:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Previous outline had errors: {e}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            var_names_list = [v["name"] for v in variables]
-            outline_errors = CoCreateParser.validate_outline(
-                outline_nodes, var_names_list
-            )
-            if outline_errors:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Outline has errors: "
-                        f"{'; '.join(outline_errors)}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            # All validations passed
-            story_config["variables"] = variables
-            outline_text = CoCreateParser.format_outline(outline_nodes)
-
-            self._phase = "complete"
-            self._result = CoCreationResult(
-                story_config=story_config,
-                outline_text=outline_text,
-                outline_nodes=outline_nodes,
-            )
-            return self._result
-
-        raise CoCreationAborted()
-
-    def _retry_generation(self, error_desc: str) -> str:
-        """Append a correction prompt and call the LLM again.
-
-        Args:
-            error_desc: Human-readable description of what was wrong.
-
-        Returns:
-            New LLM response string.
-
-        Raises:
-            CoCreationAborted: If the API call fails.
-        """
-        self._messages.append({
-            "role": "user",
-            "content": (
-                f"{error_desc}\n"
-                f"Please fix and regenerate all three sections."
-            ),
-        })
+        # API call (single attempt — no auto-retry)
         try:
             response = self._api.chat(self._messages)
-        except ApiError:
-            raise CoCreationAborted()
+        except ApiError as e:
+            self._retry_state = ("generate_api", "")
+            raise CoCreateError(
+                phase="generate_api",
+                message=f"Generation API call failed: {e}",
+            ) from e
+
         self._messages.append({"role": "assistant", "content": response})
-        return response
+
+        # Parse once — on failure, save retry state for user to retry
+        try:
+            return self._parse_generation(response)
+        except CoCreateError:
+            raise  # re-raise (retry state already set by _parse_generation)
+        except Exception as e:
+            # Unexpected error during parsing — treat as parse failure
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Parse failed: {e}",
+            ) from e
+
+    def _parse_generation(self, response: str) -> CoCreationResult:
+        """Parse and validate a generation response.
+
+        When validation fails, sets ``_retry_state`` and raises
+        ``CoCreateError`` so the UI can call ``retry_generate()``.
+
+        Returns:
+            CoCreationResult on success.
+
+        Raises:
+            CoCreateError: On any parse or validation failure.
+        """
+        blocks = CoCreateParser.split_blocks(response)
+
+        # story_config
+        try:
+            story_config = CoCreateParser.parse_story_config(
+                blocks["story_config"]
+            )
+        except ValueError as e:
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"story_config error: {e}",
+            ) from e
+
+        # variables
+        variables = CoCreateParser.parse_variables(blocks["variables"])
+        var_errors = CoCreateParser.validate_variables(variables)
+        if var_errors:
+            err_text = "; ".join(var_errors)
+            self._retry_state = ("generate_parse", err_text)
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Variables error: {err_text}",
+            )
+
+        # outline
+        try:
+            outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
+        except ValueError as e:
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Outline parse error: {e}",
+            ) from e
+
+        var_names_list = [v["name"] for v in variables]
+        outline_errors = CoCreateParser.validate_outline(
+            outline_nodes, var_names_list
+        )
+        if outline_errors:
+            err_text = "; ".join(outline_errors)
+            self._retry_state = ("generate_parse", err_text)
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Outline validation error: {err_text}",
+            )
+
+        # All validations passed
+        story_config["variables"] = variables
+        outline_text = CoCreateParser.format_outline(outline_nodes)
+
+        self._phase = "complete"
+        self._retry_state = None
+        self._result = CoCreationResult(
+            story_config=story_config,
+            outline_text=outline_text,
+            outline_nodes=outline_nodes,
+        )
+        return self._result
+
+    def retry_generate(self) -> CoCreationResult:
+        """Re-attempt the last failed ``generate()``.
+
+        For API failures (phase="generate_api"), re-sends the same
+        messages array.  For parse/validation failures
+        (phase="generate_parse"), appends a correction prompt before
+        calling the API.
+
+        Returns:
+            CoCreationResult on success.
+
+        Raises:
+            RuntimeError: If no failed generation to retry.
+            CoCreateError: If the API or parse fails again (keeps
+                           ``_retry_state`` for another attempt).
+        """
+        if self._retry_state is None or self._retry_state[0] not in (
+            "generate_api", "generate_parse"
+        ):
+            raise RuntimeError(
+                "No failed generate to retry — the last generate() "
+                "completed successfully, or retry_generate() was already "
+                "called successfully."
+            )
+
+        phase, error_desc = self._retry_state
+
+        # For parse failures, append correction prompt
+        if phase == "generate_parse" and error_desc:
+            self._messages.append({
+                "role": "user",
+                "content": (
+                    f"Previous generation had errors: {error_desc}\n"
+                    f"Please fix and regenerate all three sections."
+                ),
+            })
+
+        # API call (single attempt)
+        try:
+            response = self._api.chat(self._messages)
+        except ApiError as e:
+            self._retry_state = ("generate_api", "")
+            raise CoCreateError(
+                phase="generate_api",
+                message=f"Generation API call failed: {e}",
+            ) from e
+
+        self._messages.append({"role": "assistant", "content": response})
+
+        # Parse — on failure, retry state is re-set by _parse_generation
+        try:
+            return self._parse_generation(response)
+        except CoCreateError:
+            raise
+        except Exception as e:
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Parse failed: {e}",
+            ) from e

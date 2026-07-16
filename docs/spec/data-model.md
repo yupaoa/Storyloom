@@ -181,7 +181,6 @@ load_save(filepath):
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `MAX_RETRIES` | 1 | API 调用及格式解析/校验失败后的最大额外重试次数（共 `MAX_RETRIES + 1` 次尝试） |
 | `STORY_LABEL_MIN_CHARS` | 5 | 故事标签最短字符数 |
 | `STORY_LABEL_MAX_CHARS` | 15 | 故事标签最长字符数 |
 | `VARIABLE_CAP` | 3 | 变量总数上限（per 2026-07-05 variable-cap spec） |
@@ -255,7 +254,7 @@ load_save(filepath):
 | 2 | **XML 元素名** | 全部英文（`<seg>`、`<checkpoint>` 等） |
 | 3 | **变量命名** | 状态变量名、choice 名使用中文 |
 | 4 | **XML 转义** | narrative 正文中的 `<` `>` `&` 必须转义为 `&lt;` `&gt;` `&amp;` |
-| 5 | **重试策略** | 共创阶段 API 失败与格式/校验失败统一由 `MAX_RETRIES` 控制重试次数 |
+| 5 | **重试策略** | 所有阶段 API 调用失败均不自动重试——由引擎向 UI 报告错误，用户手动决定重试或退出 |
 | 6 | **用户决策** | 重试耗尽等异常——告知用户具体信息，由用户选择（重试 / 继续 / 返回主菜单） |
 | 7 | **错误隔离** | state 逐条校验、options 逐行解析——单条失败不影响同轮其余有效条目 |
 | 8 | **静默错误** | 微小校验错误（list 增删不存在元素、number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |

@@ -491,6 +491,7 @@ class GameLoop:
         self._adv_thread: threading.Thread | None = None
         self._adv_result: str | None = None
         self._adv_error: str | None = None
+        self._adv_retry_prompt: str | None = None
 
         # Pending API state — every round's Phase 5 launches the *next*
         # round's API call in a daemon thread and stores the result queue
@@ -1535,6 +1536,10 @@ class GameLoop:
 
         Uses non-streaming chat with structured prompt per prompt-design.md §5.2.
 
+        Saves the prompt to ``_adv_retry_prompt`` and clears ``_adv_error``
+        so ``retry_adventure_log()`` can re-launch with the same prompt
+        after a failure.
+
         Returns:
             Adventure log markdown text.
         """
@@ -1544,6 +1549,8 @@ class GameLoop:
             checkpoint_summaries=self._checkpoint_summaries,
             checkpoint_history=self._checkpoint_history,
         )
+        self._adv_retry_prompt = prompt
+        self._adv_error = None
         # Per exec-flow.md §5.4: independent LLM call — not part of the
         # narrative loop.  Send only the adventure-log prompt, not the
         # full conversation context (~50K tokens).
@@ -1566,6 +1573,37 @@ class GameLoop:
             return None
         self._adv_thread.join(timeout=timeout)
         return self._adv_result
+
+    def retry_adventure_log(self) -> None:
+        """Re-launch the adventure log daemon thread with the same prompt.
+
+        Call after ``adventure_log_error`` is set and the user has
+        chosen to retry.  Must be followed by another
+        ``get_adventure_log()`` call to retrieve the new result.
+
+        Raises:
+            RuntimeError: If there is no prompt to retry with (i.e.
+                          ``run_adventure_log()`` was never called, or
+                          the last call succeeded without saving a prompt).
+        """
+        if self._adv_retry_prompt is None:
+            raise RuntimeError(
+                "No failed adventure log to retry — run_adventure_log() "
+                "was never called or succeeded without error."
+            )
+        self._adv_error = None
+        self._adv_result = None
+
+        def _fetch() -> None:
+            try:
+                self._adv_result = self.api_client.chat(
+                    [{"role": "user", "content": self._adv_retry_prompt}]
+                )
+            except Exception as exc:
+                self._adv_error = str(exc)
+
+        self._adv_thread = threading.Thread(target=_fetch, daemon=True)
+        self._adv_thread.start()
 
     @property
     def adventure_log_error(self) -> str | None:

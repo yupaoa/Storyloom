@@ -715,6 +715,96 @@ class TestGameStateSerialization:
         assert gs2.state_vars == gs1.state_vars
 
 
+class TestGameLoopAdventureLogRetry:
+    """Tests for adventure log manual retry (unified with narrative phase)."""
+
+    def test_retry_adventure_log_raises_when_no_failure(self):
+        """retry_adventure_log() raises RuntimeError when no previous failure."""
+        mock = MockApiClient()
+        loop = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=mock,
+        )
+        with pytest.raises(RuntimeError, match="No failed adventure log"):
+            loop.retry_adventure_log()
+
+    def test_retry_adventure_log_raises_before_any_call(self):
+        """retry_adventure_log() raises before run_adventure_log() ever called."""
+        loop = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=MockApiClient(),
+        )
+        assert loop._adv_retry_prompt is None
+        with pytest.raises(RuntimeError):
+            loop.retry_adventure_log()
+
+    def test_run_adventure_log_saves_prompt(self):
+        """run_adventure_log() saves the prompt to _adv_retry_prompt."""
+        mock = MockApiClient()
+        loop = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=mock,
+        )
+        loop.run_adventure_log()
+        assert loop._adv_retry_prompt is not None
+        assert isinstance(loop._adv_retry_prompt, str)
+        assert len(loop._adv_retry_prompt) > 0
+
+    def test_run_adventure_log_resets_error(self):
+        """run_adventure_log() clears _adv_error before calling API."""
+        mock = MockApiClient()
+        loop = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=mock,
+        )
+        # Simulate a previous error
+        loop._adv_error = "Previous failure"
+        loop.run_adventure_log()
+        assert loop._adv_error is None
+
+    def test_retry_adventure_log_resets_error(self):
+        """retry_adventure_log() clears _adv_error and starts new thread."""
+        mock = MockApiClient()
+        loop = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=mock,
+        )
+        # Simulate a previous failed run
+        loop._adv_retry_prompt = "test prompt"
+        loop._adv_error = "Previous failure"
+        loop._adv_result = "stale result"
+
+        loop.retry_adventure_log()
+
+        assert loop._adv_error is None
+        assert loop._adv_thread is not None  # new thread started
+        # Note: _adv_result may be set by the daemon thread before we
+        # reach here (mock chat() is synchronous), so we don't assert
+        # on its value.
+
+    def test_retry_adventure_log_starts_new_thread(self):
+        """retry_adventure_log() starts a new daemon thread."""
+        mock = MockApiClient()
+        loop = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_text=SAMPLE_OUTLINE,
+            api_client=mock,
+        )
+        loop._adv_retry_prompt = "test prompt"
+        old_thread = getattr(loop, '_adv_thread', None)
+
+        loop.retry_adventure_log()
+
+        assert loop._adv_thread is not None
+        assert loop._adv_thread != old_thread
+        assert loop._adv_thread.daemon is True
+
+
 class TestCheckpointHistory:
     """Tests for GameLoop.checkpoint_history property."""
 
