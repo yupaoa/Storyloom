@@ -154,9 +154,10 @@ def run_co_create(
 
         print("[Waiting for LLM...]")
         sys.stdout.flush()
+        send_retry = False
         while True:
             try:
-                reply = flow.send(user_input) if user_input else flow.retry_send()
+                reply = flow.retry_send() if send_retry else flow.send(user_input)
                 break  # success
             except KeyboardInterrupt:
                 print("\n[Interrupted]")
@@ -166,7 +167,7 @@ def run_co_create(
                 ans = _ask("Retry? (y/n)").strip().lower()
                 if ans not in ("y", "yes"):
                     return None
-                user_input = ""  # subsequent attempts use retry_send()
+                send_retry = True
             except (RuntimeError, ValueError) as e:
                 _error(f"Co-creation error: {e}")
                 return None
@@ -179,9 +180,10 @@ def run_co_create(
     # ── Generate ──
     print("[Generating story setup...]")
     sys.stdout.flush()
+    gen_retry = False
     while True:
         try:
-            result = flow.generate() if flow._retry_state is None else flow.retry_generate()
+            result = flow.retry_generate() if gen_retry else flow.generate()
             break  # success
         except KeyboardInterrupt:
             print("\n[Interrupted]")
@@ -191,6 +193,7 @@ def run_co_create(
             ans = _ask("Retry? (y/n)").strip().lower()
             if ans not in ("y", "yes"):
                 return None
+            gen_retry = True
         except Exception as e:
             _error(f"Generation failed: {e}")
             return None

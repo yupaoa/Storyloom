@@ -669,6 +669,7 @@ class CoCreateFlow:
     def abort(self) -> None:
         """Abort co-creation immediately."""
         self._phase = "aborted"
+        self._retry_state = None
 
     def send(self, user_input: str) -> str:
         """Send user input to LLM, return reply text.
