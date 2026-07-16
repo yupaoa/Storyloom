@@ -7,7 +7,7 @@ Architecture (per exec-flow.md §4.5 "UI queue buffer")::
     gen = gl.stream_round()     collections.deque      _display_loop()
     for event in gen:           event_queue.append()   pops at mode pace
       if options → inline                              instant: no delay
-                                                       auto:    0.5s/seg
+                                                       auto:    1.0s/seg
                                                        manual:  Enter/seg
 
 Pause (Space key): display side freezes; receiver keeps filling queue.
@@ -39,6 +39,11 @@ from storyloom.core.game_loop import GameLoop
 from storyloom.i18n import init_i18n
 
 from storyloom.dev_cli.observer import DevObserver
+
+
+# ── Display pacing ──────────────────────────────────────────────────
+
+_AUTO_DELAY_SEC = 1.0  # seconds between segments in auto display mode
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -210,7 +215,7 @@ def run_game(
 
     Receiver (``for event in gen``) pushes events into a deque as fast
     as the API delivers them.  The display loop drains the deque at
-    the configured pace — instant, auto (0.5 s), or manual (Enter).
+    the configured pace — instant, auto (1.0 s), or manual (Enter).
 
     ``options`` events are handled inline because they require
     ``gen.send(key)`` from the same thread.
@@ -247,7 +252,7 @@ def run_game(
                 # Options must be handled inline — needs gen.send()
                 if evt["type"] == "options":
                     # Drain non-option events ahead of options first
-                    _drain_non_options(event_queue, display_mode, pause)
+                    _drain_non_options(event_queue, pause)
                     # Now handle the choice
                     key = _show_choices(evt, pause)
                     if key is None:
@@ -275,7 +280,7 @@ def run_game(
 
                 # Pacing after segment display
                 if display_mode == "auto" and evt["type"] == "segment":
-                    _sleep(1.0, pause)
+                    _sleep(_AUTO_DELAY_SEC, pause)
                 elif display_mode == "manual" and evt["type"] == "segment":
                     _wait_enter(pause)
 
@@ -314,7 +319,6 @@ def run_game(
 
 def _drain_non_options(
     queue: collections.deque,
-    mode: str,
     pause: PauseHandler,
 ) -> None:
     """Display all events in queue that are NOT options events."""
@@ -432,7 +436,7 @@ def dev_main(argv: list[str] | None = None) -> None:
 
         python -m storyloom.dev_cli              observer + instant
         python -m storyloom.dev_cli instant      observer + instant
-        python -m storyloom.dev_cli auto         observer + auto (0.5s)
+        python -m storyloom.dev_cli auto         observer + auto (1.0s)
         python -m storyloom.dev_cli manual       observer + manual (Enter)
         python -m storyloom.dev_cli play          play    + auto
         python -m storyloom.dev_cli play instant  play    + instant
