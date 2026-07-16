@@ -24,7 +24,7 @@
 |------|------|
 | **示例先行** | Prompt 中先放完整格式示例，再用简短规则补充约束。LLM 模仿示例比遵循文字规则更准确 |
 | **信息分层** | System Prompt 三段式：示例（格式模板）→ 规则（量化约束）→ 上下文（故事素材） |
-| **英文 Prompt** | 所有系统/叙事 Prompt 使用英文（以 `tests/prompt_lab/data/prompts/round1-linenum.txt` 为准）。冒险日志 Prompt 使用中文（§5.2） |
+| **英文 Prompt** | 所有 Prompt 使用英文（以 `tests/prompt_lab/data/prompts/round1-linenum.txt` 为准），通过 `{language}` 占位符指示 LLM 以故事语言输出 |
 | **紧凑但完整** | 重要信息一个字不能少，不重要信息一个字不多 |
 | **持续迭代** | 每次发现系统性偏离时，分析原因、调整 Prompt、记录日志 |
 
@@ -220,7 +220,7 @@ routes:
 >
 > **架构**：对话式消息数组。Round 1 永久锚定（格式规范 + 故事上下文 + 完整 XML 示例），
 > Round N 仅发送轻量上下文（进度、状态、bridge_text、错误反馈）。
-> `ContextManager` 管理 messages 数组结构，`XmlParser` 解析 LLM 的 XML 输出。
+> `ContextManager` 管理 messages 数组结构，`StreamingXmlParser` 解析 LLM 的 XML 输出。
 
 ### 4.1 消息数组架构
 

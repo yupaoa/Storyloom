@@ -55,7 +55,7 @@ game_state.rejected_changes = []
 
 4. 若有 if 条件行：
    逐条评估（按物理顺序，取首个命中）。
-   条件中的变量名按优先级解析（choice_dict > state_vars，见 block-spec.md §2）：
+   条件中的变量名按优先级解析（choice_dict > state_vars，见 block-spec.md §3）：
      if 条件 -> route <target_node_id>
      ├── 条件命中 → 目标节点 = target_node_id
      ├── 条件中引用的变量不存在 → 条件求值为 False，进入 fallback 链

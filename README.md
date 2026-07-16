@@ -14,7 +14,7 @@ consumed by any presentation layer via `GameSession`.
 ┌──────────────────────────────────────────────┐
 │           Storyloom Core Engine               │
 │  ┌──────────┐ ┌───────────┐ ┌─────────────┐  │
-│  │GameLoop  │ │ContextMgr │ │XmlParser     │  │
+│  │GameLoop  │ │ContextMgr │ │StreamXmlPrs│  │
 │  └──────────┘ └───────────┘ └─────────────┘  │
 │  ┌──────────┐ ┌───────────┐ ┌─────────────┐  │
 │  │PromptBldr│ │CoCreate   │ │GameState     │  │
@@ -36,14 +36,11 @@ consumed by any presentation layer via `GameSession`.
 pip install -e .
 cp .env.example .env    # add your API key
 
-# Run (dev CLI — recommended)
+# Run
 python -m storyloom.dev_cli
-# or with a test story (skips co-creation):
-python -m storyloom.dev_cli --story tests/data/test_story.json
-
-# Legacy CLI (test/maintenance only)
-python -m storyloom.main
 ```
+
+See [`src/storyloom/dev_cli/README.md`](./src/storyloom/dev_cli/README.md) for CLI usage.
 
 ## How It Works
 
@@ -67,7 +64,7 @@ Each round:
 | Principle | Description |
 |-----------|-------------|
 | **Conversation-based context** | Sliding window (last 3 rounds) + Round 1 anchor + checkpoint compression. Managed by `ContextManager`. |
-| **XML output format** | `<seg>`, `<choice>`, `<set>`, `<checkpoint>`, `<bridge/>` elements in a `<story>` root. Parsed by `XmlParser`. |
+| **XML output format** | `<seg>`, `<choice>`, `<set>`, `<checkpoint>`, `<bridge/>` elements in a `<story>` root. Parsed by `StreamingXmlParser`. |
 | **Bridge preloading** | `<bridge/>` triggers the next API call mid-display, hiding segment boundaries from the player. |
 | **Local source of truth** | All game state lives in `GameState`. The LLM only *suggests* changes via `<set>`; the engine validates before applying. |
 
@@ -82,7 +79,7 @@ Each round:
 | `storyloom.core.save_manager` | Atomic JSON save/load/delete/list |
 | `storyloom.core.session` | `GameSession` lifecycle coordinator — primary UI integration API |
 | `storyloom.dev_cli` | Dev CLI — `DevObserver`, argument parsing |
-| `storyloom.parser.xml_parser` | LLM XML output parsing (full document) |
+| `storyloom.parser.streaming_parser` | LLM XML output parsing (streaming, line-by-line) |
 | `storyloom.io.api_client` | OpenAI-compatible API client (stream + non-stream) |
 | `storyloom.io.display` | Terminal display (CLI) — **deprecated**, reference only |
 | `storyloom.i18n` | Internationalization via gettext (.po/.mo) |
@@ -115,10 +112,10 @@ pytest --ignore=tests/test_api_client.py
 # Run all tests including API tests (requires .env with valid API key)
 pytest
 
-# Dev CLI — playable game + developer inspection
-python -m storyloom.dev_cli                  # normal mode
-python -m storyloom.dev_cli --mode dev       # record raw data to dev_output/
-python -m storyloom.dev_cli --story tests/data/test_story.json  # skip co-creation
+# Dev CLI — see src/storyloom/dev_cli/README.md for usage
+python -m storyloom.dev_cli                  # play mode (manual pacing)
+python -m storyloom.dev_cli --observer        # observer mode (record to dev_output/)
+python -m storyloom.dev_cli -o --instant      # observer + instant display
 
 # Run a specific test file
 pytest tests/test_game_loop.py -v
