@@ -78,7 +78,7 @@ class SaveManager:
 
         Raises:
             FileNotFoundError: Save does not exist.
-            ValueError: Save is corrupt.
+            ValueError: Save is corrupt (file is deleted automatically).
         """
         path = self._path(label)
         if not path.exists():
@@ -88,11 +88,13 @@ class SaveManager:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except json.JSONDecodeError:
+            self._remove_corrupt(path)
             raise ValueError(f"Save '{label}' is corrupt: invalid JSON")
 
         # Validate version
         version = data.get("version")
         if version != SAVE_VERSION:
+            self._remove_corrupt(path)
             raise ValueError(
                 f"Save '{label}' version {version} unsupported (expected 1)"
             )
@@ -100,6 +102,7 @@ class SaveManager:
         # Validate required top-level fields
         missing = [f for f in self.REQUIRED_FIELDS if f not in data]
         if missing:
+            self._remove_corrupt(path)
             raise ValueError(
                 f"Save '{label}' is corrupt: Missing required fields: "
                 f"{', '.join(missing)}"
@@ -107,6 +110,7 @@ class SaveManager:
 
         # Validate story_config has variables
         if "variables" not in data["story_config"]:
+            self._remove_corrupt(path)
             raise ValueError(
                 f"Save '{label}' is corrupt: story_config missing variables"
             )
@@ -118,12 +122,22 @@ class SaveManager:
                 n.get("node_id", n.get("id", "")) for n in data["outline"]
             }
             if current_node not in node_ids and node_ids:
+                self._remove_corrupt(path)
                 raise ValueError(
                     f"Save '{label}' is corrupt: current_node "
                     f"'{current_node}' not in outline"
                 )
 
         return data
+
+    @staticmethod
+    def _remove_corrupt(path: Path) -> None:
+        """Delete a corrupt save file.  Errors are silently ignored —
+        the caller will raise the validation error regardless."""
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
     def delete(self, label: str) -> bool:
         """Delete a save file. Returns True if deleted, False if not found."""
