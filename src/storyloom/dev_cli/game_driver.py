@@ -10,28 +10,17 @@ Architecture (per exec-flow.md §4.5 "UI queue buffer")::
                                                        auto:    _AUTO_DELAY_SEC/seg
                                                        manual:  Enter/seg
 
-Pause (Space key): display side freezes; receiver keeps filling queue.
-Ctrl+C: always quit immediately.
+Display pacing (auto / manual) is the pause mechanism — toggling auto→manual
+naturally pauses display.  ``instant`` is a CLI-only mode with no pacing.
+Ctrl+C raises KeyboardInterrupt naturally (caught by dev_main).
 """
 
 import collections
+import select
 import sys
+import termios
 import time
-
-# Platform-specific terminal raw-mode support
-try:
-    import select
-    import termios
-    import tty
-    _HAS_UNIX_TERMINAL = True
-except ImportError:
-    _HAS_UNIX_TERMINAL = False
-
-if not _HAS_UNIX_TERMINAL:
-    try:
-        import msvcrt  # Windows-only
-    except ImportError:
-        msvcrt = None  # pragma: no cover — exotic Python, pause won't work
+import tty
 
 from storyloom.core.session import GameSession
 from storyloom.core.co_create import CoCreationResult
@@ -47,59 +36,59 @@ _AUTO_DELAY_SEC = 1.0  # delay between segments in auto display mode
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Pause handler — Space to pause, Ctrl+C to quit
+# Display controller — mutable pacing mode, Tab to toggle
 # ═══════════════════════════════════════════════════════════════════
 
-class PauseHandler:
-    """Terminal key detection — cross-platform.
+class DisplayController:
+    """Display pacing controller with runtime mode switching.
 
-    Space → toggle pause.  Ctrl+C → quit.
-    Call ``disable()`` before any ``input()`` call, ``enable()`` after.
+    Pattern for UI implementations::
 
-    On Unix: uses ``termios`` + ``tty`` raw mode + ``select`` polling.
-    On Windows: uses ``msvcrt.kbhit()`` / ``msvcrt.getch()`` in normal mode.
+        - Maintain a mutable ``mode`` state (auto / manual / instant).
+        - User input events toggle the mode at any time.
+        - Display pacing logic reads ``mode`` at each segment boundary.
+        - auto ↔ manual switching IS pause — no separate pause mechanism.
+
+    CLI binding: Tab key toggles auto ↔ manual during auto-mode sleep.
+    Web UI equivalent: button or gesture sets ``controller.mode``.
+
+    ``instant`` mode is CLI-only; it has no pacing and ignores toggles.
     """
 
-    def __init__(self):
-        self.paused = False
-        self.quit_requested = False
-        if _HAS_UNIX_TERMINAL:
-            self._fd = sys.stdin.fileno()
-            self._old: list | None = None
+    def __init__(self, initial_mode: str = "auto"):
+        self.mode = initial_mode
+        self._fd = sys.stdin.fileno()
+        self._old_settings: list | None = None
 
-    def enable(self) -> None:
-        """Switch to raw/cbreak mode (Unix only). No-op on Windows."""
-        if _HAS_UNIX_TERMINAL:
-            self._old = termios.tcgetattr(self._fd)
-            tty.setcbreak(self._fd)
+    # ── Raw mode (CLI only — for single-key Tab detection) ──────
 
-    def disable(self) -> None:
-        """Restore normal terminal mode (Unix only). No-op on Windows."""
-        if _HAS_UNIX_TERMINAL and self._old is not None:
-            termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old)
+    def _enter_raw(self) -> None:
+        """Switch to cbreak mode.  Call before auto-mode sleep loop."""
+        self._old_settings = termios.tcgetattr(self._fd)
+        tty.setcbreak(self._fd)
 
-    def poll(self) -> None:
-        """Check for pending keystrokes.  Non-blocking."""
-        ch = None
-        if _HAS_UNIX_TERMINAL:
-            r, _, _ = select.select([sys.stdin], [], [], 0)
-            if r:
-                ch = sys.stdin.read(1)
-        elif msvcrt is not None:
-            if msvcrt.kbhit():
-                ch = msvcrt.getch().decode("utf-8", errors="replace")
-        # else: neither Unix nor Windows — pause keys unavailable
+    def _exit_raw(self) -> None:
+        """Restore normal terminal mode."""
+        if self._old_settings is not None:
+            termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_settings)
+            self._old_settings = None
 
-        if ch == " ":
-            self.paused = not self.paused
-        elif ch == "\x03":                      # Ctrl+C
-            self.quit_requested = True
+    # ── Toggle detection ────────────────────────────────────────
 
-    def wait_while_paused(self) -> None:
-        """Block until unpaused or quit."""
-        while self.paused and not self.quit_requested:
-            self.poll()
-            time.sleep(0.05)
+    def poll_toggle(self) -> bool:
+        """Non-blocking check for Tab key.  Returns True if mode changed.
+
+        Call during auto-mode sleep loop only.  In cbreak mode, reads
+        a single character without waiting for Enter.
+        """
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+        if r:
+            ch = sys.stdin.read(1)
+            if ch == "\t":
+                self._exit_raw()
+                self.mode = "manual"
+                return True
+        return False
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -207,15 +196,14 @@ def run_co_create(
 
 def run_game(
     game_loop: GameLoop,
-    display_mode: str,
-    pause: PauseHandler,
+    ctrl: DisplayController,
     observer: DevObserver | None = None,
 ) -> None:
     """Drive the narrative loop with deque-buffered display.
 
     Receiver (``for event in gen``) pushes events into a deque as fast
     as the API delivers them.  The display loop drains the deque at
-    the configured pace — instant, auto, or manual (Enter).
+    the pace set by ``ctrl.mode`` — instant, auto, or manual.
 
     ``options`` events are handled inline because they require
     ``gen.send(key)`` from the same thread.
@@ -242,19 +230,14 @@ def run_game(
 
             # ── Display: drain queue at configured pace ───────────
             while event_queue:
-                pause.poll()
-                if pause.quit_requested:
-                    return
-                pause.wait_while_paused()
-
                 evt = event_queue[0]  # peek
 
                 # Options must be handled inline — needs gen.send()
                 if evt["type"] == "options":
                     # Drain non-option events ahead of options first
-                    _drain_non_options(event_queue, pause)
+                    _drain_non_options(event_queue)
                     # Now handle the choice
-                    key = _show_choices(evt, pause)
+                    key = _show_choices(evt)
                     if key is None:
                         return
                     # Pop options event, resume generator
@@ -268,9 +251,7 @@ def run_game(
 
                 if evt["type"] == "error":
                     _error(evt.get("message", ""))
-                    pause.disable()
                     ans = _ask("Retry? (y/n)").strip().lower()
-                    pause.enable()
                     if ans in ("y", "yes") and retry_msgs:
                         game_loop._launch_api(retry_msgs, retry_content)
                         break  # exit for loop, while loop re-calls stream_round()
@@ -278,11 +259,11 @@ def run_game(
 
                 _display_one(evt)
 
-                # Pacing after segment display
-                if display_mode == "auto" and evt["type"] == "segment":
-                    _sleep(_AUTO_DELAY_SEC, pause)
-                elif display_mode == "manual" and evt["type"] == "segment":
-                    _wait_enter(pause)
+                # Pacing after segment display (mode may change mid-sleep)
+                if ctrl.mode == "auto" and evt["type"] == "segment":
+                    _sleep(_AUTO_DELAY_SEC, ctrl)
+                elif ctrl.mode == "manual" and evt["type"] == "segment":
+                    _wait_enter(ctrl)
 
         if game_loop.ending_flag:
             adv = game_loop.get_adventure_log(timeout=30.0)
@@ -317,10 +298,7 @@ def run_game(
 # Display helpers
 # ═══════════════════════════════════════════════════════════════════
 
-def _drain_non_options(
-    queue: collections.deque,
-    pause: PauseHandler,
-) -> None:
+def _drain_non_options(queue: collections.deque) -> None:
     """Display all events in queue that are NOT options events."""
     drained = []
     while queue and queue[0]["type"] != "options":
@@ -348,26 +326,46 @@ def _display_one(evt: dict) -> None:
     # log is fetched separately via game_loop.get_adventure_log().
 
 
-def _sleep(duration: float, pause: PauseHandler) -> None:
-    """Sleep in small increments, checking for pause/quit."""
-    elapsed = 0.0
-    while elapsed < duration:
-        time.sleep(0.05)
-        elapsed += 0.05
-        pause.poll()
-        if pause.quit_requested or pause.paused:
-            return
+def _sleep(duration: float, ctrl: DisplayController) -> None:
+    """Sleep with Tab-key detection for auto→manual switch.
 
-
-def _wait_enter(pause: PauseHandler) -> None:
-    """Wait for Enter keypress.  Ctrl+C propagates to top-level handler."""
-    pause.disable()
+    Enters raw (cbreak) mode so Tab is detected without Enter.
+    Restores normal mode on exit or when mode switches to manual.
+    """
+    ctrl._enter_raw()
     try:
-        _ask("[Enter to continue]")
-    except EOFError:
-        pass
+        elapsed = 0.0
+        while elapsed < duration and ctrl.mode == "auto":
+            time.sleep(0.05)
+            elapsed += 0.05
+            ctrl.poll_toggle()
     finally:
-        pause.enable()
+        ctrl._exit_raw()
+
+
+def _wait_enter(ctrl: DisplayController) -> None:
+    """Wait for Enter (manual mode).  Tab to switch to auto.
+
+    Uses raw (cbreak) mode so Tab is detected without Enter,
+    same as ``_sleep()``.
+    """
+    print("[Enter to continue, Tab for auto]")
+    ctrl._enter_raw()
+    try:
+        while True:
+            r, _, _ = select.select([sys.stdin], [], [], 0.1)
+            if r:
+                ch = sys.stdin.read(1)
+                if ch == "\t":          # Tab → switch to auto
+                    ctrl._exit_raw()
+                    ctrl.mode = "auto"
+                    return
+                if ch in ("\r", "\n"):  # Enter → advance
+                    return
+                if ch == "\x03":        # Ctrl+C
+                    raise KeyboardInterrupt
+    finally:
+        ctrl._exit_raw()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -390,13 +388,8 @@ def _record_adv(observer: DevObserver, game_loop: GameLoop, response: str) -> No
 # Choice input
 # ═══════════════════════════════════════════════════════════════════
 
-def _show_choices(
-    evt: dict, pause: PauseHandler,
-) -> str | None:
+def _show_choices(evt: dict) -> str | None:
     """Display choice options and get player selection.
-
-    Switches terminal to normal mode for ``input()``, then back to
-    raw mode afterwards.
 
     Returns choice key (1-indexed string) or None (quit).
     """
@@ -409,19 +402,16 @@ def _show_choices(
             print(f"  [{total + i + 1}] {label}")
         total += len(branches)
 
-    pause.disable()
-    try:
-        while True:
+    while True:
+        try:
             raw = _ask("").lower()
-            if raw in ("q", "quit", "exit"):
-                return None
-            if raw.isdigit() and 1 <= int(raw) <= total:
-                return raw
-            print(f"  Enter 1-{total}, or q to quit")
-    except (EOFError, KeyboardInterrupt):
-        return None
-    finally:
-        pause.enable()
+        except (EOFError, KeyboardInterrupt):
+            return None
+        if raw in ("q", "quit", "exit"):
+            return None
+        if raw.isdigit() and 1 <= int(raw) <= total:
+            return raw
+        print(f"  Enter 1-{total}, or q to quit")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -457,7 +447,7 @@ def dev_main(argv: list[str] | None = None) -> None:
         a0 = argv[0]
         if a0 == "play":
             is_observer = False
-            display_mode = "auto"
+            display_mode = "manual"
         elif a0 in MODES:
             display_mode = a0
         # Second arg: only meaningful when first was "play"
@@ -467,7 +457,7 @@ def dev_main(argv: list[str] | None = None) -> None:
     # ── Setup ─────────────────────────────────────────────────────
     session = GameSession()
     observer = DevObserver() if is_observer else None
-    pause = PauseHandler()
+    ctrl = DisplayController(initial_mode=display_mode)
 
     # ── Main menu + game loop ─────────────────────────────────────
     while True:
@@ -488,14 +478,11 @@ def dev_main(argv: list[str] | None = None) -> None:
                 continue
             if result is None:
                 continue
-            pause.enable()
             try:
                 game_loop = session.start_game(result)
-                run_game(game_loop, display_mode, pause, observer)
+                run_game(game_loop, ctrl, observer)
             except KeyboardInterrupt:
                 pass
-            finally:
-                pause.disable()
             print("\n[Game over]")
             continue
 
@@ -514,13 +501,10 @@ def dev_main(argv: list[str] | None = None) -> None:
             except Exception as e:
                 _error(f"Load failed: {e}")
                 continue
-            pause.enable()
             try:
-                run_game(game_loop, display_mode, pause, observer)
+                run_game(game_loop, ctrl, observer)
             except KeyboardInterrupt:
                 pass
-            finally:
-                pause.disable()
             print("\n[Game over]")
             continue
 

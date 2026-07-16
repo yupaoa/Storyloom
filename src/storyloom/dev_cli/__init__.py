@@ -8,9 +8,9 @@ Usage:
     python -m storyloom.dev_cli instant      observer + instant
     python -m storyloom.dev_cli auto         observer + auto
     python -m storyloom.dev_cli manual       observer + manual (Enter/seg)
-    python -m storyloom.dev_cli play         pure game + auto
+    python -m storyloom.dev_cli play         pure game + manual (default)
+    python -m storyloom.dev_cli play auto    pure game + auto
     python -m storyloom.dev_cli play instant pure game + instant
-    python -m storyloom.dev_cli play manual  pure game + manual
 """
 
 from storyloom.dev_cli.observer import DevObserver
