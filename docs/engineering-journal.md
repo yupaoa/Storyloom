@@ -8,6 +8,18 @@
 
 ## 2026-07-16（周三）
 
+### CLI 模式重构：游玩默认入口 + 两阶段录制
+
+**背景**：CLI 默认进入观察者+instant 模式，对普通玩家不友好。观察者录制逻辑存在 prompt 双重写入（`write_prompt_at_send` 和 `record_round` 都写 `prompts.txt`），缺乏清晰的提交/接收两阶段契约。
+
+**决策**：
+1. 默认入口改为游玩模式（手动 pacing，Tab 切换），零参数。
+2. 观察者通过 `--observer` 进入，默认手动 pacing（与游玩一致），`--instant` 禁用 pacing 和切换。
+3. 录制改为两阶段：Phase 1 提交 prompt 时写 `prompts.txt` + 清空 `responses.txt`；Phase 2 完整接收后 `record_round` 只写 `responses.txt` + `checks.txt`。
+4. 手动 argv 解析替换为 argparse。
+
+**依据**：`src/storyloom/dev_cli/game_driver.py`、`src/storyloom/dev_cli/observer.py`、`src/storyloom/dev_cli/__init__.py`。
+
 ### 异常处理统一：移除自动重试，三阶段行为对齐
 
 **背景**：引擎三个阶段的异常处理各自独立设计，行为不一致——共创阶段有自动重试（`MAX_RETRIES`），叙事阶段 yield error 事件 + 手动重试，冒险日志阶段无重试机制。用户期望所有严重异常由 UI 决策，引擎不做自动恢复。

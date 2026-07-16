@@ -15,6 +15,7 @@ naturally pauses display.  ``instant`` is a CLI-only mode with no pacing.
 Ctrl+C raises KeyboardInterrupt naturally (caught by dev_main).
 """
 
+import argparse
 import collections
 import select
 import sys
@@ -228,12 +229,21 @@ def run_game(
 
     ``options`` events are handled inline because they require
     ``gen.send(key)`` from the same thread.
+
+    Observer two-phase recording (when observer is not None):
+
+    * Phase 1 — prompt submit: ``write_prompt_at_send()`` immediately
+      after the engine launches the background API call.
+    * Phase 2 — response complete: ``record_round()`` callback fires
+      inside ``stream_round()`` when the full LLM response has been
+      received and parsed.  Only responses.txt + checks.txt are
+      written here; prompts.txt was already written in Phase 1.
     """
     if observer is not None:
         game_loop._observers.append(observer.record_round)
 
     game_loop.start_game()
-    # Round 1 prompt was just sent — write it immediately
+    # Phase 1: Round 1 prompt was just sent — write it immediately
     if observer is not None:
         observer.write_prompt_at_send(game_loop._pending_messages, 1)
 
@@ -319,7 +329,7 @@ def run_game(
                         print("[Adventure log unavailable]")
             return
 
-        # Next round's prompt was just sent by stream_round() Phase 5
+        # Phase 1: Next round's prompt was just sent by stream_round()
         if observer is not None:
             observer.write_prompt_at_send(
                 game_loop._pending_messages,
@@ -456,36 +466,41 @@ def dev_main(argv: list[str] | None = None) -> None:
 
     Usage::
 
-        python -m storyloom.dev_cli              observer + instant
-        python -m storyloom.dev_cli instant      observer + instant
-        python -m storyloom.dev_cli auto         observer + auto
-        python -m storyloom.dev_cli manual       observer + manual (Enter)
-        python -m storyloom.dev_cli play          play    + auto
-        python -m storyloom.dev_cli play instant  play    + instant
-        python -m storyloom.dev_cli play manual   play    + manual
+        python -m storyloom.dev_cli                  play mode (manual, no files)
+        python -m storyloom.dev_cli --observer        observer + manual (toggle in-game)
+        python -m storyloom.dev_cli --observer --instant  observer + instant (no toggle)
 
-    All three display modes work with both observer and play.
+    Play mode needs no extra arguments — always manual pacing with
+    Tab-to-auto toggle.  Observer mode defaults to the same manual
+    behaviour; ``--instant`` disables all pacing and in-game toggle.
     """
     init_i18n()
 
     if argv is None:
         argv = sys.argv[1:]
 
-    MODES = ("instant", "auto", "manual")
+    parser = argparse.ArgumentParser(
+        prog="storyloom",
+        description="Storyloom — AI-powered interactive text fiction",
+    )
+    parser.add_argument(
+        "-o", "--observer",
+        action="store_true",
+        help="Enable observer mode (writes prompts/responses/checks to dev_output/)",
+    )
+    parser.add_argument(
+        "--instant",
+        action="store_true",
+        help="Instant display — no per-segment pacing, no in-game toggle (observer only)",
+    )
+    args = parser.parse_args(argv)
 
-    is_observer = True
-    display_mode = "instant"   # default
-
-    if argv:
-        a0 = argv[0]
-        if a0 == "play":
-            is_observer = False
-            display_mode = "manual"
-        elif a0 in MODES:
-            display_mode = a0
-        # Second arg: only meaningful when first was "play"
-        if len(argv) > 1 and argv[1] in MODES:
-            display_mode = argv[1]
+    # ── Mode resolution ─────────────────────────────────────────────
+    is_observer = args.observer
+    if is_observer and args.instant:
+        display_mode = "instant"
+    else:
+        display_mode = "manual"
 
     # ── Setup ─────────────────────────────────────────────────────
     session = GameSession()
