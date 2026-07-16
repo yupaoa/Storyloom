@@ -3,7 +3,6 @@
 > 课程：编程综合实践  
 > 开发模式：双人协作（引擎核心 + 用户界面分离开发）  
 > 项目仓库：[Storyloom](https://github.com/SiriLee/Storyloom.git)  
-> 开发者：10242140407-吕思睿、
 
 ---
 
