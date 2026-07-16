@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-07-16（周三）
+
+### Spec-vs-Code 审计 + 文档同步 —— 9 项修复
+
+**背景**：距离上次审计（07-13）约三天。全面对照 4 份 spec + 全部核心源码 + 接口文档 + CLI 文档/代码，排查规范落实与文档一致性。
+
+**决策**：
+
+| # | 级别 | 文件 | 问题 | 处理 |
+|---|------|------|------|------|
+| 1 | P1 | `docs/api/co-create.md` | `send()` 返回值描述错误（dict vs str） | 重写全文（f7e24e1） |
+| 2 | P1 | `docs/api/co-create.md` | 列出了引擎不做的关键词检测 | 同 1 |
+| 3 | P1 | `docs/api/co-create.md` | 列出了不存在的 `generating` 阶段 | 同 1 |
+| 4 | P1 | `docs/spec/exec-flow.md` | 超时处理流程与代码不一致（复杂截断 vs 严重错误+重试） | 更新规范对齐代码（44867cd） |
+| 5 | P2 | `src/storyloom/core/save_manager.py` | `load()` 校验失败未删除损坏文件 | 新增 `_remove_corrupt()`（44867cd） |
+| 6 | P1 | `docs/cli.md` | 全文描述已删除的旧 CLI（main.py, cli_utils.py, --quick 等） | 删除文件 + 清理索引（9de9aab） |
+| 7 | P2 | `src/storyloom/dev_cli/game_driver.py` | auto 延迟 docstring 0.5s ≠ 代码 1.0s | 提取 `_AUTO_DELAY_SEC`，文档引用常量名（9de9aab, d2261fb） |
+| 8 | P2 | `src/storyloom/dev_cli/game_driver.py` | `_drain_non_options` 未使用的 `mode` 参数 | 删除（9de9aab） |
+| 9 | P2 | `src/storyloom/dev_cli/__init__.py` | docstring 只列 2 种用法，实际 7 种 | 补全（9de9aab） |
+
+**误报**：`CoCreateParser.parse_story_config` 中 `characters` 空值校验——已有 `not result[f].strip()` 检查。
+
+**依据**：commit 44867cd, f7e24e1, 9de9aab, d2261fb。227 测试全绿。
+
+---
+
 ## 2026-07-13（周日）
 
 ### Spec-vs-Code 审计与精简 —— 16 项修复 + 4 项重叠消除
