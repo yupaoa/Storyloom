@@ -3,7 +3,7 @@ import re
 from dataclasses import dataclass, field
 from string import Template
 
-from storyloom.io.api_client import ApiClient
+from storyloom.io.api_client import ApiClient, ApiError
 from storyloom.i18n import _, get_current_lang
 from storyloom.config import (
     MAX_RETRIES,
@@ -681,16 +681,16 @@ class CoCreateFlow:
 
         self._messages.append({"role": "user", "content": stripped})
 
-        # API call with silent retry (up to 3 attempts)
-        for attempt in range(3):
+        # API call with silent retry
+        for attempt in range(MAX_RETRIES + 1):
             try:
                 response = self._api.chat(self._messages)
                 break
-            except Exception:
-                if attempt == 2:
+            except ApiError:
+                if attempt == MAX_RETRIES:
                     self._messages.pop()
                     raise RuntimeError(
-                        f"API call failed after 3 retries"
+                        f"API call failed after {MAX_RETRIES + 1} attempts"
                     )
                 continue
 
@@ -722,14 +722,14 @@ class CoCreateFlow:
         gen_prompt = self._build_generation_prompt()
         self._messages.append({"role": "user", "content": gen_prompt})
 
-        # API call with silent retry (up to 3 attempts)
+        # API call with silent retry
         response = None
-        for attempt in range(3):
+        for attempt in range(MAX_RETRIES + 1):
             try:
                 response = self._api.chat(self._messages)
                 break
-            except Exception:
-                if attempt == 2:
+            except ApiError:
+                if attempt == MAX_RETRIES:
                     raise CoCreationAborted()
                 continue
 
@@ -823,7 +823,7 @@ class CoCreateFlow:
         })
         try:
             response = self._api.chat(self._messages)
-        except Exception:
+        except ApiError:
             raise CoCreationAborted()
         self._messages.append({"role": "assistant", "content": response})
         return response

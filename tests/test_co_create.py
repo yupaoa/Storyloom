@@ -1,6 +1,7 @@
 """Tests for co-create parser and flow."""
 import pytest
 from storyloom.core.co_create import CoCreateParser
+from storyloom.io.api_client import ApiError
 from storyloom.i18n import init_i18n
 init_i18n("en")  # Use English for deterministic test output
 
@@ -845,27 +846,27 @@ class TestCoCreateFlowSendErrors:
     """Tests for send() error handling — raises RuntimeError on API failure."""
 
     def test_send_raises_runtime_error_on_all_retries_exhausted(self):
-        """API fails 3 times → RuntimeError raised, message cleaned up."""
+        """API fails → RuntimeError raised, message cleaned up."""
         from storyloom.core.co_create import CoCreateFlow
         api = make_mock_api_client()
-        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("fail"))
+        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("fail"))
         flow = CoCreateFlow(api)
         flow.start()
 
-        with pytest.raises(RuntimeError, match="3 retries"):
+        with pytest.raises(RuntimeError, match="attempts"):
             flow.send("idea")
 
         # Phase should be unchanged (still awaiting_idea)
         assert flow.phase == "awaiting_idea"
 
     def test_send_succeeds_on_second_attempt(self):
-        """API fails once, succeeds on second → returns reply."""
+        """API fails once, succeeds on retry → returns reply."""
         from storyloom.core.co_create import CoCreateFlow
         call_count = [0]
         def chat_side_effect(msgs):
             call_count[0] += 1
-            if call_count[0] <= 2:
-                raise Exception("transient")
+            if call_count[0] <= 1:
+                raise ApiError("transient")
             return "What kind of story?"
         api = make_mock_api_client()
         api.chat = chat_side_effect
@@ -877,10 +878,10 @@ class TestCoCreateFlowSendErrors:
         assert flow.phase == "awaiting_answer"
 
     def test_send_message_integrity_on_failure(self):
-        """API failure after 3 retries cleans up orphaned user message."""
+        """API failure cleans up orphaned user message."""
         from storyloom.core.co_create import CoCreateFlow
         api = make_mock_api_client()
-        api.chat = lambda msgs: (_ for _ in ()).throw(Exception("fail"))
+        api.chat = lambda msgs: (_ for _ in ()).throw(ApiError("fail"))
         flow = CoCreateFlow(api)
         flow.start()
 
