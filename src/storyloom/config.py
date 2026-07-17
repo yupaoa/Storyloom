@@ -37,11 +37,11 @@ VARIABLE_LABEL_CAP = 1      # max string variables
 STORY_LABEL_MIN_CHARS = 5
 STORY_LABEL_MAX_CHARS = 15
 
-# Outline node ranges by tier
+# Outline node ranges by tier (prompt reference only — not engine-enforced)
 OUTLINE_NODE_RANGES = {
     "short":  (3, 5),
-    "medium": (5, 8),
-    "long":   (8, 15),
+    "medium": (5, 10),
+    "long":   (10, 25),
 }
 
 # ── API defaults ──────────────────────────────────────────────

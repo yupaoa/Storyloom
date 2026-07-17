@@ -431,11 +431,11 @@ $language_instruction
 # Questioning Phase
 
 Ask one question at a time. Here are some dimensions to explore — use them as a guide, not a checklist. Do NOT reveal specific plot events or spoil story content:
+- Story length — ask whether the user wants $story_length_hint key chapters.
 - World setting (era, location, tech/magic level, society)
 - Protagonist (name, gender, identity, personality traits, background)
 - Story tone (dark/light, epic/personal, serious/humorous)
 - Conflict direction (core tension — describe it as a question the story explores)
-- Story length (short ~10 rounds / medium ~20 rounds / long ~40 rounds)
 
 **After each question, offer 2-3 example answers as numbered suggestions** — these help the user express themselves, but they are free to write their own answer. Format:
 [1] example answer one
@@ -496,7 +496,7 @@ Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
 ## Section 3: outline
 
 Design a directed graph of key story nodes. Rules:
-- Node count by tier: short 3-5 / medium 5-8 / long 8-15
+- Node count by tier: $node_count_hint
 - Each node has a clear narrative goal
 - Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
 - Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
@@ -582,9 +582,17 @@ class CoCreateFlow:
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
         meta = _LANG_META[lang]
+        node_count_hint = " / ".join(
+            f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
+        )
+        story_length_hint = " / ".join(
+            f"{tier} ~{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
+        )
         return CO_CREATE_SYSTEM_PROMPT.substitute(
             language_instruction=meta["instruction"],
             own_answer_hint=_("(or write your own answer)"),
+            node_count_hint=node_count_hint,
+            story_length_hint=story_length_hint,
         )
 
     @staticmethod
@@ -594,9 +602,13 @@ class CoCreateFlow:
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
         meta = _LANG_META[lang]
+        node_count_hint = " / ".join(
+            f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
+        )
         return CO_CREATE_GENERATION_PROMPT.substitute(
             label_hint=meta["label_hint"],
             language=lang,
+            node_count_hint=node_count_hint,
         )
 
     def __init__(self, api_client: ApiClient):
