@@ -458,6 +458,114 @@ def _show_choices(evt: dict) -> str | None:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Save management
+# ═══════════════════════════════════════════════════════════════════
+
+def run_manage_saves(session: GameSession) -> None:
+    """Manage saved games and individual saves.
+
+    Three-level nested menu:
+
+    Level 1 — Game list:
+        List all games.  Pick one to see its saves.
+
+    Level 2 — Save list:
+        List all saves in a game.  Pick one to see details, or [D]
+        to delete the entire game.
+
+    Level 3 — Save detail:
+        Show metadata for a single save.  [D] to delete.
+
+    Reuses ``session.list_games()``, ``session.list_saves()``,
+    ``session.delete_game()``, ``session.delete_save()`` — no
+    engine-layer changes.
+    """
+    # ── Level 1: Game list ──────────────────────────────────────
+    while True:
+        games = session.list_games()
+        print("\nManage Saves")
+        if not games:
+            print("  No games found.")
+            _ask("Press Enter to go back")
+            return
+        for i, g in enumerate(games):
+            print(f"  [{i + 1}] {g.get('label', '?')} "
+                  f"({g.get('genre', '?')}, "
+                  f"{g.get('save_count', 0)} saves)")
+        print("  [0] Back")
+
+        pick = _ask("").strip()
+        if pick in ("0", "b", "back"):
+            return
+        if not (pick.isdigit() and 1 <= int(pick) <= len(games)):
+            continue
+        game = games[int(pick) - 1]
+        game_id = game["game_id"]
+        game_label = game.get("label", game_id)
+
+        # ── Level 2: Save list ───────────────────────────────────
+        while True:
+            saves = session.list_saves(game_id)
+            print(f"\nGame: {game_label} "
+                  f"({game.get('genre', '?')}, "
+                  f"{len(saves)} saves)")
+            if not saves:
+                print("  No saves in this game.")
+                _ask("Press Enter to go back")
+                break
+            for i, s in enumerate(saves):
+                cp_title = s.get("checkpoint_title") or "_init"
+                print(f"  [{i + 1}] {cp_title} "
+                      f"(round {s.get('round', '?')}, "
+                      f"{s.get('saved_at', '?')})")
+            print("  [D] Delete this game")
+            print("  [0] Back")
+
+            pick = _ask("").strip()
+            if pick in ("0", "b", "back"):
+                break
+            if pick.lower() == "d":
+                # ── Delete game ────────────────────────────────
+                ans = _ask(f"Delete game '{game_label}' and ALL its saves? "
+                           f"This cannot be undone. (y/n)").strip().lower()
+                if ans in ("y", "yes"):
+                    if session.delete_game(game_id):
+                        print(f"  Game '{game_label}' deleted.")
+                        break  # return to Level 1
+                    else:
+                        _error(f"Failed to delete game '{game_id}'.")
+                continue
+
+            if not (pick.isdigit() and 1 <= int(pick) <= len(saves)):
+                continue
+            save = saves[int(pick) - 1]
+            filename = save["filename"]
+
+            # ── Level 3: Save detail ────────────────────────────
+            cp_title = save.get("checkpoint_title") or "_init"
+            print(f"\nSave: {cp_title}")
+            print(f"  Checkpoint: {save.get('checkpoint_title') or '(initial)'}")
+            print(f"  Checkpoint Node: {save.get('checkpoint_node') or '(none)'}")
+            print(f"  Round: {save.get('round', '?')}")
+            print(f"  Current Node: {save.get('current_node', '?')}")
+            print(f"  Saved at: {save.get('saved_at', '?')}")
+            print("  [D] Delete this save")
+            print("  [0] Back")
+
+            pick = _ask("").strip()
+            if pick in ("0", "b", "back"):
+                continue  # back to Level 2
+            if pick.lower() == "d":
+                ans = _ask(f"Delete save '{filename}'? "
+                           f"This cannot be undone. (y/n)").strip().lower()
+                if ans in ("y", "yes"):
+                    if session.delete_save(game_id, filename):
+                        print(f"  Save '{filename}' deleted.")
+                    else:
+                        _error(f"Failed to delete save '{filename}'.")
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Entry point
 # ═══════════════════════════════════════════════════════════════════
 
@@ -513,7 +621,8 @@ def dev_main(argv: list[str] | None = None) -> None:
         print("\nStoryloom")
         print("  [1] New Game")
         print(f"  [2] Continue" + (f" ({len(games)} games)" if games else ""))
-        print("  [3] Exit")
+        print("  [3] Manage Saves")
+        print("  [4] Exit")
 
         choice = _ask("").strip()
 
@@ -577,4 +686,8 @@ def dev_main(argv: list[str] | None = None) -> None:
             continue
 
         elif choice == "3":
+            run_manage_saves(session)
+            continue
+
+        elif choice == "4":
             sys.exit(0)
