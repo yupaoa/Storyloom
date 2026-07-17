@@ -454,9 +454,32 @@ Show genuine curiosity about the user's choices. Acknowledge their previous answ
 
 CO_CREATE_GENERATION_PROMPT = Template("""Based on our conversation above, generate the complete story setup.
 
-Output ALL THREE sections below in order. Use EXACTLY the format shown.
+# Rules
 
-## Section 1: story_config
+## Variables
+- ≤3 variables total. ≤2 numeric (number), ≤1 string.
+- Numeric: range [0, 100]. Use for health, trust, sanity, etc.
+- String: for status markers, faction affiliation, etc.
+- Fewer is better. Only create variables that will drive branching or gate choices.
+
+Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
+  Romance → affection
+  Mystery → clues_progress
+  Cyberpunk → implant_integrity
+  Wuxia → inner_power
+  Horror → sanity
+
+## Outline
+- Node count by tier: $node_count_hint
+- Each node has a clear narrative goal.
+- Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
+- Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
+- node_id format: ch{number}_{english_abbreviation}
+
+# Output Format
+
+Your response must contain exactly three blocks separated by `===` markers.
+Output ONLY the blocks — no markdown headings, no commentary before or after.
 
 === story_config ===
 genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
@@ -473,34 +496,10 @@ characters:
   {name} | {role} | {relationship to protagonist}
   (at least 1)
 
-## Section 2: variables
-
-Design state variables for this story. Rules:
-- ≤3 variables total. ≤2 numeric (number), ≤1 string.
-- Numeric: range [0, 100]. Use for health, trust, sanity, etc.
-- String: for status markers, faction affiliation, etc.
-- Fewer is better. Only create variables that will drive branching or gate choices.
-
-Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
-  Romance → affection
-  Mystery → clues_progress
-  Cyberpunk → implant_integrity
-  Wuxia → inner_power
-  Horror → sanity
-
 === variables ===
 体力: number, 80
 信任度: number, 10
 所属势力: string, 自由佣兵
-
-## Section 3: outline
-
-Design a directed graph of key story nodes. Rules:
-- Node count by tier: $node_count_hint
-- Each node has a clear narrative goal
-- Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
-- Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
-- node_id format: ch{number}_{english_abbreviation}
 
 === outline ===
 [node]
@@ -534,8 +533,7 @@ id: ch4_ending
 title: {node title}
 goal: {narrative goal}
 routes:
-
-Output all three sections in a single response. Do not add commentary before or after.""")
+""")
 
 
 # ── Exceptions ──────────────────────────────────────────────────────

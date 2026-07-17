@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-07-18（周六）
+
+### 修复 Windows 文件名非法字符：存档目录 + Co-Create Prompt 格式歧义
+
+**背景**：两起 Windows 端崩溃均与文件名/格式解析有关：
+
+1. **存档目录创建失败**：`create_game()` 用 ISO 8601 `2026-07-17T17:10:23Z` 作为目录名一部分，其中 `:` 在 Windows/NTFS 为非法字符 → `OSError: [WinError 123]`。
+2. **Co-Create 生成 parse 失败且重试无效**：`CO_CREATE_GENERATION_PROMPT` 中包含 `## Section 1: story_config` / `## Section 2: variables` / `## Section 3: outline` 标题行，并强调 "Use EXACTLY the format shown"。LLM 忠实输出这些标题行，但 parser 的 `split_blocks()` 只识别 `=== block ===` 分隔符，导致 `## Section 3: outline` 落入 variables block 文本 → `parse_variables()` 严格匹配失败。重试三次结果相同：`retry_generate()` 每次追加的 correction message 一字不差，LLM 在矛盾指令下（prompt 说标题是对的、error 说标题是错的）不会修正。
+
+**决策**：
+
+1. **存档目录名**：`game_id`（目录名）改用已有的 `_compact_ts()` 格式（`20260717T171023Z`，无冒号），与 checkpoint 文件名保持一致。`created_at` 返回值保持 ISO 8601 可读格式（`2026-07-17T17:10:23Z`）仅供 metadata JSON 存储。两类时间戳职责分离：目录名 = 机器友好，metadata = 人类可读。
+
+2. **Co-Create Prompt 重构**：删除所有 `## Section N: name` 标题行——这是歧义根源。改为三段式结构：
+   - **`# Rules`**：集中放置 variables 和 outline 的规则约束（内容不变）
+   - **`# Output Format`**：新增格式指令区，明确 "exactly three blocks separated by `===` markers" + "no markdown headings, no commentary"
+   - **模板区**：只保留 `=== block ===` 分隔符和内容占位符，与 parser 的 `BLOCK_DELIMITER` 精确对应
+   
+   设计参照 `prompt_builder.py` 中 `ROUND1_TEMPLATE` 的成熟模式：规则与模板分区独立。
+
+3. **拒绝修改 parser**：用户明确要求只修提示词，不修改解析器。理由：parser 行为正确——它只认 `=== block ===` 是设计意图；问题是 prompt 给 LLM 发出了矛盾信号。
+
+**依据**：commit `119332a`（存档目录）+ 本 commit（prompt 修复）；`co_create.py:455-538`（`CO_CREATE_GENERATION_PROMPT`）；`save_manager.py:234-239`（`create_game`）；`docs/spec/data-model.md:84-90`（目录结构规范）。
+
+---
+
 ## 2026-07-17（周五）
 
 ### 选项条件评估收归引擎
