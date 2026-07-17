@@ -3,11 +3,21 @@ import os
 import tempfile
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 from storyloom.core.session import GameSession
 from storyloom.core.co_create import CoCreateFlow, CoCreationResult
 from storyloom.core.game_loop import GameLoop
+from storyloom.user_config import UserConfig
+from storyloom.io.api_client import ApiClient
+
+
+def _test_api_client():
+    """Return an ApiClient with test credentials (no disk I/O)."""
+    cfg = UserConfig()
+    cfg.api_key = "sk-test"
+    cfg.api_base_url = "https://api.test.com"
+    return ApiClient(cfg)
 
 
 SAMPLE_STORY_CONFIG = {
@@ -33,15 +43,14 @@ SAMPLE_RESULT = CoCreationResult(
 
 
 class TestGameSessionInit:
-    @patch("storyloom.core.session.ApiClient")
-    def test_creates_api_client_on_init(self, mock_api):
-        session = GameSession()
-        mock_api.assert_called_once()
+    def test_accepts_explicit_api_client(self):
+        api = _test_api_client()
+        session = GameSession(api_client=api)
+        assert session._api_client is api
 
     def test_game_loop_is_none_initially(self):
-        with patch("storyloom.core.session.ApiClient"):
-            session = GameSession()
-            assert session.game_loop is None
+        session = GameSession(api_client=_test_api_client())
+        assert session.game_loop is None
 
 
 class TestGameSessionSaveManagement:
@@ -51,68 +60,58 @@ class TestGameSessionSaveManagement:
             yield d
 
     def test_list_games_delegates(self, root):
-        with patch("storyloom.core.session.ApiClient"):
-            session = GameSession(root)
-            result = session.list_games()
-            assert result == []  # empty saves root
+        session = GameSession(api_client=_test_api_client(), saves_dir=root)
+        result = session.list_games()
+        assert result == []  # empty saves root
 
     def test_list_saves_requires_game_id(self, root):
-        with patch("storyloom.core.session.ApiClient"):
-            session = GameSession(root)
-            result = session.list_saves("nonexistent_game")
-            assert result == []
+        session = GameSession(api_client=_test_api_client(), saves_dir=root)
+        result = session.list_saves("nonexistent_game")
+        assert result == []
 
     def test_delete_game_returns_false_for_nonexistent(self, root):
-        with patch("storyloom.core.session.ApiClient"):
-            session = GameSession(root)
-            assert session.delete_game("nonexistent") is False
+        session = GameSession(api_client=_test_api_client(), saves_dir=root)
+        assert session.delete_game("nonexistent") is False
 
     def test_delete_save_returns_false_for_nonexistent(self, root):
-        with patch("storyloom.core.session.ApiClient"):
-            session = GameSession(root)
-            assert session.delete_save("nonexistent", "_init.json") is False
+        session = GameSession(api_client=_test_api_client(), saves_dir=root)
+        assert session.delete_save("nonexistent", "_init.json") is False
 
 
 class TestGameSessionLifecycle:
     def test_new_co_create_returns_flow(self):
-        with patch("storyloom.core.session.ApiClient"):
-            session = GameSession()
-            session._api_client = Mock()
-            flow = session.new_co_create()
-            assert isinstance(flow, CoCreateFlow)
-            assert flow._api is session._api_client
+        mock_api = Mock()
+        session = GameSession(api_client=mock_api)
+        flow = session.new_co_create()
+        assert isinstance(flow, CoCreateFlow)
+        assert flow._api is mock_api
 
     def test_start_game_returns_game_loop_and_game_id(self):
-        with patch("storyloom.core.session.ApiClient"):
-            with tempfile.TemporaryDirectory() as root:
-                session = GameSession(root)
-                session._api_client = Mock()
+        with tempfile.TemporaryDirectory() as root:
+            session = GameSession(api_client=Mock(), saves_dir=root)
 
-                gl, game_id = session.start_game(SAMPLE_RESULT)
+            gl, game_id = session.start_game(SAMPLE_RESULT)
 
-                assert isinstance(gl, GameLoop)
-                assert game_id.startswith("test-story_")
-                assert session.game_loop is gl
-                # _init.json should be created
-                init_path = os.path.join(root, game_id, "_init.json")
-                assert os.path.exists(init_path)
+            assert isinstance(gl, GameLoop)
+            assert game_id.startswith("test-story_")
+            assert session.game_loop is gl
+            # _init.json should be created
+            init_path = os.path.join(root, game_id, "_init.json")
+            assert os.path.exists(init_path)
 
     def test_load_game_restores_game_loop(self):
-        with patch("storyloom.core.session.ApiClient"):
-            with tempfile.TemporaryDirectory() as root:
-                session = GameSession(root)
-                session._api_client = Mock()
+        with tempfile.TemporaryDirectory() as root:
+            session = GameSession(api_client=Mock(), saves_dir=root)
 
-                # Create a game first (writes _init.json)
-                _, game_id = session.start_game(SAMPLE_RESULT)
+            # Create a game first (writes _init.json)
+            _, game_id = session.start_game(SAMPLE_RESULT)
 
-                # Load it back
-                gl = session.load_game(game_id, "_init.json")
-                assert isinstance(gl, GameLoop)
+            # Load it back
+            gl = session.load_game(game_id, "_init.json")
+            assert isinstance(gl, GameLoop)
 
     def test_load_game_nonexistent_raises(self):
-        with patch("storyloom.core.session.ApiClient"):
-            with tempfile.TemporaryDirectory() as root:
-                session = GameSession(root)
-                with pytest.raises(FileNotFoundError):
-                    session.load_game("no_such_game", "_init.json")
+        with tempfile.TemporaryDirectory() as root:
+            session = GameSession(api_client=Mock(), saves_dir=root)
+            with pytest.raises(FileNotFoundError):
+                session.load_game("no_such_game", "_init.json")

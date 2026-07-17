@@ -38,8 +38,9 @@ class GameSession:
         gl = session.load_game("game_id", "_init.json")
     """
 
-    def __init__(self, saves_dir: str = "saves"):
-        self._api_client = ApiClient()
+    def __init__(self, api_client: ApiClient | None = None,
+                 saves_dir: str = "saves"):
+        self._api_client = api_client if api_client is not None else ApiClient()
         self._saves_root = saves_dir
         self._game_loop: GameLoop | None = None
 
