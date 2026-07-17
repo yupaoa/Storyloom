@@ -1,6 +1,7 @@
 """Tests for SaveManager — per-game directory + append-only saves."""
 import json
 import os
+import re
 import tempfile
 
 import pytest
@@ -168,7 +169,11 @@ class TestSaveManagerStatic:
         game_dir, game_id, created_at = SaveManager.create_game(root, "测试故事")
         assert os.path.isdir(game_dir)
         assert game_id.startswith("测试故事_")
-        assert game_id.endswith(created_at)
+        # game_id uses compact timestamp (cross-platform safe), not
+        # the ISO 8601 created_at which contains colons invalid on Windows.
+        assert re.match(r"测试故事_\d{8}T\d{6}Z$", game_id)
+        # created_at is the human-readable ISO 8601 format for metadata.
+        assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", created_at)
 
     def test_list_games_empty(self, root):
         assert SaveManager.list_games(root) == []

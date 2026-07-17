@@ -81,11 +81,11 @@ game_state.rejected_changes = []
 
 ### 3.1 目录结构
 
-`saves/` 下每个游戏拥有独立的子目录，目录名格式为 `{label}_{created_at}`（`created_at` 为 ISO 8601 UTC 时间戳，确保唯一性）。每个游戏目录内可包含多个存档文件：
+`saves/` 下每个游戏拥有独立的子目录，目录名格式为 `{label}_{compact_ts}`（`compact_ts` 为紧凑 UTC 时间戳，不含文件系统非法字符，确保唯一性与跨平台兼容）。每个游戏目录内可包含多个存档文件：
 
 ```
 saves/
-  my_story_2026-07-17T12:00:00Z/
+  my_story_20260717T120000Z/
     _init.json                           # 共创完成时创建（round_count=0）
     初次相遇_20260717T120500Z.json        # checkpoint 存档（追加，不覆盖）
     关键抉择_20260717T121530Z.json

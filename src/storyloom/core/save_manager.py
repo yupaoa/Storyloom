@@ -5,7 +5,7 @@ Per data-model.md §3.1-3.4.
 
 Directory layout::
 
-    saves/{label}_{created_at}/
+    saves/{label}_{compact_ts}/
         _init.json              # round_count=0, created at game start
         {cp_title}_{ts}.json    # per-checkpoint saves, appended
 """
@@ -226,14 +226,17 @@ class SaveManager:
 
         Returns:
             ``(game_dir, game_id, created_at)`` where *game_dir* is the
-            absolute path, *game_id* is the directory name, and
+            absolute path, *game_id* is the directory name (uses compact
+            timestamp for cross-platform filesystem safety), and
             *created_at* is the ISO 8601 UTC timestamp.
         """
         root_path = Path(root)
         root_path.mkdir(parents=True, exist_ok=True)
         created_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         safe_label = SaveManager.ILLEGAL_CHARS_RE.sub("_", label)
-        game_id = f"{safe_label}_{created_at}"
+        # Compact timestamp for directory name — colons in ISO 8601
+        # extended format (HH:MM:SS) are invalid on Windows filesystems.
+        game_id = f"{safe_label}_{SaveManager._compact_ts()}"
         game_dir = root_path / game_id
         game_dir.mkdir(exist_ok=False)
         return str(game_dir), game_id, created_at
