@@ -79,90 +79,57 @@ game_state.rejected_changes = []
 
 ## §3 存档系统
 
-### 3.1 存档文件结构
+### 3.1 目录结构
 
-`saves/` 目录下每个 `.json` 文件代表一次完整游玩。文件名来源于 `story_config.label`（重名追加 `_2`、`_3`）。
+`saves/` 下每个游戏拥有独立的子目录，目录名格式为 `{label}_{created_at}`（`created_at` 为 ISO 8601 UTC 时间戳，确保唯一性）。每个游戏目录内可包含多个存档文件：
 
-核心结构：
 ```
-{
-  version: 1,
-  metadata: { label, created_at, updated_at, round_count },
-  config: { temperature, ... },          // 不存储模型标识，模型以 .env 为准
-  story_config: { ..., variables: [...] },
-  state_vars: { ... },
-  outline: [{ node_id, title, goal, status, branches[] }],
-  progress: {
-    current_node, round_count,
-    checkpoint_history[], checkpoint_summaries[], checkpoint_snapshots{}
-  },
-  bridge_text: "..."
-}
+saves/
+  my_story_2026-07-17T12:00:00Z/
+    _init.json                           # 共创完成时创建（round_count=0）
+    初次相遇_20260717T120500Z.json        # checkpoint 存档（追加，不覆盖）
+    关键抉择_20260717T121530Z.json
+    ...
 ```
 
-> **概念区分**：「游戏存档」是 `saves/` 下的文件；「checkpoint 快照」是存档内部的 `checkpoint_snapshots`。
+- **`_init.json`**：元存档。共创阶段完成后立即写入（`round_count=0`）。新游戏和 checkpoint 存档共享完全相同的 JSON 结构，由统一的加载路径读取。
+- **Checkpoint 存档**：每次到达 checkpoint 时追加写入新文件，文件名格式 `{cp_title}_{timestamp}.json`（紧凑 UTC 时间戳），永不覆盖。玩家可回溯到任意历史关键节点。
+- **存档内容结构**：所有存档文件（含 `_init.json`）共享同一 JSON 结构——`version`、`metadata`、`config`、`story_config`（含 `variables`）、`state_vars`、`outline`（含节点状态）、`progress`（含 checkpoint 历史/摘要/快照）、`bridge_text`。
 
-**存档命名**：文件名来源于 `story_config.label`。非法字符（`/` `\` `:` `*` `?` `"` `<` `>` `|`）替换为 `_`。重名时追加 `_2`、`_3`（取最小未占用编号）。统一存放在 `SAVE_DIR` 下。
+> **概念区分**：「游戏存档」是游戏目录下的 JSON 文件；「checkpoint 快照」是存档内部的 `checkpoint_snapshots`（为 Phase 2 回档预留，Phase 1 仅存储不读取）。
 
-### 3.2 自动存档时机
+### 3.2 存档时机
 
 **仅在 checkpoint 到达时触发**（§2 步骤 8）。不设手动存档、不在每轮结束时存档。
 
 | 触发条件 | 行为 |
 |----------|------|
-| `<checkpoint>` 的 `node` 属性被成功处理 | 覆盖 `saves/{label}.json` |
+| `<checkpoint>` 的 `node` 属性被成功处理 | 追加写入新存档文件（不覆盖已有文件） |
+| 共创阶段完成 | 写入 `_init.json`（元存档） |
 | 其他时机 | 不存档 |
 
 ### 3.3 原子写入
 
-```
-1. 序列化 GameState → JSON 字符串（indent=2，确保可读）
-2. 确保 SAVE_DIR 存在（不存在则 os.makedirs）
-3. 写入临时文件：saves/{label}.tmp
-4. os.replace(tmp, saves/{label}.json)   // 原子 rename，跨平台安全
-```
+所有存档文件通过临时文件 + `os.replace` 实现原子写入——先写 `{filename}.tmp`，再原子 rename 到目标文件。整个过程不涉及 LLM，仅本地文件操作。
 
-> 整个过程不涉及 LLM，仅本地文件操作。
+### 3.4 加载与校验
 
-### 3.4 存档加载流程
+加载时校验：version 匹配 → 顶层必需字段存在 → `story_config` 含 `variables` → `current_node` 在 `outline` 中存在。任一校验失败判定为存档损坏——删除损坏文件并向上报告。
 
-```
-load_save(filepath):
-  1. 读取 + JSON 解析
-     ├── 解析失败 → 存档损坏（JSON 不合法）
-
-  2. 校验 version 字段存在且 == 1
-     ├── 不匹配 → 存档损坏（版本不支持）
-
-  3. 校验关键字段存在：
-     story_config (含 variables), state_vars, outline, progress
-     ├── 任一缺失 → 存档损坏（结构不完整）
-
-  4. 校验 progress.current_node 指向的 node_id 在 outline 中存在
-     ├── 不存在 → 存档损坏（数据不一致）
-
-  5. 校验通过 → 构建 GameState：
-     ├── 状态变量值以存档为准（story_config.variables 提供类型定义用于运行时校验）
-     ├── outline 节点状态以存档为准
-     └── config（temperature 等）以存档为准，模型以 .env 为准
-
-  6. 返回 GameState → 进入叙事循环（见 exec-flow.md §4）
-
-  以上任一校验失败 → 存档损坏（致命），永久失效，提示用户后删除文件并返回主菜单。
-```
-
-> **变量自包含**：存档自包含——一次游戏创建后，其变量定义（`story_config.variables`）、大纲结构均以存档为准。运行时校验 state 变更的类型合法性时，以存档内的 `story_config.variables` 为类型定义来源。
+存档自包含——变量定义（`story_config.variables`）、大纲结构均以存档文件为准。运行时校验 state 变更的类型合法性时，以存档内的 `story_config.variables` 为类型定义来源。模型配置以当前应用设置为准。
 
 ### 3.5 存档字段说明
 
 | 字段 | 存储时机 | 说明 |
 |------|---------|------|
-| `metadata.label` | 共创结束后首次存档时写入 | 来源于 `story_config.label` |
-| `metadata.created_at` | 首次存档时写入 | 之后不变 |
-| `metadata.updated_at` | 每次覆盖存档时更新 | |
-| `metadata.round_count` | 每次覆盖存档时更新 | = 当前 `progress.round_count` |
+| `metadata.label` | 共创结束后首次写入 | 来源于 `story_config.label` |
+| `metadata.created_at` | 首次写入时设定 | 之后不变 |
+| `metadata.updated_at` | 每次写入时更新 | |
+| `metadata.round_count` | 每次写入时更新 | = 当前 `progress.round_count` |
+| `progress.checkpoint_history` | 每次 checkpoint 时追加 | checkpoint 节点和标题记录 |
+| `progress.checkpoint_summaries` | 每次 checkpoint 时追加 | 情节摘要列表 |
 | `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |
-| `bridge_text` | 每次覆盖存档时更新 | 加载后作为首轮 User Message |
+| `bridge_text` | 每次写入时更新 | 加载后作为首轮 User Message |
 
 ---
 
