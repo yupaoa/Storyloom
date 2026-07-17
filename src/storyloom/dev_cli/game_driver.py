@@ -22,11 +22,14 @@ import sys
 import termios
 import time
 import tty
+from pathlib import Path
 
 from storyloom.core.session import GameSession
 from storyloom.core.co_create import CoCreateError, CoCreationResult
 from storyloom.core.game_loop import GameLoop
 from storyloom.i18n import init_i18n
+from storyloom.io.api_client import ApiClient
+from storyloom.user_config import UserConfig
 
 from storyloom.dev_cli.observer import DevObserver
 
@@ -582,7 +585,11 @@ def dev_main(argv: list[str] | None = None) -> None:
     Tab-to-auto toggle.  Observer mode defaults to the same manual
     behaviour; ``--instant`` disables all pacing and in-game toggle.
     """
-    init_i18n()
+    # ── Config ─────────────────────────────────────────────────
+    app_dir = _get_app_dir()
+    config = UserConfig(app_dir)
+    locale_dir = str(app_dir / "locale")
+    init_i18n(config.language, locale_dir=locale_dir)
 
     if argv is None:
         argv = sys.argv[1:]
@@ -611,7 +618,8 @@ def dev_main(argv: list[str] | None = None) -> None:
         display_mode = "manual"
 
     # ── Setup ─────────────────────────────────────────────────────
-    session = GameSession()
+    api_client = ApiClient(config)
+    session = GameSession(api_client=api_client)
     observer = DevObserver() if is_observer else None
     ctrl = DisplayController(initial_mode=display_mode)
 
@@ -691,3 +699,18 @@ def dev_main(argv: list[str] | None = None) -> None:
 
         elif choice == "4":
             sys.exit(0)
+
+
+# ── App directory helper ──────────────────────────────────────────
+
+
+def _get_app_dir() -> Path:
+    """Return the application data directory.
+
+    When frozen (PyInstaller), returns the directory containing the executable.
+    In development, returns the project root (two levels up from this file).
+    """
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    else:
+        return Path(__file__).resolve().parents[2]
