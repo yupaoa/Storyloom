@@ -66,7 +66,7 @@ class ApiClient:
         self, messages: list[dict], stream: bool = True
     ) -> urllib.request.Request:
         """Build a POST Request to the chat completions endpoint."""
-        url = f"{self.base_url}/v1/chat/completions"
+        url = f"{self.base_url}/chat/completions"
         body = json.dumps({
             "model": self.model,
             "messages": messages,
