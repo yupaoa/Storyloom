@@ -6,7 +6,7 @@
 
 Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward. It is a **single Python application** (not client-server) — the core engine is UI-agnostic via generator-based event streaming, with a terminal CLI on `main` and a web interface under active parallel development.
 
-**Status (2026-07-10):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Bridge pre-fetch implemented for auto-advance rounds. Dev CLI (`src/storyloom/dev_cli/`) replaces old `main.py` as the CLI test harness — zero engine changes. Web interface (FastAPI + SSE) under active development on parallel branch.
+**Status (2026-07-17):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Per-game directory save system with append-only checkpoint files. Dev CLI (`src/storyloom/dev_cli/`) as CLI test harness — zero engine changes. Web interface (FastAPI + SSE) under active development on parallel branch.
 
 **Key migrations:**
 1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters (2026-07-04) — see `src/storyloom/parser/streaming_parser.py`.
@@ -14,6 +14,7 @@ Storyloom is an AI-powered interactive text fiction game engine. The LLM is the 
 3. **Line-number format** (`NNN| ` prefix) replaced `<seg n="N">` attribute numbering (2026-07-05) — see `tests/prompt_lab/data/prompts/round1-linenum.txt`.
 4. **Bridge pre-fetch** — daemon thread + `queue.Queue` for auto-advance rounds (2026-07-10) — see `src/storyloom/core/game_loop.py` `_launch_api()`.
 5. **StreamingXmlParser restored** (2026-07-11) — streaming parse restored and integrated into all API call paths; bridge pre-fetch depends on it for correct timing. See `docs/engineering-journal.md`.
+6. **UserConfig module** (2026-07-17) — centralized user config via `config.json` replaces `.env`-based config discovery; `ApiClient` now accepts `UserConfig` instead of searching for `.env` files. See `src/storyloom/user_config.py`.
 
 ## Core Design Concepts
 
