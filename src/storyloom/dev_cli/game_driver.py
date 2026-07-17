@@ -17,11 +17,8 @@ Ctrl+C raises KeyboardInterrupt naturally (caught by dev_main).
 
 import argparse
 import collections
-import select
 import sys
-import termios
 import time
-import tty
 from pathlib import Path
 
 from storyloom.core.session import GameSession
@@ -31,6 +28,7 @@ from storyloom.i18n import init_i18n
 from storyloom.io.api_client import ApiClient
 from storyloom.user_config import UserConfig
 
+from storyloom.dev_cli._terminal import TerminalInput
 from storyloom.dev_cli.observer import DevObserver
 
 
@@ -61,37 +59,20 @@ class DisplayController:
 
     def __init__(self, initial_mode: str = "auto"):
         self.mode = initial_mode
-        self._fd = sys.stdin.fileno()
-        self._old_settings: list | None = None
-
-    # ── Raw mode (CLI only — for single-key Tab detection) ──────
-
-    def _enter_raw(self) -> None:
-        """Switch to cbreak mode.  Call before auto-mode sleep loop."""
-        self._old_settings = termios.tcgetattr(self._fd)
-        tty.setcbreak(self._fd)
-
-    def _exit_raw(self) -> None:
-        """Restore normal terminal mode."""
-        if self._old_settings is not None:
-            termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old_settings)
-            self._old_settings = None
+        self._term = TerminalInput()
 
     # ── Toggle detection ────────────────────────────────────────
 
     def poll_toggle(self) -> bool:
         """Non-blocking check for Tab key.  Returns True if mode changed.
 
-        Call during auto-mode sleep loop only.  In cbreak mode, reads
-        a single character without waiting for Enter.
+        Call during auto-mode sleep loop only.  Must be inside a
+        ``raw_mode()`` context on POSIX for single-key detection.
         """
-        r, _, _ = select.select([sys.stdin], [], [], 0)
-        if r:
-            ch = sys.stdin.read(1)
-            if ch == "\t":
-                self._exit_raw()
-                self.mode = "manual"
-                return True
+        ch = self._term.get_char(0)
+        if ch == "\t":
+            self.mode = "manual"
+            return True
         return False
 
 
@@ -378,15 +359,12 @@ def _sleep(duration: float, ctrl: DisplayController) -> None:
     Enters raw (cbreak) mode so Tab is detected without Enter.
     Restores normal mode on exit or when mode switches to manual.
     """
-    ctrl._enter_raw()
-    try:
+    with ctrl._term.raw_mode():
         elapsed = 0.0
         while elapsed < duration and ctrl.mode == "auto":
             time.sleep(0.05)
             elapsed += 0.05
             ctrl.poll_toggle()
-    finally:
-        ctrl._exit_raw()
 
 
 def _wait_enter(ctrl: DisplayController) -> None:
@@ -396,22 +374,16 @@ def _wait_enter(ctrl: DisplayController) -> None:
     same as ``_sleep()``.
     """
     print("[Enter to continue, Tab for auto]")
-    ctrl._enter_raw()
-    try:
+    with ctrl._term.raw_mode():
         while True:
-            r, _, _ = select.select([sys.stdin], [], [], 0.1)
-            if r:
-                ch = sys.stdin.read(1)
-                if ch == "\t":          # Tab → switch to auto
-                    ctrl._exit_raw()
-                    ctrl.mode = "auto"
-                    return
-                if ch in ("\r", "\n"):  # Enter → advance
-                    return
-                if ch == "\x03":        # Ctrl+C
-                    raise KeyboardInterrupt
-    finally:
-        ctrl._exit_raw()
+            ch = ctrl._term.get_char(0.1)
+            if ch == "\t":          # Tab → switch to auto
+                ctrl.mode = "auto"
+                return
+            if ch in ("\r", "\n"):  # Enter → advance
+                return
+            if ch == "\x03":        # Ctrl+C
+                raise KeyboardInterrupt
 
 
 # ═══════════════════════════════════════════════════════════════════
