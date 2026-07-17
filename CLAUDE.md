@@ -133,7 +133,7 @@ Each team owns their test files. UI adds `tests/test_web_*.py`; does not modify 
 - **Conversation:** Chinese (对话用中文)
 - **Code comments & git commits:** English
 - **Git commits:** Conventional Commits (feat/fix/docs/refactor)
-- **Prompt language:** English for all system/narrative prompts (per authoritative `tests/prompt_lab/data/prompts/round1-linenum.txt`). Adventure log prompt in Chinese per prompt-design.md §5.2.
+- **Prompt language:** English for all system/narrative prompts (per authoritative `tests/prompt_lab/data/prompts/round1-linenum.txt`). Output language determined by `story_config.language`.
 - **XML element names:** English (`<seg>`, `<checkpoint>`, `<bridge/>`, etc.)
 - **Variable names in prompts:** Chinese (state variable names, choice names)
 - **Config constants:** Defined in `src/storyloom/config.py`, referenced by name — no hardcoded values in business logic
