@@ -12,6 +12,7 @@ temp/
 
 # Secrets & env
 .env
+config.json
 
 # Python
 __pycache__/
