@@ -8,6 +8,24 @@
 
 ## 2026-07-17（周五）
 
+### UserConfig 模块：集中用户配置管理 + 移除 .env 耦合
+
+**背景**：项目缺少统一的用户配置层。语言硬编码在 `dev_main()` 中；API 凭证通过 `api_client._find_project_root()` 向上搜索 `.git` 目录定位 `.env` 文件——该模式在打包后不可用。存档路径、语言偏好等用户选择无持久化机制。
+
+**决策**：
+
+1. **新增 `UserConfig` 模块**：单类管理 `config.json`（JSON 格式），暴露 `language`/`api_key`/`api_base_url`/`api_model` 四个属性。支持 headless 模式（`app_dir=None`，纯内存）和 disk 模式（读写 `<app_dir>/config.json`）。原子写入（temp + `os.replace`），缺失字段自动回填，损坏 JSON 不删除文件。
+2. **移除 `.env` 依赖**：`ApiClient` 构造器接受 `UserConfig`，不再内部搜索 `.env` 文件。优先级：`os.environ` > `UserConfig` > 默认值。删除 `_find_project_root()`、`_load_dotenv()`、`_load_env()`。
+3. **i18n 运行时切换**：新增 `switch_language(language)`，提取 `_load_translator()` 供 `init_i18n` 和 `switch_language` 共用。`init_i18n` 新增 `locale_dir` 参数供打包场景传入自定义路径（默认 `__file__`-relative fallback 保持兼容）。
+4. **依赖注入**：`GameSession.__init__` 的 `api_client` 变为可选参数，入口点负责 `UserConfig → ApiClient → GameSession` 全链路 wiring。
+5. **应用根目录辅助函数**：`_get_app_dir()` 封装 `sys.frozen` 判断——打包后指向 exe 所在目录，开发时指向项目根。`config.json`、`locale/` 均基于 `app_dir` 解析。
+
+**改动**：10 文件，+474/-267 行。新增 `user_config.py`、`config.example.json`、`test_user_config.py`、`test_i18n.py`。删除 `.env.example`。276 tests passed，零回归。
+
+**依据**：commit `86c9345`..`f5d0917`（连续 9 commits）；spec `docs/superpowers/specs/2026-07-17-user-config-design.md`；plan `docs/superpowers/plans/2026-07-17-user-config-implementation.md`。
+
+---
+
 ### 存档系统重构：按游戏分目录 + 追加式 checkpoint 存档
 
 **背景**：当前存档系统每个游戏只有一个 `saves/{label}.json` 文件，每次 checkpoint 覆盖写入。玩家无法回到历史关键节点——存档仅适用于"继续最新进度"，不支持回溯或时间线浏览。需求：每个 checkpoint 独立存档、追加不覆盖、UI 两级选择（先选游戏再选存档）、修改最小化。
