@@ -66,6 +66,7 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 | `src/storyloom/io/api_client.py` | OpenAI-compatible API client | Implementation |
 | `src/storyloom/dev_cli/` | Dev CLI — `DevObserver`, deque-buffered display | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
+| `src/storyloom/user_config.py` | UserConfig — centralized config management (API keys, language, model) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
 | `tests/test_*.py` | Unit tests (mock, no API) | Test |
 | `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
