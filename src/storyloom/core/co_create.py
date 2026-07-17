@@ -164,10 +164,10 @@ class CoCreateParser:
             var_type = m.group(2)
             raw_initial = m.group(3).strip()
 
-            if var_type not in ("number", "string", "list"):
+            if var_type not in ("number", "string"):
                 raise ValueError(
                     f"Unknown type '{var_type}' for variable '{name}'. "
-                    f"Must be number, string, or list."
+                    f"Must be number or string."
                 )
 
             if var_type == "number":
@@ -178,11 +178,6 @@ class CoCreateParser:
                         f"Number variable '{name}' initial value "
                         f"'{raw_initial}' is not an integer."
                     )
-            elif var_type == "list":
-                if raw_initial in ("[]", ""):
-                    initial = []
-                else:
-                    initial = [s.strip() for s in raw_initial.split(",") if s.strip()]
             else:
                 initial = raw_initial
 
@@ -222,16 +217,16 @@ class CoCreateParser:
 
         # g: Type counts
         num_count = sum(1 for v in variables if v["type"] == "number")
-        label_count = sum(1 for v in variables if v["type"] in ("string", "list"))
+        string_count = sum(1 for v in variables if v["type"] == "string")
 
         if num_count > VARIABLE_NUMERIC_CAP:
             errors.append(
                 f"Numeric variables ({num_count}) exceed maximum "
                 f"{VARIABLE_NUMERIC_CAP}"
             )
-        if label_count > VARIABLE_LABEL_CAP:
+        if string_count > VARIABLE_LABEL_CAP:
             errors.append(
-                f"Label variables ({label_count}) exceed maximum "
+                f"String variables ({string_count}) exceed maximum "
                 f"{VARIABLE_LABEL_CAP}"
             )
 
@@ -255,18 +250,6 @@ class CoCreateParser:
                     errors.append(
                         f"'{name}': string initial value must be non-empty"
                     )
-            elif var_type == "list":
-                if not isinstance(initial, list):
-                    errors.append(
-                        f"'{name}': list initial must be a list"
-                    )
-                else:
-                    for i, elem in enumerate(initial):
-                        if not isinstance(elem, str):
-                            errors.append(
-                                f"'{name}': list element [{i}] must be string, "
-                                f"got {type(elem).__name__}"
-                            )
 
         return errors
 
@@ -493,10 +476,9 @@ characters:
 ## Section 2: variables
 
 Design state variables for this story. Rules:
-- ≤3 variables total. ≤2 numeric (number), ≤1 label (string/list).
+- ≤3 variables total. ≤2 numeric (number), ≤1 string.
 - Numeric: range [0, 100]. Use for health, trust, sanity, etc.
 - String: for status markers, faction affiliation, etc.
-- List: elements are strings. For inventory, clues, skills, etc.
 - Fewer is better. Only create variables that will drive branching or gate choices.
 
 Genre seed reference (adopt or adapt based on the story; replace if unsuitable):

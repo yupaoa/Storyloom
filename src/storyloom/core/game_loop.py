@@ -81,7 +81,6 @@ class GameState:
 
     VALID_NUMBER_OPS = {"+", "-", "="}
     VALID_STRING_OPS = {"="}
-    VALID_LIST_OPS = {"+", "-"}
     NUMBER_MIN = 0
     NUMBER_MAX = 100
 
@@ -108,8 +107,6 @@ class GameState:
                 self._state_vars[name] = int(initial)
             elif var_type == "string":
                 self._state_vars[name] = initial
-            elif var_type == "list":
-                self._state_vars[name] = list(initial) if initial else []
             else:
                 raise ValueError(f"Unknown variable type: {var_type}")
 
@@ -161,9 +158,8 @@ class GameState:
         1. Verify variable exists.
         2. Verify operation is valid for the variable type.
         3. For numbers: try int conversion, verify range [0, 100].
-        4. For lists: verify the value is not empty.
-        5. Evaluate condition if present.
-        6. Apply the change.
+        4. Evaluate condition if present.
+        5. Apply the change.
 
         Args:
             set_op: The SetOperation from parsed XML.
@@ -198,11 +194,6 @@ class GameState:
                 accepted=False,
                 reason=f"Invalid string operation: {set_op.op} for {var_name}",
             )
-        if var_type == "list" and set_op.op not in self.VALID_LIST_OPS:
-            return SetResult(
-                accepted=False,
-                reason=f"Invalid list operation: {set_op.op} for {var_name}",
-            )
 
         # Step 3: Parse/try value
         if var_type == "number":
@@ -212,13 +203,6 @@ class GameState:
                 return SetResult(
                     accepted=False,
                     reason=f"Cannot parse '{set_op.val}' as integer for {var_name}",
-                )
-        elif var_type == "list":
-            val = set_op.val
-            if not val:
-                return SetResult(
-                    accepted=False,
-                    reason=f"Empty value for list operation on {var_name}",
                 )
         else:
             val = set_op.val
@@ -237,8 +221,6 @@ class GameState:
             return self._apply_number_op(var_name, set_op.op, val)
         elif var_type == "string":
             return self._apply_string_op(var_name, val)
-        elif var_type == "list":
-            return self._apply_list_op(var_name, set_op.op, val)
 
         return SetResult(accepted=False, reason="Unknown variable type")
 
@@ -275,32 +257,6 @@ class GameState:
     def _apply_string_op(self, var_name: str, val: str) -> SetResult:
         """Apply a string assignment."""
         self._state_vars[var_name] = val
-        return SetResult(accepted=True)
-
-    def _apply_list_op(self, var_name: str, op: str, val: str) -> SetResult:
-        """Apply a list add/remove operation.
-
-        Per block-spec.md §5, silent no-ops (duplicate add /
-        non-existent remove) are recorded so the LLM gets feedback
-        in the next round.
-        """
-        current: list = self._state_vars[var_name]
-
-        if op == "+":
-            if val in current:
-                return SetResult(
-                    accepted=True,
-                    reason=f"{var_name}: '{val}' already in list, add skipped",
-                )
-            current.append(val)
-        elif op == "-":
-            if val not in current:
-                return SetResult(
-                    accepted=True,
-                    reason=f"{var_name}: '{val}' not in list, remove skipped",
-                )
-            current.remove(val)
-
         return SetResult(accepted=True)
 
     def evaluate_condition(

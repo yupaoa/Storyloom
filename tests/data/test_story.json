@@ -13,9 +13,7 @@
         "variables": [
             {"name": "体力", "type": "number", "initial": 80},
             {"name": "信任度", "type": "number", "initial": 10},
-            {"name": "线索", "type": "number", "initial": 0},
-            {"name": "所属势力", "type": "string", "initial": "自由佣兵"},
-            {"name": "物品", "type": "list", "initial": []}
+            {"name": "所属势力", "type": "string", "initial": "自由佣兵"}
         ]
     },
     "outline_text": "ch1_intro [active] — 霓虹深渊：深夜的地下城酒吧\n  → ch2_meeting [pending]\nch2_meeting [pending] — 接头：与神秘线人耗子会面\nch3_chase [pending] — 追逐：逃避荒坂的追捕\nch4_revelation [pending] — 真相：芯片的秘密逐渐揭开\nch5_ending [pending] — 结局：最终抉择",

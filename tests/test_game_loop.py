@@ -24,7 +24,6 @@ SAMPLE_STORY_CONFIG = {
         {"name": "体力", "type": "number", "initial": 80},
         {"name": "信任度", "type": "number", "initial": 10},
         {"name": "所属势力", "type": "string", "initial": "自由佣兵"},
-        {"name": "物品", "type": "list", "initial": []},
     ],
 }
 
@@ -122,7 +121,6 @@ class TestGameStateInit:
         assert gs.state_vars["体力"] == 80
         assert gs.state_vars["信任度"] == 10
         assert gs.state_vars["所属势力"] == "自由佣兵"
-        assert gs.state_vars["物品"] == []
 
     def test_raises_on_unknown_variable_type(self):
         """GameState should raise on unsupported variable type."""
@@ -232,25 +230,6 @@ class TestGameStateApplySet:
         assert result.accepted
         assert gs.state_vars["所属势力"] == "荒坂重工"
 
-    def test_applies_list_add(self):
-        """Adding to a list variable should work."""
-        gs = GameState(SAMPLE_STORY_CONFIG)
-        op = SetOperation(var="物品", op="+", val="神秘芯片", condition=None)
-        result = gs.apply_set(op, {})
-        assert result.accepted
-        assert "神秘芯片" in gs.state_vars["物品"]
-
-    def test_applies_list_remove(self):
-        """Removing from a list variable should work."""
-        gs = GameState(SAMPLE_STORY_CONFIG)
-        # First add
-        gs.apply_set(SetOperation(var="物品", op="+", val="神秘芯片", condition=None), {})
-        assert "神秘芯片" in gs.state_vars["物品"]
-        # Then remove
-        result = gs.apply_set(SetOperation(var="物品", op="-", val="神秘芯片", condition=None), {})
-        assert result.accepted
-        assert "神秘芯片" not in gs.state_vars["物品"]
-
     def test_rejects_invalid_operation_for_type(self):
         """Invalid operation for a type should raise."""
         gs = GameState(SAMPLE_STORY_CONFIG)
@@ -258,13 +237,13 @@ class TestGameStateApplySet:
         result = gs.apply_set(op, {})
         assert not result.accepted
 
-    def test_rejects_list_add_on_non_list(self):
-        """String vars should reject list operations (silently)."""
-        gs = GameState(SAMPLE_STORY_CONFIG)
-        op = SetOperation(var="所属势力", op="+", val="新势力", condition=None)
-        result = gs.apply_set(op, {})
-        assert not result.accepted
-        assert "Invalid string operation" in result.reason
+    def test_rejects_unknown_variable_type(self):
+        """GameState should raise ValueError for unsupported variable types."""
+        config = {
+            "variables": [{"name": "test", "type": "list", "initial": []}]
+        }
+        with pytest.raises(ValueError, match="Unknown variable type"):
+            GameState(config)
 
     def test_condition_against_state_variable(self):
         """Condition can reference state variables."""

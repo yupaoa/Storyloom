@@ -170,24 +170,13 @@ class TestParseVariables:
         assert result[1] == {"name": "信任度", "type": "number", "initial": 10}
         assert result[2] == {"name": "所属势力", "type": "string", "initial": "自由佣兵"}
 
-    def test_parse_list_type_empty(self):
-        text = "物品: list, []"
-        result = CoCreateParser.parse_variables(text)
-        assert result[0]["type"] == "list"
-        assert result[0]["initial"] == []
-
-    def test_parse_list_type_with_elements(self):
-        text = "线索: list, 芯片, 密钥"
-        result = CoCreateParser.parse_variables(text)
-        assert result[0]["initial"] == ["芯片", "密钥"]
-
     def test_parse_single_variable(self):
         text = "理智值: number, 50"
         result = CoCreateParser.parse_variables(text)
         assert len(result) == 1
         assert result[0]["name"] == "理智值"
 
-    def test_empty_text_returns_empty_list(self):
+    def test_empty_text_returns_empty_variables(self):
         result = CoCreateParser.parse_variables("")
         assert result == []
 
@@ -241,14 +230,14 @@ class TestValidateVariables:
         errors = CoCreateParser.validate_variables(vars_list)
         assert any("numeric" in e.lower() for e in errors)
 
-    def test_too_many_labels(self):
+    def test_too_many_strings(self):
         vars_list = [
             {"name": "a", "type": "string", "initial": "x"},
-            {"name": "b", "type": "list", "initial": []},
+            {"name": "b", "type": "string", "initial": "y"},
             {"name": "c", "type": "number", "initial": 50},
         ]
         errors = CoCreateParser.validate_variables(vars_list)
-        assert any("label" in e.lower() for e in errors)
+        assert any("string" in e.lower() for e in errors)
 
     def test_number_out_of_bounds(self):
         vars_list = [
@@ -278,14 +267,6 @@ class TestValidateVariables:
         ]
         errors = CoCreateParser.validate_variables(vars_list)
         assert any("duplicate" in e.lower() or "重复" in e for e in errors)
-
-    def test_list_element_not_string(self):
-        vars_list = [
-            {"name": "物品", "type": "list", "initial": ["a", 123]},
-        ]
-        errors = CoCreateParser.validate_variables(vars_list)
-        assert any("string" in e.lower() for e in errors)
-
 
 class TestParseOutline:
     """Tests for parse_outline — [node] block parsing."""

@@ -31,7 +31,7 @@ MAX_CONTEXT_TOKENS = 50_000   # target ceiling
 # Variable caps (per 2026-07-05 variable-cap spec)
 VARIABLE_CAP = 3            # max total variables
 VARIABLE_NUMERIC_CAP = 2    # max numeric (number) variables
-VARIABLE_LABEL_CAP = 1      # max label (string/list) variables
+VARIABLE_LABEL_CAP = 1      # max string variables
 
 # Story config label constraints
 STORY_LABEL_MIN_CHARS = 5

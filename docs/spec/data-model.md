@@ -185,7 +185,7 @@ load_save(filepath):
 | `STORY_LABEL_MAX_CHARS` | 15 | 故事标签最长字符数 |
 | `VARIABLE_CAP` | 3 | 变量总数上限（per 2026-07-05 variable-cap spec） |
 | `VARIABLE_NUMERIC_CAP` | 2 | number 型变量上限 |
-| `VARIABLE_LABEL_CAP` | 1 | string/list 型变量上限 |
+| `VARIABLE_LABEL_CAP` | 1 | string 型变量上限 |
 | `SUPPORTED_LANGUAGES` | `{"zh-CN", "en"}` | 支持的语言集合 |
 | `DEFAULT_LANGUAGE` | `"zh-CN"` | 默认语言（语言未指定或不受支持时的 fallback） |
 
@@ -257,7 +257,7 @@ load_save(filepath):
 | 5 | **重试策略** | 所有阶段 API 调用失败均不自动重试——由引擎向 UI 报告错误，用户手动决定重试或退出 |
 | 6 | **用户决策** | 重试耗尽等异常——告知用户具体信息，由用户选择（重试 / 继续 / 返回主菜单） |
 | 7 | **错误隔离** | state 逐条校验、options 逐行解析——单条失败不影响同轮其余有效条目 |
-| 8 | **静默错误** | 微小校验错误（list 增删不存在元素、number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
+| 8 | **静默错误** | 微小校验错误（number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
 | 9 | **常量引用** | 统一使用 §A 中定义的常量名，禁止在业务代码中硬编码数值 |
 | 10 | **编号宽容** | 叙事段编号偏差（跳号、重复、起始非 1）不触发重试——内容质量优先于编号准确性 |
 | 11 | **存档原子写入** | 先写 `{label}.tmp`，再 `os.replace` 到目标文件 |
