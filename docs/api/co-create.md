@@ -176,7 +176,8 @@ except CoCreateError as e:
 if user_wants_to_generate():
     try:
         result = flow.generate()
-        gl = session.start_game(result)
+        gl, game_id = session.start_game(result)
+        # game_id is used for subsequent save operations
     except CoCreateError as e:
         if ask_retry():
             result = flow.retry_generate()
@@ -194,8 +195,9 @@ class CoCreationResult:
     outline_nodes: list   # structured node data for GameLoop / progress display
 ```
 
-Pass `CoCreationResult` to `GameSession.start_game()` — it handles
-`GameState` creation, `GameLoop` construction, and auto-save wiring.
+Pass ``CoCreationResult`` to ``GameSession.start_game()`` — it returns
+``(GameLoop, game_id)``, handling ``GameState`` creation, ``GameLoop``
+construction, and auto-save wiring.
 
 ## Validation
 
