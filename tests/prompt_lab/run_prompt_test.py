@@ -16,7 +16,7 @@ Usage:
   python3 tests/run_prompt_test.py --prompt tests/prompt_lab/data/prompts/v2.txt
 
 Setup:
-  1. Copy .env.example to .env and fill in your LLM_API_KEY
+  1. Set LLM_API_KEY environment variable (or configure via config.json)
   2. Put prompt files in tests/prompt_lab/data/prompts/ (or anywhere)
   3. Results auto-saved to tests/prompt_lab/data/output/<prompt_name>/
 
