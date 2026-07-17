@@ -437,16 +437,25 @@ def _record_adv(observer: DevObserver, game_loop: GameLoop, response: str) -> No
 def _show_choices(evt: dict) -> str | None:
     """Display choice options and get player selection.
 
-    Returns choice key (1-indexed string) or None (quit).
+    Reads the engine-evaluated ``enabled`` list to annotate locked
+    options.  Disabled selections are rejected locally (never sent
+    to the engine).  Returns choice key (1-indexed string) or None
+    (quit).
     """
     choices = evt.get("choices", [])
     total = 0
+    disabled_indices: set[int] = set()
     for choice in choices:
         labels = choice.get("labels", [])
-        branches = choice.get("branches", [])
+        enabled = choice.get("enabled", [True] * len(labels))
         for i, label in enumerate(labels):
-            print(f"  [{total + i + 1}] {label}")
-        total += len(branches)
+            idx = total + i + 1
+            if i < len(enabled) and not enabled[i]:
+                print(f"  [{idx}] {label} (locked)")
+                disabled_indices.add(idx)
+            else:
+                print(f"  [{idx}] {label}")
+        total += len(labels)
 
     while True:
         try:
@@ -456,6 +465,9 @@ def _show_choices(evt: dict) -> str | None:
         if raw in ("q", "quit", "exit"):
             return None
         if raw.isdigit() and 1 <= int(raw) <= total:
+            if int(raw) in disabled_indices:
+                print("  This option is currently unavailable.")
+                continue
             return raw
         print(f"  Enter 1-{total}, or q to quit")
 

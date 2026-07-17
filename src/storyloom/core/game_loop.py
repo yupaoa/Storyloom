@@ -717,10 +717,30 @@ class GameLoop:
 
                     elif etype == EventType.CHOICE_END:
                         if event.choice_data:
+                            # ── Evaluate option conditions (engine
+                            #    responsibility per exec-flow.md §4.6).
+                            #    Uses the same evaluator as <set> and
+                            #    <route>.  choice_dict is {} because no
+                            #    choice has been made yet this round.
+                            cd = event.choice_data
+                            branches = cd.get("branches", [])
+                            conditions = cd.get("conditions", {})
+                            enabled = [
+                                self.game_state.evaluate_condition(
+                                    conditions.get(b), {}
+                                )
+                                for b in branches
+                            ]
+                            # Fallback: all disabled → all enabled
+                            # (prevents game lockup).
+                            if enabled and not any(enabled):
+                                enabled = [True] * len(enabled)
+                            cd["enabled"] = enabled
+
                             # ── Pause: yield options, await UI input ─
                             key = yield {
                                 "type": "options",
-                                "choices": [event.choice_data],
+                                "choices": [cd],
                             }
                             # ── Resume: apply player's choice ───────
                             if key is not None:

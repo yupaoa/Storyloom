@@ -8,6 +8,20 @@
 
 ## 2026-07-17（周五）
 
+### 选项条件评估收归引擎
+
+**背景**：`<opt if="...">` 的条件评估此前由 UI 层负责——`options` 事件携带原始 `conditions` 字符串，UI 需自行实现与引擎一致的评估逻辑。这与 `<set>`、`<route>` 的条件评估（均由 `GameState.evaluate_condition()` 统一处理）不一致，且违反"本地数据为唯一真相源"原则。
+
+**决策**：
+1. 引擎在 yield `options` 事件前评估每个选项的 `if` 条件，结果写入 `enabled` 列表
+2. 全部不可选时兜底为全部可选（防止游戏卡死）
+3. CLI 适配：读 `enabled` 标注 `(locked)`，disabled 项本地拦截
+4. spec `exec-flow.md` §4.6 同步更新
+
+**依据**：memory `option-condition-engine-evaluation.md`；spec `exec-flow.md` §4.6；`game_loop.py` L718-738；`game_driver.py` L437-474。
+
+---
+
 ### UserConfig 模块：集中用户配置管理 + 移除 .env 耦合
 
 **背景**：项目缺少统一的用户配置层。语言硬编码在 `dev_main()` 中；API 凭证通过 `api_client._find_project_root()` 向上搜索 `.git` 目录定位 `.env` 文件——该模式在打包后不可用。存档路径、语言偏好等用户选择无持久化机制。
