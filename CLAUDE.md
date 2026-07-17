@@ -118,7 +118,6 @@ Each team owns their test files. UI adds `tests/test_web_*.py`; does not modify 
 
 - `from storyloom.core import GameSession` — preferred import path for UI
 - `from storyloom import GameSession` — also available via top-level package
-- `Display` is NOT exported from the top-level `storyloom` package (CLI-only; import from `storyloom.io.display` directly)
 
 ## Tech Stack
 
