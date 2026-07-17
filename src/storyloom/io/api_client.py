@@ -1,6 +1,6 @@
 """OpenAI-compatible API client using urllib (standard library only).
 
-Loads configuration from .env file at module root.
+Reads API configuration from UserConfig, with os.environ as override.
 Supports streaming (SSE) and non-streaming chat completions.
 """
 
@@ -11,7 +11,6 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass
-from pathlib import Path
 
 from storyloom.config import DEFAULT_MODEL, STREAM_STALL_TIMEOUT_SEC
 
@@ -29,82 +28,38 @@ class ApiResult:
     tokens: dict | None       # {"prompt": N, "completion": N, "total": N}
 
 
-def _find_project_root() -> Path:
-    """Find the project root directory by walking up from this file."""
-    here = Path(__file__).resolve().parent
-    for parent in [here, *here.parents]:
-        if (parent / ".git").exists() or (parent / "README.md").exists():
-            return parent
-    return here.parent  # fallback
-
-
-def _load_dotenv(env_path: Path) -> dict[str, str]:
-    """Load .env file and return a dict of key=value pairs."""
-    result = {}
-    if not env_path.exists():
-        return result
-    with open(env_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                continue
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip().strip("\"'")
-            result[key] = value
-    return result
-
-
 class ApiClient:
     """OpenAI-compatible chat completion API client.
 
-    Loads credentials from .env file on init.
+    Reads credentials from UserConfig, with os.environ as override.
     Supports streaming (SSE) via stream_chat() and one-shot via chat().
     """
 
-    def __init__(self):
-        self.api_key = None
-        self.base_url = None
-        self.model = DEFAULT_MODEL
-        self._env_loaded = False
-        self._load_env()
-        self._validate_config()
+    def __init__(self, config: "UserConfig | None" = None):
+        from storyloom.user_config import UserConfig
+        cfg = config if config is not None else UserConfig()
 
-    def _load_env(self) -> None:
-        """Load .env from project root."""
-        project_root = _find_project_root()
-        env_path = project_root / ".env"
-        env_vars = _load_dotenv(env_path)
-
-        self.api_key = env_vars.get("LLM_API_KEY") or os.environ.get("LLM_API_KEY")
-        self.base_url = env_vars.get("LLM_BASE_URL") or os.environ.get("LLM_BASE_URL")
+        self.api_key = os.environ.get("LLM_API_KEY") or cfg.api_key
+        self.base_url = (
+            os.environ.get("LLM_BASE_URL") or cfg.api_base_url
+        ).rstrip("/")
         self.model = (
-            env_vars.get("LLM_MODEL")
-            or os.environ.get("LLM_MODEL")
-            or DEFAULT_MODEL
+            os.environ.get("LLM_MODEL") or cfg.api_model or DEFAULT_MODEL
         )
 
-        # Normalize base_url: strip trailing slash
-        if self.base_url:
-            self.base_url = self.base_url.rstrip("/")
-
-        self._env_loaded = True
+        self._validate_config()
 
     def _validate_config(self) -> None:
         """Validate that required config is present."""
         if not self.api_key:
             raise RuntimeError(
-                "API Key not found. Create a .env file at the project root "
-                "with LLM_API_KEY=your-key-here "
-                "(see .env.example)"
+                "API Key not found. Set it in the application settings "
+                "or via the LLM_API_KEY environment variable."
             )
         if not self.base_url:
             raise RuntimeError(
-                "Base URL not found. Create a .env file at the project root "
-                "with LLM_BASE_URL=https://api.deepseek.com "
-                "(see .env.example)"
+                "Base URL not found. Set it in the application settings "
+                "or via the LLM_BASE_URL environment variable."
             )
 
     def _build_request(
