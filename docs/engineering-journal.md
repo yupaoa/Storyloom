@@ -8,6 +8,25 @@
 
 ## 2026-07-17（周五）
 
+### 存档系统重构：按游戏分目录 + 追加式 checkpoint 存档
+
+**背景**：当前存档系统每个游戏只有一个 `saves/{label}.json` 文件，每次 checkpoint 覆盖写入。玩家无法回到历史关键节点——存档仅适用于"继续最新进度"，不支持回溯或时间线浏览。需求：每个 checkpoint 独立存档、追加不覆盖、UI 两级选择（先选游戏再选存档）、修改最小化。
+
+**决策**：
+
+1. **Per-game 目录结构**：`saves/{label}_{created_at}/` 下存放所有存档。`_init.json`（`round_count=0`）为共创结束时创建的"元存档"——新游戏入口和 checkpoint 存档共享完全相同的格式（`to_save_dict()` 输出），`from_save_dict()` 统一加载。
+2. **追加模式**：checkpoint 存档文件名为 `{cp_title}_{timestamp}.json`，时间戳保证不重名不覆盖。`SaveManager.save(cp_title=None)` 写 `_init.json`，`cp_title=str` 写 checkpoint 存档。
+3. **`start_game()` 和 `load_game()` 收敛为单一路径**：`start_game(result)` 直接从 `CoCreationResult` 构建 `_init.json` 字典（零 GameLoop 依赖），写入后调用 `load_game()` 加载。新游戏 / 继续 / 回溯三条路径完全一致。
+4. **修复 Round 1 prompt 状态值不一致**：`build_round1()` 原从 `story_config.variables[].initial` 读取变量值——读档时 LLM 看到初始值而非当前实际值。改为必传 `state_vars` 参数，始终显示 `game_state.state_vars` 实际值。删除旧 `_format_state_vars()` 方法。
+5. **SaveManager API 重构**：实例方法操作单个游戏目录（`save`/`load`/`delete`/`list_saves`），跨游戏操作改为静态方法（`create_game`/`list_games`/`delete_game`/`list_saves_for_game`）。
+6. **GameSession API 适配**：`start_game()` 返回 `(GameLoop, game_id)`；`load_game(game_id, filename)` 两级定位；新增 `list_games()`、`delete_game(game_id)`、`delete_save(game_id, filename)`。去除持久 SaveManager 实例。
+
+**改动**：9 文件，+623/-252 行。核心引擎文件零改动：`co_create.py`、`context_manager.py`、`streaming_parser.py`、`api_client.py`、`config.py`、`i18n.py`。251 tests passed。
+
+**依据**：commit `66fa07f`；plan `hidden-jumping-ripple.md`；`docs/spec/data-model.md §3.1-3.4`；`prompt_builder.py:220-222`（旧 `_format_state_vars` 逻辑）。
+
+---
+
 ### 删除 `list` 变量类型
 
 **背景**：存档中发现 LLM 为"事件标记"变量使用了 `list` 类型。审查发现虽然 `list` 类型在代码库中完整实现（初始化、`<set>` 操作 `+`/`-`、静默去重），但条件求值不支持 `包含`/`不含` 操作符——LLM 在路线条件中自然使用这些操作符时，引擎正则无法匹配，静默返回 `False`，导致路由永远走兜底逻辑。让 LLM 操作 list 类型带来的复杂度远大于其价值。
