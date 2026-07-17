@@ -596,6 +596,7 @@ class GameLoop:
             outline_text=self.outline_text,
             current_node=self.current_node or "",
             goal=self.goal or "",
+            state_vars=self.game_state.state_vars,
         )
 
         # If resuming from a save, append bridge_text per
@@ -1525,7 +1526,7 @@ class GameLoop:
 
         if self._save_manager is not None:
             try:
-                self._save_manager.save(self.to_save_dict())
+                self._save_manager.save(self.to_save_dict(), cp_title)
             except Exception:
                 pass
 

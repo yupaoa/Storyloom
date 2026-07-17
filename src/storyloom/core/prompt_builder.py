@@ -200,6 +200,7 @@ class PromptBuilder:
         outline_text: str,
         current_node: str,
         goal: str,
+        state_vars: dict[str, int | str],
     ) -> str:
         """Build Round 1 prompt (permanent anchor).
 
@@ -208,6 +209,7 @@ class PromptBuilder:
             outline_text: Formatted outline tree text.
             current_node: Current outline node ID.
             goal: Current node narrative goal.
+            state_vars: Current state variable values (new game or loaded).
 
         Returns:
             Full Round 1 prompt string.
@@ -217,8 +219,8 @@ class PromptBuilder:
         narr_limit = limits["narration"]
         dial_limit = limits["dialogue"]
 
-        state_vars_text = PromptBuilder._format_state_vars(
-            story_config.get("variables", [])
+        state_vars_text = PromptBuilder._format_current_state(
+            state_vars, story_config.get("variables", [])
         )
 
         # Build protagonist line
@@ -390,14 +392,20 @@ Requirements:
         return prompt
 
     @staticmethod
-    def _format_state_vars(variables: list[dict]) -> str:
-        """Format variable definitions for display in Round 1 prompt."""
+    def _format_current_state(
+        state_vars: dict[str, int | str],
+        variables: list[dict],
+    ) -> str:
+        """Format current state values for prompt display.
+
+        Uses *variables* only for type lookup (number → ``/ 100`` suffix).
+        Values come from *state_vars* — always the actual runtime values.
+        """
+        var_types = {v["name"]: v.get("type", "") for v in variables}
         lines = []
-        for v in variables:
-            name = v["name"]
-            initial = v["initial"]
-            if v["type"] == "number":
-                lines.append(f"{name}: {initial} / 100")
+        for name, value in state_vars.items():
+            if var_types.get(name) == "number":
+                lines.append(f"{name}: {value} / 100")
             else:
-                lines.append(f"{name}: {initial}")
+                lines.append(f"{name}: {value}")
         return "\n".join(lines)

@@ -87,7 +87,8 @@ class TestIntegration:
 
         # Round 1
         r1_prompt = pb.build_round1(
-            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易"
+            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易",
+            {"体力": 80, "信任度": 10},
         )
         sp1 = StreamingXmlParser()
         for line in ROUND1_OUTPUT.split("\n"):
@@ -154,7 +155,8 @@ class TestIntegration:
         cm = ContextManager()
 
         r1 = pb.build_round1(
-            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子交易"
+            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子交易",
+            {"体力": 80, "信任度": 10},
         )
         cm.set_round1(r1, ROUND1_OUTPUT)
 
@@ -177,7 +179,7 @@ class TestIntegration:
         for line in ROUND1_OUTPUT.split("\n"):
             sp.feed_line(line)
         cm.set_round1(
-            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易"),
+            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易", {"体力": 80, "信任度": 10}),
             ROUND1_OUTPUT,
             bridge_text=sp.get_bridge_text(),
         )
@@ -198,7 +200,7 @@ class TestIntegration:
         for line in ROUND1_OUTPUT.split("\n"):
             sp.feed_line(line)
         cm.set_round1(
-            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易"),
+            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易", {"体力": 80, "信任度": 10}),
             ROUND1_OUTPUT,
             bridge_text=sp.get_bridge_text(),
         )

@@ -33,43 +33,71 @@ ch3_betrayal [pending] — 背叛之路：杀出重围
 ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 """
 
+# State vars matching initial values in SAMPLE_STORY_CONFIG.variables
+SAMPLE_STATE_VARS = {"体力": 80, "信任度": 10, "所属势力": "自由佣兵"}
+
 
 class TestBuildRound1:
     def test_round1_contains_role_definition(self):
         pb = PromptBuilder()
-        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
+        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", SAMPLE_STATE_VARS)
         assert "narrative engine" in result
 
     def test_round1_contains_xml_format_spec(self):
         pb = PromptBuilder()
-        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
+        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", SAMPLE_STATE_VARS)
         assert "<story>" in result
         assert "<seg>" in result
         assert "<bridge/>" in result
 
     def test_round1_contains_format_example(self):
         pb = PromptBuilder()
-        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
+        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", SAMPLE_STATE_VARS)
         assert "Snow fell" in result
         assert "Innkeeper" in result
 
     def test_round1_contains_story_context(self):
         pb = PromptBuilder()
-        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
+        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", SAMPLE_STATE_VARS)
         assert "赛博朋克冒险" in result
         assert "林焰" in result
         assert "ch2_confrontation" in result
 
     def test_round1_contains_state_variables(self):
         pb = PromptBuilder()
-        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
+        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", SAMPLE_STATE_VARS)
         assert "体力" in result
         assert "信任度" in result
 
     def test_round1_ends_with_start_instruction(self):
         pb = PromptBuilder()
-        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易")
+        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", SAMPLE_STATE_VARS)
         assert "start of the whole story" in result
+
+    def test_round1_uses_state_vars_not_initial_values(self):
+        """When state_vars differ from story_config.variables initial values,
+        the prompt shows the actual state_vars values."""
+        pb = PromptBuilder()
+        # 体力 initial=80, but state_vars says 75
+        modified_vars = {"体力": 75, "信任度": 10, "所属势力": "自由佣兵"}
+        result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", modified_vars)
+        assert "体力: 75 / 100" in result
+        assert "体力: 80 / 100" not in result
+
+    def test_format_current_state_number_type(self):
+        """Number-type variables get / 100 suffix."""
+        result = PromptBuilder._format_current_state(
+            {"体力": 45}, [{"name": "体力", "type": "number"}]
+        )
+        assert "体力: 45 / 100" in result
+
+    def test_format_current_state_string_type(self):
+        """String-type variables get no suffix."""
+        result = PromptBuilder._format_current_state(
+            {"所属势力": "反抗军"}, [{"name": "所属势力", "type": "string"}]
+        )
+        assert "所属势力: 反抗军" in result
+        assert "/" not in result
 
 
 class TestBuildRoundN:

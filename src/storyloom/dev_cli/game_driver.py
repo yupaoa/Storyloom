@@ -509,10 +509,10 @@ def dev_main(argv: list[str] | None = None) -> None:
 
     # ── Main menu + game loop ─────────────────────────────────────
     while True:
-        saves = session.list_saves()
+        games = session.list_games()
         print("\nStoryloom")
         print("  [1] New Game")
-        print(f"  [2] Continue" + (f" ({len(saves)} saves)" if saves else ""))
+        print(f"  [2] Continue" + (f" ({len(games)} games)" if games else ""))
         print("  [3] Exit")
 
         choice = _ask("").strip()
@@ -527,7 +527,7 @@ def dev_main(argv: list[str] | None = None) -> None:
             if result is None:
                 continue
             try:
-                game_loop = session.start_game(result)
+                game_loop, game_id = session.start_game(result)
                 run_game(game_loop, ctrl, observer)
             except KeyboardInterrupt:
                 pass
@@ -535,17 +535,37 @@ def dev_main(argv: list[str] | None = None) -> None:
             continue
 
         elif choice == "2":
+            if not games:
+                print("  No games found.")
+                continue
+
+            # ── Level 1: pick a game ─────────────────────────────
+            for i, g in enumerate(games):
+                print(f"  [{i + 1}] {g.get('label', '?')} "
+                      f"({g.get('genre', '?')}, "
+                      f"{g.get('save_count', 0)} saves)")
+            pick = _ask("Pick a game").strip()
+            if not (pick.isdigit() and 1 <= int(pick) <= len(games)):
+                continue
+            game_id = games[int(pick) - 1]["game_id"]
+
+            # ── Level 2: pick a save ─────────────────────────────
+            saves = session.list_saves(game_id)
             if not saves:
-                print("  No saves found.")
+                print("  No saves in this game.")
                 continue
             for i, s in enumerate(saves):
-                print(f"  [{i + 1}] {s.get('label', '?')} "
-                         f"(round {s.get('round_count', '?')})")
-            pick = _ask("").strip()
+                label = s.get("checkpoint_title") or s.get("filename", "?")
+                print(f"  [{i + 1}] {label} "
+                      f"(round {s.get('round', '?')}, "
+                      f"{s.get('saved_at', '?')})")
+            pick = _ask("Pick a save").strip()
             if not (pick.isdigit() and 1 <= int(pick) <= len(saves)):
                 continue
             try:
-                game_loop = session.load_game(saves[int(pick) - 1]["label"])
+                game_loop = session.load_game(
+                    game_id, saves[int(pick) - 1]["filename"]
+                )
             except Exception as e:
                 _error(f"Load failed: {e}")
                 continue

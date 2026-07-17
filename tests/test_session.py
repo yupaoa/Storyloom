@@ -1,10 +1,35 @@
 """Tests for GameSession orchestrator."""
+import os
+import tempfile
+
 import pytest
 from unittest.mock import Mock, patch
 
 from storyloom.core.session import GameSession
 from storyloom.core.co_create import CoCreateFlow, CoCreationResult
 from storyloom.core.game_loop import GameLoop
+
+
+SAMPLE_STORY_CONFIG = {
+    "genre": "test", "tier": "short", "label": "test-story",
+    "language": "zh-CN",
+    "setting": "", "protagonist_name": "T",
+    "protagonist_identity": "Tester",
+    "protagonist_traits": "Brave",
+    "tone": "Dark", "conflict": "Test",
+    "characters": "Foo | ally",
+    "variables": [
+        {"name": "hp", "type": "number", "initial": 80},
+    ],
+}
+
+SAMPLE_RESULT = CoCreationResult(
+    story_config=SAMPLE_STORY_CONFIG,
+    outline_text="ch1 [active] — Start：Begin",
+    outline_nodes=[
+        {"id": "ch1", "title": "Start", "goal": "Begin", "routes": []},
+    ],
+)
 
 
 class TestGameSessionInit:
@@ -20,24 +45,32 @@ class TestGameSessionInit:
 
 
 class TestGameSessionSaveManagement:
-    def test_list_saves_delegates(self):
-        with patch("storyloom.core.session.ApiClient"):
-            session = GameSession()
-            session._save_manager = Mock()
-            session._save_manager.list_saves.return_value = [
-                {"label": "test", "round_count": 5}
-            ]
-            result = session.list_saves()
-            assert len(result) == 1
-            assert result[0]["label"] == "test"
+    @pytest.fixture
+    def root(self):
+        with tempfile.TemporaryDirectory() as d:
+            yield d
 
-    def test_delete_save_delegates(self):
+    def test_list_games_delegates(self, root):
         with patch("storyloom.core.session.ApiClient"):
-            session = GameSession()
-            session._save_manager = Mock()
-            session._save_manager.delete.return_value = True
-            assert session.delete_save("test") is True
-            session._save_manager.delete.assert_called_once_with("test")
+            session = GameSession(root)
+            result = session.list_games()
+            assert result == []  # empty saves root
+
+    def test_list_saves_requires_game_id(self, root):
+        with patch("storyloom.core.session.ApiClient"):
+            session = GameSession(root)
+            result = session.list_saves("nonexistent_game")
+            assert result == []
+
+    def test_delete_game_returns_false_for_nonexistent(self, root):
+        with patch("storyloom.core.session.ApiClient"):
+            session = GameSession(root)
+            assert session.delete_game("nonexistent") is False
+
+    def test_delete_save_returns_false_for_nonexistent(self, root):
+        with patch("storyloom.core.session.ApiClient"):
+            session = GameSession(root)
+            assert session.delete_save("nonexistent", "_init.json") is False
 
 
 class TestGameSessionLifecycle:
@@ -49,78 +82,37 @@ class TestGameSessionLifecycle:
             assert isinstance(flow, CoCreateFlow)
             assert flow._api is session._api_client
 
-    def test_start_game_creates_game_loop(self):
+    def test_start_game_returns_game_loop_and_game_id(self):
         with patch("storyloom.core.session.ApiClient"):
-            session = GameSession()
-            session._api_client = Mock()
-            session._save_manager = Mock()
+            with tempfile.TemporaryDirectory() as root:
+                session = GameSession(root)
+                session._api_client = Mock()
 
-            result = CoCreationResult(
-                story_config={
-                    "genre": "test", "tier": "short", "label": "test",
-                    "setting": "", "protagonist_name": "T",
-                    "protagonist_identity": "Tester",
-                    "protagonist_traits": "Brave",
-                    "tone": "Dark", "conflict": "Test",
-                    "characters": "Foo | ally",
-                    "variables": [
-                        {"name": "t", "type": "number", "initial": 80},
-                    ],
-                },
-                outline_text="ch1 [active] — Start：Begin",
-                outline_nodes=[
-                    {"id": "ch1", "title": "Start", "goal": "Begin", "routes": []},
-                ],
-            )
+                gl, game_id = session.start_game(SAMPLE_RESULT)
 
-            gl = session.start_game(result)
-            assert isinstance(gl, GameLoop)
-            assert session.game_loop is gl
-            assert gl._save_manager is session._save_manager
+                assert isinstance(gl, GameLoop)
+                assert game_id.startswith("test-story_")
+                assert session.game_loop is gl
+                # _init.json should be created
+                init_path = os.path.join(root, game_id, "_init.json")
+                assert os.path.exists(init_path)
 
     def test_load_game_restores_game_loop(self):
         with patch("storyloom.core.session.ApiClient"):
-            session = GameSession()
-            session._api_client = Mock()
-            session._save_manager = Mock()
+            with tempfile.TemporaryDirectory() as root:
+                session = GameSession(root)
+                session._api_client = Mock()
 
-            save_data = {
-                "version": 1,
-                "metadata": {"label": "test", "created_at": "", "updated_at": "",
-                             "round_count": 3},
-                "config": {},
-                "story_config": {
-                    "genre": "test", "tier": "short", "label": "test",
-                    "setting": "", "protagonist_name": "T",
-                    "protagonist_identity": "Tester",
-                    "protagonist_traits": "Brave",
-                    "tone": "Dark", "conflict": "Test",
-                    "characters": "Foo | ally",
-                    "variables": [{"name": "t", "type": "number", "initial": 80}],
-                },
-                "state_vars": {"t": 80},
-                "outline": [
-                    {"node_id": "ch1", "title": "Start", "goal": "Begin",
-                     "status": "active", "branches": []},
-                ],
-                "progress": {
-                    "current_node": "ch1", "round_count": 3,
-                    "checkpoint_history": [], "checkpoint_summaries": [],
-                    "checkpoint_snapshots": {},
-                },
-                "bridge_text": "",
-            }
-            session._save_manager.load.return_value = save_data
+                # Create a game first (writes _init.json)
+                _, game_id = session.start_game(SAMPLE_RESULT)
 
-            gl = session.load_game("test")
-            assert isinstance(gl, GameLoop)
-            assert session.game_loop is gl
-            session._save_manager.load.assert_called_once_with("test")
+                # Load it back
+                gl = session.load_game(game_id, "_init.json")
+                assert isinstance(gl, GameLoop)
 
-    def test_load_game_propagates_errors(self):
+    def test_load_game_nonexistent_raises(self):
         with patch("storyloom.core.session.ApiClient"):
-            session = GameSession()
-            session._save_manager = Mock()
-            session._save_manager.load.side_effect = FileNotFoundError("gone")
-            with pytest.raises(FileNotFoundError):
-                session.load_game("gone")
+            with tempfile.TemporaryDirectory() as root:
+                session = GameSession(root)
+                with pytest.raises(FileNotFoundError):
+                    session.load_game("no_such_game", "_init.json")
