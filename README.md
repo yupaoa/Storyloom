@@ -138,20 +138,23 @@ session = GameSession()
 
 # Co-creation
 flow = session.new_co_create()
-event = flow.start()                     # → {phase: "awaiting_idea"}
-event = flow.send("a cyberpunk story")   # → {phase: "awaiting_answer"}
-# ... continue Q&A until phase == "complete"
-gl = session.start_game(event["result"]) # → GameLoop
+event = flow.start()                     # → {"phase": "awaiting_idea", "prompt": "..."}
+reply = flow.send("a cyberpunk story")   # → "That sounds exciting! Tell me more..."
+# ... continue Q&A, then generate when ready ...
+result = flow.generate()                 # → CoCreationResult
+gl, game_id = session.start_game(result) # → (GameLoop, game_id)
 
 # Narrative loop
-for event in gl.start_round1_stream():
+gl.start_game()                          # launches round 1 API call
+gen = gl.stream_round()
+for event in gen:
     ...  # handle token / segment / options / state / error / done
-
-gl.continue_round_stream(choice_key="1")
+    if event["type"] == "options":
+        gen.send("1")                    # resume with chosen option
 
 # Save & load
-gl.request_save("before-the-heist")
-gl = session.load_game("before-the-heist")
+saves = session.list_saves(game_id)
+gl = session.load_game(game_id, "_init.json")
 ```
 
 ## Roadmap

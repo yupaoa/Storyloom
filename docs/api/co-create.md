@@ -206,10 +206,10 @@ The engine validates all LLM output during generation:
 - **story_config:** required fields (genre, tier, label, protagonist_name,
   protagonist_identity, protagonist_traits, tone, conflict, characters),
   tier must be short/medium/long, label 5–15 chars.
-- **variables:** count caps (≤3 total, ≤2 numeric, ≤1 string/list),
+- **variables:** count caps (≤3 total, ≤2 numeric, ≤1 string),
   name uniqueness, numeric range [0, 100], no illegal chars.
 - **outline:** all route targets exist in node IDs, final node has no
-  routes (ending node), node count within tier range.
+  routes (ending node), at least 1 node present.
 
 Failures raise `CoCreateError` with a specific `phase` and error
 description. The UI presents the error to the user, who can retry
