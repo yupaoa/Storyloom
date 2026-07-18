@@ -34,7 +34,7 @@ VARIABLE_NUMERIC_CAP = 2    # max numeric (number) variables
 VARIABLE_LABEL_CAP = 1      # max string variables
 
 # Story config label constraints
-STORY_LABEL_MIN_CHARS = 5
+STORY_LABEL_MIN_CHARS = 1
 STORY_LABEL_MAX_CHARS = 15
 
 # Outline node ranges by tier (prompt reference only — not engine-enforced)
