@@ -95,7 +95,7 @@ Below is a format example (content is a short fictional fantasy story in English
 018|   <opt key="2" branch="decline">Not interested</opt>
 019| </choice>
 020| <set var="reputation" op="+" val="5" if="approach==1"/>
-021| <checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
+021| <checkpoint node="ch2_meeting" summary="A mysterious stranger offered Kael a job at the inn. He accepted and set out for the old pass.">
 022|   <route if="approach==1" target="ch3_job"/>
 023|   <route if="approach==2" target="ch3_alone"/>
 024| </checkpoint>
