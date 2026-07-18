@@ -886,18 +886,15 @@ class GameLoop:
         # ── Build next-round prompt → launch background API ─────────
         # Per exec-flow.md §4.7: assemble prompt at </story> so the
         # next round's TTFT overlaps with UI displaying bridge_text.
-        compressed_summaries = (
-            self._context_mgr.get_compressed_summaries() or None
-        )
         bridge_text = self._context_mgr.get_last_bridge_text()
 
         rn_context = self._prompter.build_round_n(
+            outline_text=self.outline_text,
             current_node=self.current_node or "",
             goal=self.goal or "",
-            completed_nodes=self._completed_nodes,
             state_vars=self.game_state.state_vars,
+            variables=self.story_config.get("variables", []),
             bridge_text=bridge_text,
-            compressed_summaries=compressed_summaries,
             rejected_changes=(
                 self._rejected_changes if self._rejected_changes else None
             ),

@@ -100,77 +100,99 @@ class TestBuildRound1:
         assert "/" not in result
 
 
+ROUNDN_OUTLINE = (
+    "ch1_bar [completed] — 霓虹深渊：获取情报\n"
+    "  → ch2_confrontation [completed]\n"
+    "ch2_confrontation [completed] — 地下交易：与耗子会面\n"
+    "  ├→ ch3_ally [active]\n"
+    "  └→ ch3_betrayal [pending]\n"
+    "ch3_ally [active] — 盟友之路：通过地下网络逃离\n"
+    "ch4_safehouse [pending] — 安全屋（结局）\n"
+)
+ROUNDN_VARS: list[dict] = [
+    {"name": "体力", "type": "number"},
+    {"name": "信任度", "type": "number"},
+    {"name": "所属势力", "type": "string"},
+]
+
 class TestBuildRoundN:
     def test_round_n_does_not_contain_format_spec(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch3_ally",
             goal="通过地下网络逃离",
-            completed_nodes=["ch1_bar", "ch2_confrontation"],
             state_vars={"体力": 60, "信任度": 25, "所属势力": "自由佣兵"},
+            variables=ROUNDN_VARS,
             bridge_text="你对耗子点了点头。\n耗子: 跟我来。",
         )
         assert "<story>" not in result
         assert "<seg>" not in result
 
-    def test_round_n_contains_progress(self):
+    def test_round_n_contains_outline_and_active_node(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch3_ally",
             goal="通过地下网络逃离",
-            completed_nodes=["ch1_bar", "ch2_confrontation"],
             state_vars={"体力": 60},
+            variables=ROUNDN_VARS,
             bridge_text="tail...",
         )
         assert "ch3_ally" in result
         assert "通过地下网络逃离" in result
         assert "ch1_bar" in result
+        assert "**Outline:**" in result
+        assert "**Active Node:**" in result
 
     def test_round_n_contains_state_snapshot(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch3_ally",
             goal="逃",
-            completed_nodes=[],
             state_vars={"体力": 60, "信任度": 25},
+            variables=ROUNDN_VARS,
             bridge_text="tail...",
         )
         assert "体力" in result
         assert "60" in result
         assert "信任度" in result
+        assert "**Current State:**" in result
 
     def test_round_n_contains_bridge_text(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch3_ally",
             goal="逃",
-            completed_nodes=[],
             state_vars={"体力": 60},
+            variables=ROUNDN_VARS,
             bridge_text="你对耗子点了点头。",
         )
-        assert "Last round ending" in result
         assert "你对耗子点了点头" in result
 
-    def test_round_n_contains_compressed_summaries(self):
+    def test_round_n_contains_line_count_constraint(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch4",
             goal="结局",
-            completed_nodes=["ch1", "ch2", "ch3"],
             state_vars={"体力": 30},
+            variables=ROUNDN_VARS,
             bridge_text="tail...",
-            compressed_summaries=["在旅店接头", "完成芯片交易"],
         )
-        assert "在旅店接头" in result
-        assert "完成芯片交易" in result
+        assert "total lines" in result
+        assert "Exactly one" in result
 
     def test_round_n_contains_rejected_feedback_when_present(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch3",
             goal="逃",
-            completed_nodes=[],
             state_vars={"体力": 60},
+            variables=ROUNDN_VARS,
             bridge_text="tail...",
             rejected_changes=["体力变更被拒：超出范围[0,100]"],
         )
@@ -180,10 +202,11 @@ class TestBuildRoundN:
     def test_round_n_omits_rejected_section_when_empty(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch3",
             goal="逃",
-            completed_nodes=[],
             state_vars={"体力": 60},
+            variables=ROUNDN_VARS,
             bridge_text="tail...",
             rejected_changes=[],
         )
@@ -192,10 +215,11 @@ class TestBuildRoundN:
     def test_round_n_format_error_adds_correction_hint(self):
         pb = PromptBuilder()
         result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
             current_node="ch3",
             goal="逃",
-            completed_nodes=[],
             state_vars={"体力": 60},
+            variables=ROUNDN_VARS,
             bridge_text="tail...",
             format_error="checkpoint 的 node 值与大纲不匹配",
         )

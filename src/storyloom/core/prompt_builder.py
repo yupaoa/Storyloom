@@ -9,7 +9,7 @@ from storyloom.config import (
 )
 
 
-ROUND1_TEMPLATE = """You are the narrative engine for a text adventure game. Generate the next interactive story segment based on the outline and current state.
+ROUND1_PREFIX = """You are the narrative engine for a text adventure game. Generate the next interactive story segment based on the outline and current state.
 
 # Output Format
 
@@ -172,26 +172,33 @@ Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single pa
 **Conflict:** {conflict}
 **Characters:**
 {characters}
+"""
 
-**Outline:**
+ROUND_TEMPLATE = """**Outline:**
 {outline_text}
 
 **Active Node:** {active_node} — {node_goal}
 
 **Current State:**
-{state_vars_text}
-
+{state_vars_text}{error_feedback}
 Output {MIN_LINES}-{MAX_LINES} total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
 The active node indicates the current direction; decide whether to complete it this round.
-
-(This is the start of the whole story.)"""
+{bridge_text}"""
 
 
 class PromptBuilder:
     """Build prompt content for conversation-based architecture.
 
-    Round 1: Full format spec + story context + format example.
-    Round N: Lightweight context (progress, state, bridge_text, errors).
+    Round 1 user message = ROUND1_PREFIX + ROUND_TEMPLATE.
+    Round N user message = ROUND_TEMPLATE only.
+
+    ROUND1_PREFIX: role, format spec, example, core rules, story
+    background. Sent once, never compressed.
+
+    ROUND_TEMPLATE: outline progress, current node, state snapshot,
+    error feedback, output constraints, bridge text. Shared by every
+    round — Round 1 has empty bridge_text and no error feedback,
+    later rounds fill them in.
     """
 
     @staticmethod
@@ -204,6 +211,9 @@ class PromptBuilder:
         checkpoint_history: list[dict] | None = None,
     ) -> str:
         """Build Round 1 prompt (permanent anchor).
+
+        Concatenates ROUND1_PREFIX (format + rules + story context)
+        with ROUND_TEMPLATE (outline + state + constraints).
 
         Args:
             story_config: Story configuration dict.
@@ -247,7 +257,7 @@ class PromptBuilder:
         ref_single = LINES_PER_ROUND_MAX - ref_pre
         ref_half = ref_single // 2
 
-        return ROUND1_TEMPLATE.format(
+        prefix = ROUND1_PREFIX.format(
             MIN_LINES=LINES_PER_ROUND_MIN,
             MAX_LINES=LINES_PER_ROUND_MAX,
             BRIDGE_PCT=bridge_pct,
@@ -263,73 +273,80 @@ class PromptBuilder:
             tone=story_config.get("tone", ""),
             conflict=story_config.get("conflict", ""),
             characters=story_config.get("characters", ""),
+        )
+
+        round_part = ROUND_TEMPLATE.format(
             outline_text=outline_text,
-            state_vars_text=state_vars_text,
             active_node=current_node or "(start)",
             node_goal=goal or "Begin the story from the active node.",
+            state_vars_text=state_vars_text,
+            error_feedback="",
+            MIN_LINES=LINES_PER_ROUND_MIN,
+            MAX_LINES=LINES_PER_ROUND_MAX,
+            bridge_text="",
         )
+
+        return prefix + "\n" + round_part + "\n(This is the start of the whole story.)"
 
     @staticmethod
     def build_round_n(
+        outline_text: str,
         current_node: str,
         goal: str,
-        completed_nodes: list[str],
         state_vars: dict[str, int | str],
+        variables: list[dict],
         bridge_text: str,
-        compressed_summaries: list[str] | None = None,
         rejected_changes: list[str] | None = None,
         format_error: str | None = None,
     ) -> str:
         """Build Round N context message (N >= 2).
 
+        Uses the shared ROUND_TEMPLATE — same structure as the tail
+        portion of Round 1, with bridge_text and error feedback
+        filled in from the previous round.
+
         Args:
+            outline_text: Full outline tree with status markers.
             current_node: Current outline node ID.
             goal: Current node narrative goal.
-            completed_nodes: List of completed node IDs.
             state_vars: Current state variable values.
+            variables: Variable definitions for type lookup.
             bridge_text: Plain text from last round's bridge tail.
-            compressed_summaries: Checkpoint summaries from compressed rounds.
             rejected_changes: Rejected state change descriptions.
             format_error: Format error hint from last round.
 
         Returns:
             Round N context string for user message.
         """
-        parts = []
+        state_vars_text = PromptBuilder._format_current_state(
+            state_vars, variables
+        )
 
-        # Progress
-        parts.append(f"Current node: {current_node} — {goal}")
-        if completed_nodes:
-            parts.append(f"Completed nodes: {', '.join(completed_nodes)}")
-
-        # Compressed summaries
-        if compressed_summaries:
-            parts.append("\nCompleted chapter summaries:")
-            for s in compressed_summaries:
-                parts.append(f"- {s}")
-
-        # State snapshot
-        parts.append("\nCurrent state:")
-        for name, value in state_vars.items():
-            parts.append(f"  {name}: {value}")
-
-        # Rejected changes feedback
+        error_parts = []
         if rejected_changes:
-            parts.append("\nRejected state changes from last round:")
+            error_parts.append("\nRejected state changes from last round:")
             for rc in rejected_changes:
-                parts.append(f"  - {rc}")
+                error_parts.append(f"  - {rc}")
 
-        # Format error correction
         if format_error:
-            parts.append(
-                f"\nFormat reminder: last round had format issues — {format_error}. "
-                f"Please strictly follow the XML format specification."
+            error_parts.append(
+                f"\nFormat reminder: last round had format issues — "
+                f"{format_error}. Please strictly follow the XML format "
+                f"specification."
             )
 
-        # Bridge text
-        parts.append(f"\nLast round ending:\n{bridge_text}")
+        error_feedback = "\n".join(error_parts) + ("\n" if error_parts else "")
 
-        return "\n".join(parts)
+        return ROUND_TEMPLATE.format(
+            outline_text=outline_text,
+            active_node=current_node,
+            node_goal=goal,
+            state_vars_text=state_vars_text,
+            error_feedback=error_feedback,
+            MIN_LINES=LINES_PER_ROUND_MIN,
+            MAX_LINES=LINES_PER_ROUND_MAX,
+            bridge_text=bridge_text or "",
+        )
 
     @staticmethod
     def build_adventure_log_prompt(

@@ -104,10 +104,11 @@ class TestIntegration:
         bridge1 = cm.get_last_bridge_text()
         assert len(bridge1) > 0
         r2_prompt = pb.build_round_n(
+            outline_text=SAMPLE_OUTLINE,
             current_node="ch3_ally",
             goal="与耗子前往安全屋",
-            completed_nodes=["ch1_bar", "ch2_confrontation"],
             state_vars={"体力": 80, "信任度": 15},
+            variables=SAMPLE_STORY["variables"],
             bridge_text=bridge1,
         )
         sp2 = StreamingXmlParser()
@@ -185,8 +186,14 @@ class TestIntegration:
         )
 
         bridge1 = cm.get_last_bridge_text()
-        r2 = pb.build_round_n("ch3", "前往安全屋", ["ch1", "ch2"],
-                              {"体力": 80, "信任度": 15}, bridge1)
+        r2 = pb.build_round_n(
+            outline_text=SAMPLE_OUTLINE,
+            current_node="ch3",
+            goal="前往安全屋",
+            state_vars={"体力": 80, "信任度": 15},
+            variables=SAMPLE_STORY["variables"],
+            bridge_text=bridge1,
+        )
         assert "信用棒" in r2 or "耗子" in r2
 
     def test_compression_format(self):
