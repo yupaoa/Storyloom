@@ -396,7 +396,7 @@ def _record_adv(observer: DevObserver, game_loop: GameLoop, response: str) -> No
     prompt = PromptBuilder.build_adventure_log_prompt(
         story_config=game_loop.story_config,
         state_vars=game_loop.game_state.state_vars,
-        checkpoint_summaries=game_loop._checkpoint_summaries,
+        outline_text=game_loop.outline_text,
         checkpoint_history=game_loop.checkpoint_history,
     )
     observer.record_adventure_log(prompt, response)

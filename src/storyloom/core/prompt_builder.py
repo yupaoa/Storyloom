@@ -332,19 +332,19 @@ class PromptBuilder:
     def build_adventure_log_prompt(
         story_config: dict,
         state_vars: dict,
-        checkpoint_summaries: list[str],
+        outline_text: str,
         checkpoint_history: list[dict],
     ) -> str:
-        """Build adventure log prompt per prompt-design.md section 5.2.
+        """Build adventure log prompt per prompt-design.md §5.
 
-        This is an independent LLM call -- not part of the narrative loop.
+        This is an independent LLM call — not part of the narrative loop.
 
         Args:
             story_config: Story configuration dict.
             state_vars: Current state variables.
-            checkpoint_summaries: Accumulated checkpoint summary strings.
+            outline_text: Formatted outline tree text.
             checkpoint_history: Structured checkpoint records
-                                [{node, title, summary, round}].
+                              [{node, title, goal, summary}].
 
         Returns:
             Prompt string for adventure log generation.
@@ -352,18 +352,50 @@ class PromptBuilder:
         story_label = story_config.get("label", "Untitled Adventure")
         language = story_config.get("language", "zh-CN")
 
-        # Build chapter sections from history
+        # ── Story Background ──────────────────────────────────────
+        genre = story_config.get("genre", "")
+        setting = story_config.get("setting", "")
+        name = story_config.get("protagonist_name", "")
+        identity = story_config.get("protagonist_identity", "")
+        traits = story_config.get("protagonist_traits", "")
+        tone = story_config.get("tone", "")
+        conflict = story_config.get("conflict", "")
+        characters = story_config.get("characters", "")
+
+        bg_parts = []
+        if genre:
+            bg_parts.append(f"Genre: {genre}")
+        if setting:
+            bg_parts.append(f"Setting: {setting}")
+        if name:
+            protag = name
+            if identity:
+                protag += f" — {identity}"
+            if traits:
+                protag += f" ({traits})"
+            bg_parts.append(f"Protagonist: {protag}")
+        if tone:
+            bg_parts.append(f"Tone: {tone}")
+        if conflict:
+            bg_parts.append(f"Conflict: {conflict}")
+        if characters:
+            bg_parts.append(f"Characters:\n{characters}")
+        background_text = "\n".join(bg_parts) if bg_parts else "(No background)"
+
+        # ── Chapter sections ───────────────────────────────────────
         chapter_sections = []
         for i, cp in enumerate(checkpoint_history, 1):
             title = cp.get("title", f"Chapter {i}")
             summary = cp.get("summary", "")
-            chapter_sections.append(
-                f"### Chapter {i}: {title}\n"
-                f"(Expand based on this summary: {summary})"
-            )
+            goal = cp.get("goal", "")
+            parts = [f"### Chapter {i}: {title}"]
+            if goal:
+                parts.append(f"**Goal:** {goal}")
+            parts.append(f"**What happened:** {summary}")
+            chapter_sections.append("\n".join(parts))
         chapters_text = "\n\n".join(chapter_sections) if chapter_sections else "(No chapter records)"
 
-        # Format state vars
+        # ── State vars ─────────────────────────────────────────────
         state_lines = []
         for name, value in state_vars.items():
             state_lines.append(f"- {name}: {value}")
@@ -373,16 +405,25 @@ class PromptBuilder:
 
 Use Markdown format. Write in the story's language ({language}).
 
+## Story Background
+{background_text}
+
+## Story Outline
+{outline_text}
+
+(The outline shows the story structure. [completed] = nodes the player went through.
+[active] = the final node. [pending] = nodes that were skipped due to branching.)
+
 ## Adventure Recap: {story_label}
 
 {chapters_text}
 
 ## Ending
-(Write a warm, satisfying conclusion based on the chapter summaries above.)
+(Write a warm, satisfying conclusion based on the chapters above. Reference specific events and decisions — do not fabricate.)
 
 ## Final State
 {state_text}
-(For each variable, write a brief one-sentence reflection, e.g. "Health: 25 — battered and bruised, but still standing.")
+(For each variable, write a brief one-sentence reflection.)
 
 Requirements:
 - Address the player directly ("You chose...", "In the end you...")

@@ -207,10 +207,10 @@ class TestAdventureLogPrompt:
         pb = PromptBuilder()
         config = {"label": "霓虹深渊", "genre": "cyberpunk"}
         state_vars = {"体力": 25}
-        summaries = ["抵达了边陲小镇"]
-        history = [{"node": "ch1", "title": "序章", "summary": "抵达边陲小镇"}]
+        outline = "ch1_intro [completed] — 序章：开始冒险"
+        history = [{"node": "ch1", "title": "序章", "goal": "开始冒险", "summary": "抵达边陲小镇"}]
 
-        prompt = pb.build_adventure_log_prompt(config, state_vars, summaries, history)
+        prompt = pb.build_adventure_log_prompt(config, state_vars, outline, history)
         assert "霓虹深渊" in prompt
         assert "Adventure Recap" in prompt
 
@@ -218,10 +218,10 @@ class TestAdventureLogPrompt:
         pb = PromptBuilder()
         config = {"label": "test", "genre": "fantasy"}
         state_vars = {"魔力": 50}
-        summaries = ["first checkpoint"]
-        history = [{"node": "ch1", "title": "开始", "summary": "first checkpoint"}]
+        outline = "ch1_start [completed] — 开始：踏上旅程"
+        history = [{"node": "ch1", "title": "开始", "goal": "踏上旅程", "summary": "first checkpoint"}]
 
-        prompt = pb.build_adventure_log_prompt(config, state_vars, summaries, history)
+        prompt = pb.build_adventure_log_prompt(config, state_vars, outline, history)
         assert "开始" in prompt
         assert "Final State" in prompt
         assert "魔力" in prompt
@@ -230,7 +230,45 @@ class TestAdventureLogPrompt:
         pb = PromptBuilder()
         config = {"label": "test"}
         state_vars = {}
-        prompt = pb.build_adventure_log_prompt(config, state_vars, [], [])
+        prompt = pb.build_adventure_log_prompt(config, state_vars, "", [])
         assert "Adventure Recap" in prompt
         assert "Final State" in prompt
         assert "No chapter records" in prompt
+
+    def test_build_adventure_log_prompt_includes_background(self):
+        pb = PromptBuilder()
+        config = {
+            "label": "test",
+            "genre": "赛博朋克冒险",
+            "setting": "2087年新东京",
+            "protagonist_name": "林焰",
+            "protagonist_identity": "前佣兵",
+            "protagonist_traits": "冷静、果断",
+            "tone": "黑暗冷峻",
+            "conflict": "芯片争夺",
+            "characters": "耗子 | 情报贩子 | 亦敌亦友",
+        }
+        state_vars = {}
+        outline = "ch1 [completed] — 序章：开始"
+        history = [{"node": "ch1", "title": "序章", "goal": "开始冒险", "summary": "抵达"}]
+
+        prompt = pb.build_adventure_log_prompt(config, state_vars, outline, history)
+        assert "Genre:" in prompt
+        assert "赛博朋克" in prompt
+        assert "林焰" in prompt
+        assert "Story Background" in prompt
+        assert "Story Outline" in prompt
+
+    def test_build_adventure_log_prompt_old_save_compat(self):
+        """Old saves without 'goal' in checkpoint_history should still work."""
+        pb = PromptBuilder()
+        config = {"label": "test"}
+        state_vars = {}
+        outline = "ch1 [completed] — 序章：开始"
+        # Old-format history: no 'goal' key
+        history = [{"node": "ch1", "title": "序章", "summary": "抵达"}]
+
+        prompt = pb.build_adventure_log_prompt(config, state_vars, outline, history)
+        assert "Adventure Recap" in prompt
+        assert "序章" in prompt
+        # Should not crash on missing goal

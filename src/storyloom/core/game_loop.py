@@ -1472,15 +1472,18 @@ class GameLoop:
             self._checkpoint_summaries.append(cp_summary)
 
         cp_title = cp_node
+        cp_goal = ""
         if self._outline_nodes:
             for node in self._outline_nodes:
                 if node.get("id") == cp_node:
                     cp_title = node.get("title", cp_node)
+                    cp_goal = node.get("goal", "")
                     break
 
         self._checkpoint_history.append({
             "node": cp_node,
             "title": cp_title,
+            "goal": cp_goal,
             "summary": cp_summary,
         })
 
@@ -1511,7 +1514,7 @@ class GameLoop:
         prompt = PromptBuilder.build_adventure_log_prompt(
             story_config=self.story_config,
             state_vars=self.game_state.state_vars,
-            checkpoint_summaries=self._checkpoint_summaries,
+            outline_text=self.outline_text,
             checkpoint_history=self._checkpoint_history,
         )
         self._adv_retry_prompt = prompt
