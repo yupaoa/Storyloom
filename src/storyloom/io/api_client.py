@@ -88,12 +88,22 @@ class ApiClient:
     ) -> dict:
         payload: dict = {
             "model": self.model,
-            "messages": messages,
+            "messages": [
+                self._sanitize_message(m) for m in messages
+            ],
             "stream": stream,
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         return payload
+
+    @staticmethod
+    def _sanitize_message(msg: dict) -> dict:
+        """Return a copy of *msg* with lone surrogates stripped from content."""
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            content = content.encode("utf-8", errors="replace").decode("utf-8")
+        return {**msg, "content": content}
 
     # ── error handling ────────────────────────────────────────────────
 
