@@ -165,8 +165,8 @@ gl = session.load_game(game_id, "_init.json")
 - [x] Streaming XML parser with line-by-line output
 - [x] UserConfig — centralized config management
 - [ ] Web UI (FastAPI + SSE)
-- [ ] Phase 2 — multi-chapter support, inventory system, combat mechanics
-- [ ] Phase 3 — multiplayer / co-op mode
+- [ ] Phase 2 — image mode support (static backgrounds + character sprites), co-creation presets + partial real-time generation
+- [ ] Phase 3 — full image mode support, visual quality on par with mainstream visual novel games
 
 ## License
 
