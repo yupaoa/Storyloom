@@ -8,7 +8,53 @@
 
 ## 2026-07-18（周六）
 
-### Round 1 prompt 拆分为前缀块和回合模板
+### 大纲数据模型统一——status 与 summary 归于节点
+
+**背景**：四个独立结构维护同一批大纲节点的不同侧面——`_outline_nodes`（纯结构）、`_completed_nodes`（状态列表）、`_checkpoint_history`（summary 列表，含 title/goal 副本）、`outline_text`（格式化快照，仅在构造时设置，永不更新）。这导致：(1) `outline_text` 在 checkpoint 推进后过时，状态标记不再准确；(2) `title`/`goal` 在 `_outline_nodes` 和 `_checkpoint_history` 中重复存储；(3) checkpoint summary 只在压缩消息和冒险日志中可见，不在每轮的 outline 段落中；(4) 读档后 ContextManager 的 `_compressed_summaries` 为空，LLM 看不到历史摘要。
+
+**决策**：单一真相源——`_outline_nodes` 每个节点直接携带 `status`（pending/active/completed）和 `summary`，`outline_text` 改为 `@property` 实时派生。
+
+- `_outline_nodes`: `[{id, title, goal, status, summary, routes}]` — 所有信息在节点上
+- `outline_text` property: 从 `_outline_nodes` 实时生成，完成节点下追加 `↳ {summary}`
+- `checkpoint_history` property: 从完成节点派生（向后兼容）
+- `completed_nodes` property: 从 status 字段派生
+- `_handle_checkpoint`: 直接修改节点的 status/summary，不再维护独立列表
+- `_accumulate_checkpoint`: 直接写 `node["summary"] = cp_summary`
+- 存档格式: outline 节点带 `status` + `summary`，删除 `progress.checkpoint_history`
+- `from_save_dict`: 恢复 outline 节点（含 status/summary），兼容旧存档（`setdefault`）
+- `start_round1`: `bridge_text` 通过参数传入 `build_round1()`，删除手动拼接
+- `build_round1`: 去掉硬编码 `(This is the start of the whole story.)`，bridge_text 通过模板 `{bridge_text}` 槽位自然融入
+- `build_adventure_log_prompt`: 删除 `checkpoint_history` 参数，summary 已在 `outline_text` 的 `↳` 行中
+
+**依据**：`5782725`、`94657dd`、`341d4dd`；`docs/spec/data-model.md` §1-3、`exec-flow.md` §1.1, 5.2, 5.4、`prompt-design.md` §5.1。
+
+### 冗余 checkpoint_summaries 清理
+
+**背景**：`_checkpoint_summaries: list[str]` 与 `_checkpoint_history: list[dict]` 并存，前者是纯文本列表，后者是结构化记录（含 node/title/summary）。`checkpoint_history` 是 `checkpoint_summaries` 的严格超集——每个 summary 都带着 node/title 存在 history 中。代码中 `_checkpoint_summaries` 唯一的消费者是冒险日志——而冒险日志已经改用 `checkpoint_history`。
+
+**决策**：删除 `_checkpoint_summaries`（初始化、写入、读取、追加），`checkpoint_history` 成为唯一的 checkpoint 数据承载结构。同时将 `goal` 字段加入 `checkpoint_history` 条目（在查 `title` 的同一个 outline 遍历中零成本获取）。
+
+**依据**：`5782725`。
+
+### 冒险日志 Prompt 重构
+
+**背景**：`build_adventure_log_prompt` 接收了 `story_config` 但只用了 `label` 和 `language`——genre、setting、protagonist、tone、conflict、characters 全部丢弃。每章只有 title + 一句话 summary，LLM 在无知背景下被迫杜撰情节。
+
+**决策**：注入完整 story_config 字段（Story Background 段）+ 完整 outline_text（Story Outline 段）。冒险日志从"给一句话扩写"变为"据背景和叙事摘要撰写"。同时删除未使用的 `checkpoint_summaries` 参数，改为传入 `outline_text`。
+
+**依据**：`a8144ee`。
+
+### Goal 和 checkpoint summary 示例扩充
+
+**背景**：用户反馈三个痛点——存档继续时上下文冲突、LLM 生成不稳定、冒险日志杜撰。根因是叙事记忆链路太短：outline `goal` 只有一句话，checkpoint `summary` 只有一句话，且 `summary` 读档时未注入上下文。
+
+**决策**（轻量先行）：不改架构，只改 Prompt 示例。
+- `co_create.py`: `Each node has a clear narrative goal` → 加 `which describes the specific events, characters, and stakes in 2-3 sentences`
+- `prompt_builder.py`: checkpoint summary 格式示例从 `"A stranger made contact at the inn."` 扩为 `"A mysterious stranger offered Kael a job at the inn. He accepted and set out for the old pass."`
+
+LLM 通过模仿示例自然产出更丰富的内容，无需额外约束。
+
+**依据**：`95acd26`；`prompt-design.md` §1.2 原则 #1（示例先行）。
 
 **背景**：`ROUND1_TEMPLATE` 是一个整体文本，从角色定义一路写到 bridge_text。`build_round1()` 和 `build_round_n()` 是两个独立的构建路径——前者用模板填充，后者手拼字符串。两者产生的结构不一致（Round 1 叫 "Active Node"，Round N 叫 "Current node"；Round 1 有 `/100` 范围后缀，Round N 没有；Round 1 含行数约束，Round N 不含）。每轮都需要的状态上下文和量化约束分散在两条路径里，迭代时容易顾此失彼。
 
