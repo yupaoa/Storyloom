@@ -412,7 +412,12 @@ class GameLoop:
             for node in self._outline_nodes:
                 node.setdefault("status", "pending")
                 node.setdefault("summary", "")
-            self._outline_nodes[0]["status"] = "active"
+            # Set active node — first node unless current_node points elsewhere
+            active_id = current_node or self._outline_nodes[0]["id"]
+            for node in self._outline_nodes:
+                if node.get("id") == active_id:
+                    node["status"] = "active"
+                    break
 
         # Internal modules
         self._prompter = PromptBuilder()
@@ -1333,6 +1338,7 @@ class GameLoop:
             target = self._evaluate_routes(choice_dict, routes=routes)
             if target:
                 self._set_node_status(cp_node, "completed")
+                self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
         elif outline_routes:
@@ -1343,12 +1349,14 @@ class GameLoop:
             target = self._evaluate_routes(choice_dict, routes=rt_routes)
             if target:
                 self._set_node_status(cp_node, "completed")
+                self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
         else:
             target = self._next_outline_node()
             if target:
                 self._set_node_status(cp_node, "completed")
+                self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
 

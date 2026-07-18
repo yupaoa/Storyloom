@@ -423,6 +423,10 @@ Use Markdown format. Write in the story's language ({language}).
 a ↳ summary of what actually happened — use these as the basis for each chapter recap.
 [active] is the final node. [pending] nodes were skipped due to branching.)
 
+## Adventure Recap: {story_label}
+
+Write a chapter-by-chapter recap based on the outline and summaries above.
+
 ## Ending
 (Write a warm, satisfying conclusion. Reference specific events from the summaries
 above — do not fabricate.)

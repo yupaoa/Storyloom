@@ -21,14 +21,14 @@ SAMPLE_STORY = {
     ],
 }
 
-SAMPLE_OUTLINE = """ch1_bar [completed] — 霓虹深渊：在酒吧获取情报
-  → ch2_confrontation [active]
-ch2_confrontation [active] — 地下交易：与耗子会面
+SAMPLE_OUTLINE = """ch1_bar [active] — 霓虹深渊
+  → ch2_confrontation [pending]
+ch2_confrontation [pending] — 地下交易
   ├→ ch3_ally [pending]
   └→ ch3_betrayal [pending]
-ch3_ally [pending] — 盟友之路：通过地下网络逃离
-ch3_betrayal [pending] — 背叛之路：杀出重围
-ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）"""
+ch3_ally [pending] — 盟友之路
+ch3_betrayal [pending] — 背叛之路
+ch4_safehouse [pending] — 安全屋"""
 
 ROUND1_OUTPUT = """<story>
 <seg>霓虹灯在潮湿的巷道地面上投下破碎的倒影。</seg>

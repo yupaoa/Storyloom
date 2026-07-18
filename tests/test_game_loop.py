@@ -27,14 +27,27 @@ SAMPLE_STORY_CONFIG = {
     ],
 }
 
-SAMPLE_OUTLINE = """ch1_bar [completed] — 霓虹深渊：在酒吧获取情报
-  → ch2_confrontation [active]
-ch2_confrontation [active] — 地下交易：与耗子会面
+SAMPLE_OUTLINE = """ch1_bar [active] — 霓虹深渊
+  → ch2_confrontation [pending]
+ch2_confrontation [pending] — 地下交易
   ├→ ch3_ally [pending]
   └→ ch3_betrayal [pending]
-ch3_ally [pending] — 盟友之路：通过地下网络逃离
-ch3_betrayal [pending] — 背叛之路：杀出重围
-ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）"""
+ch3_ally [pending] — 盟友之路
+ch3_betrayal [pending] — 背叛之路
+ch4_safehouse [pending] — 安全屋"""
+
+SAMPLE_OUTLINE_NODES = [
+    {"id": "ch1_bar", "title": "霓虹深渊", "goal": "在酒吧获取情报",
+     "routes": [{"condition": None, "target": "ch2_confrontation"}]},
+    {"id": "ch2_confrontation", "title": "地下交易", "goal": "与耗子会面",
+     "routes": [{"condition": None, "target": "ch3_ally"}, {"condition": None, "target": "ch3_betrayal"}]},
+    {"id": "ch3_ally", "title": "盟友之路", "goal": "通过地下网络逃离",
+     "routes": []},
+    {"id": "ch3_betrayal", "title": "背叛之路", "goal": "杀出重围",
+     "routes": []},
+    {"id": "ch4_safehouse", "title": "安全屋", "goal": "揭开芯片秘密",
+     "routes": []},
+]
 
 SAMPLE_XML = """<story>
 <seg n="1">炉火噼啪作响。</seg>
@@ -354,12 +367,12 @@ class TestGameLoopInit:
         """GameLoop should initialize with minimal arguments."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         assert loop.round_count == 0
         assert loop.story_config is SAMPLE_STORY_CONFIG
-        assert loop.current_node is None
+        assert loop.current_node == "ch1_bar"  # first outline node
 
     def test_initializes_with_observers(self):
         """GameLoop should accept observers list and deprecated observer."""
@@ -370,7 +383,7 @@ class TestGameLoopInit:
 
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
             observers=[obs],
         )
@@ -379,7 +392,7 @@ class TestGameLoopInit:
         # Deprecated single observer also works
         loop2 = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
             observer=obs,
         )
@@ -388,27 +401,27 @@ class TestGameLoopInit:
         # Both merged
         loop3 = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
             observers=[obs],
             observer=obs,
         )
         assert len(loop3._observers) == 2
 
-    def test_initial_node_is_none(self):
-        """The current_node should start as None."""
+    def test_initial_node_defaults_to_first_outline_node(self):
+        """current_node defaults to the first outline node's id."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
-        assert loop.current_node is None
+        assert loop.current_node == "ch1_bar"
 
     def test_completed_nodes_starts_empty(self):
         """completed_nodes should start as empty list."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         assert loop.completed_nodes == []
@@ -421,7 +434,7 @@ class TestGameLoopRound1:
         """Round 1 should set round_count to 1."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         loop.start_game()
@@ -432,7 +445,7 @@ class TestGameLoopRound1:
         """Round 1 should parse the API response into ParsedOutput."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         loop.start_game()
@@ -444,7 +457,7 @@ class TestGameLoopRound1:
         """start_game should raise if called again."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         loop.start_game()
@@ -456,7 +469,7 @@ class TestGameLoopRound1:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -469,7 +482,7 @@ class TestGameLoopRound1:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
             current_node="ch1_bar",
             goal="开场：进入酒吧",
@@ -482,7 +495,7 @@ class TestGameLoopRound1:
         """After round 1, available options should be populated."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         loop.start_game()
@@ -499,7 +512,7 @@ class TestGameLoopContinueRound:
         """Round 2 should increment round count."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         loop.start_game()
@@ -513,7 +526,7 @@ class TestGameLoopContinueRound:
         gs = GameState(SAMPLE_STORY_CONFIG)
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
             game_state=gs,
         )
@@ -526,7 +539,7 @@ class TestGameLoopContinueRound:
         """stream_round should raise if start_game wasn't called."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         with pytest.raises(RuntimeError, match="start_game"):
@@ -538,7 +551,7 @@ class TestGameLoopContinueRound:
         gs = GameState(SAMPLE_STORY_CONFIG)
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
             game_state=gs,
         )
@@ -552,7 +565,7 @@ class TestGameLoopContinueRound:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -567,7 +580,7 @@ class TestGameLoopWithSimpleXml:
         mock = MockApiClient(response=SIMPLE_XML)
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -580,7 +593,7 @@ class TestGameLoopWithSimpleXml:
         mock = MockApiClient(response=SIMPLE_XML)
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -593,7 +606,7 @@ class TestGameLoopWithSimpleXml:
         mock = MockApiClient(response=SIMPLE_XML)
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -607,7 +620,7 @@ class TestGameLoopAdventureLog:
         """Adventure log should work without a game state."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         loop.start_game()
@@ -621,7 +634,7 @@ class TestGameLoopAdventureLog:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -636,7 +649,7 @@ class TestGameLoopBranchRoute:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -651,7 +664,7 @@ class TestGameLoopLastParsed:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.start_game()
@@ -702,7 +715,7 @@ class TestGameLoopAdventureLogRetry:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         with pytest.raises(RuntimeError, match="No failed adventure log"):
@@ -712,7 +725,7 @@ class TestGameLoopAdventureLogRetry:
         """retry_adventure_log() raises before run_adventure_log() ever called."""
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         assert loop._adv_retry_prompt is None
@@ -724,7 +737,7 @@ class TestGameLoopAdventureLogRetry:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop.run_adventure_log()
@@ -737,7 +750,7 @@ class TestGameLoopAdventureLogRetry:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         # Simulate a previous error
@@ -750,7 +763,7 @@ class TestGameLoopAdventureLogRetry:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         # Simulate a previous failed run
@@ -771,7 +784,7 @@ class TestGameLoopAdventureLogRetry:
         mock = MockApiClient()
         loop = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=mock,
         )
         loop._adv_retry_prompt = "test prompt"
@@ -791,7 +804,7 @@ class TestCheckpointHistory:
         """checkpoint_history returns [] before any checkpoints occur."""
         gl = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         assert gl.checkpoint_history == []
@@ -801,7 +814,7 @@ class TestCheckpointHistory:
         """checkpoint_history returns a copy, not the internal list."""
         gl = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
             api_client=MockApiClient(),
         )
         history = gl.checkpoint_history
@@ -820,7 +833,6 @@ class TestOutlineNodes:
         ]
         gl = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
             current_node="ch1_intro",
             outline_nodes=outline_nodes,
@@ -842,7 +854,6 @@ class TestOutlineNodes:
         ]
         gl = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
             outline_nodes=outline_nodes,
         )
@@ -861,13 +872,12 @@ class TestOutlineNodes:
         ]
         gl = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
             current_node="ch2",
             outline_nodes=outline_nodes,
         )
-        # Mark ch1 as completed
-        gl._completed_nodes = ["ch1"]
+        # Mark ch1 as completed directly on the node
+        gl._outline_nodes[0]["status"] = "completed"
 
         result = gl.outline_nodes
         assert result[0]["status"] == "completed"  # ch1
@@ -883,13 +893,12 @@ class TestOutlineNodes:
         ]
         gl = GameLoop(
             story_config=SAMPLE_STORY_CONFIG,
-            outline_text=SAMPLE_OUTLINE,
             api_client=MockApiClient(),
             current_node="ch2_next",
             outline_nodes=save_format_nodes,
         )
-        # Mark ch1 as completed (it is in save format, but status computed dynamically)
-        gl._completed_nodes = ["ch1_intro"]
+        # Mark the node as completed on the node itself
+        gl._outline_nodes[0]["status"] = "completed"
 
         result = gl.outline_nodes
         assert len(result) == 1
