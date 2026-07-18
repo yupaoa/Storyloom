@@ -164,7 +164,6 @@ class GameSession:
                 "label": label,
                 "created_at": created_at,
                 "updated_at": now,
-                "round_count": 0,
             },
             "config": {
                 "temperature": None,
@@ -174,7 +173,6 @@ class GameSession:
             "outline": outline_for_save,
             "progress": {
                 "current_node": first_node_id,
-                "round_count": 0,
                 "checkpoint_history": [],
                 "checkpoint_summaries": [],
                 "checkpoint_snapshots": {},

@@ -6,7 +6,7 @@ Per data-model.md §3.1-3.4.
 Directory layout::
 
     saves/{label}_{compact_ts}/
-        _init.json              # round_count=0, created at game start
+        _init.json              # created at game start
         {cp_title}_{ts}.json    # per-checkpoint saves, appended
 """
 
@@ -24,7 +24,7 @@ class SaveManager:
     """Manage save files for a single game directory.
 
     Each game lives in its own subdirectory under ``saves/``.
-    ``_init.json`` is the initial save (round_count=0); checkpoint
+    ``_init.json`` is the initial save; checkpoint
     saves are named ``{checkpoint_title}_{timestamp}.json`` and are
     never overwritten.
     """
@@ -208,7 +208,6 @@ class SaveManager:
                 "filename": path.name,
                 "checkpoint_title": cp_title,
                 "checkpoint_node": cp_node,
-                "round": meta.get("round_count", 0),
                 "saved_at": meta.get("updated_at", ""),
                 "current_node": progress.get("current_node", ""),
             })

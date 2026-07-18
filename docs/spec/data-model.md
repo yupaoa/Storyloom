@@ -21,7 +21,6 @@ game_state.outline        = outline                // CoCreationResult.outline_n
   → 第一个节点 status = "active"，其余 = "pending"
 game_state.progress = {
     current_node:         outline[0].node_id,
-    round_count:          0,
     checkpoint_history:   [],
     checkpoint_summaries: [],
     checkpoint_snapshots: {}
@@ -86,13 +85,13 @@ game_state.rejected_changes = []
 ```
 saves/
   my_story_20260717T120000Z/
-    _init.json                           # 共创完成时创建（round_count=0）
+    _init.json                           # 共创完成时创建
     初次相遇_20260717T120500Z.json        # checkpoint 存档（追加，不覆盖）
     关键抉择_20260717T121530Z.json
     ...
 ```
 
-- **`_init.json`**：元存档。共创阶段完成后立即写入（`round_count=0`）。新游戏和 checkpoint 存档共享完全相同的 JSON 结构，由统一的加载路径读取。
+- **`_init.json`**：元存档。共创阶段完成后立即写入。新游戏和 checkpoint 存档共享完全相同的 JSON 结构，由统一的加载路径读取。
 - **Checkpoint 存档**：每次到达 checkpoint 时追加写入新文件，文件名格式 `{cp_title}_{timestamp}.json`（紧凑 UTC 时间戳），永不覆盖。玩家可回溯到任意历史关键节点。
 - **存档内容结构**：所有存档文件（含 `_init.json`）共享同一 JSON 结构——`version`、`metadata`、`config`、`story_config`（含 `variables`）、`state_vars`、`outline`（含节点状态）、`progress`（含 checkpoint 历史/摘要/快照）、`bridge_text`。
 
@@ -125,7 +124,6 @@ saves/
 | `metadata.label` | 共创结束后首次写入 | 来源于 `story_config.label` |
 | `metadata.created_at` | 首次写入时设定 | 之后不变 |
 | `metadata.updated_at` | 每次写入时更新 | |
-| `metadata.round_count` | 每次写入时更新 | = 当前 `progress.round_count` |
 | `progress.checkpoint_history` | 每次 checkpoint 时追加 | checkpoint 节点和标题记录 |
 | `progress.checkpoint_summaries` | 每次 checkpoint 时追加 | 情节摘要列表 |
 | `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |

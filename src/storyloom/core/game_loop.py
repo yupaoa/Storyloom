@@ -593,13 +593,12 @@ class GameLoop:
             ``{"type": "state", "vars": dict, "changes": [dict]}``
             ``{"type": "error", "message": str}``
             ``{"type": "ending", ...}``
-            ``{"type": "done", "round": int, "node": str, "state": dict}``
+            ``{"type": "done", "node": str, "state": dict}``
         """
         # ── Guard: ending already triggered ─────────────────────────
         if self.ending_flag:
             yield {
                 "type": "done",
-                "round": self._context_mgr.round_count,
                 "node": "end",
                 "state": self.game_state.state_vars,
             }
@@ -879,7 +878,6 @@ class GameLoop:
 
             yield {
                 "type": "done",
-                "round": self._context_mgr.round_count,
                 "node": "end",
                 "state": self.game_state.state_vars,
             }
@@ -934,7 +932,6 @@ class GameLoop:
 
         yield {
             "type": "done",
-            "round": self._context_mgr.round_count,
             "node": self.current_node,
             "state": self.game_state.state_vars,
         }
@@ -1017,19 +1014,12 @@ class GameLoop:
         if self._created_at is None:
             self._created_at = now
 
-        # ContextManager.round_count tracks *completed* rounds.  Auto-save
-        # fires at checkpoint time (Phase 3), before add_round() increments
-        # the counter in Phase 5.  +1 accounts for the current in-progress
-        # round so that the save records the correct round number.
-        current_round = self._context_mgr.round_count + 1
-
         return {
             "version": SAVE_VERSION,
             "metadata": {
                 "label": label,
                 "created_at": self._created_at,
                 "updated_at": now,
-                "round_count": current_round,
             },
             "config": {
                 "temperature": getattr(self, "_temperature", None),
@@ -1039,7 +1029,6 @@ class GameLoop:
             "outline": outline_for_save,
             "progress": {
                 "current_node": self.current_node or "",
-                "round_count": current_round,
                 "checkpoint_history": list(self._checkpoint_history),
                 "checkpoint_summaries": list(self._checkpoint_summaries),
                 "checkpoint_snapshots": copy.deepcopy(self._checkpoint_snapshots),
@@ -1493,7 +1482,6 @@ class GameLoop:
             "node": cp_node,
             "title": cp_title,
             "summary": cp_summary,
-            "round": self._context_mgr.round_count + 1,
         })
 
         self._checkpoint_snapshots[cp_node] = copy.deepcopy(

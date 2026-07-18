@@ -295,7 +295,7 @@ Format reminder: last round had format issues — {format_error}. Please strictl
 
 | 情况 | 处理 |
 |------|------|
-| 首轮（round_count=0） | 调用 `build_round1()` 而非 `build_round_n()`，bridge_text 为空 |
+| 首轮 | 调用 `build_round1()` 而非 `build_round_n()`，bridge_text 为空 |
 | compressed_summaries 为空 | 不注入压缩摘要消息对 |
 | rejected_changes 为空 | 不注入反馈节 |
 | format_error 为空 | 不注入纠正提示 |
