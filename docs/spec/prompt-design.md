@@ -246,13 +246,15 @@ messages = [
 
 #### 各部分职责
 
-| 部分 | 模块 | 说明 |
-|------|------|------|
-| Round 1 user | `PromptBuilder.build_round1()` | 角色定义 + XML 格式规范 + 完整示例 + 核心规则 + 故事上下文 |
-| Round 1 assistant | LLM 输出 | 永久保留的 few-shot 范例（~1500 tokens） |
-| 压缩摘要 | `ContextManager._build_compression_messages()` | 滑出窗口轮次的 checkpoint 摘要列表 |
-| 窗口轮次 | `ContextManager` 维护 | 最近 WINDOW_SIZE=3 轮的完整 user/assistant 消息对 |
-| 当前 Round N | `PromptBuilder.build_round_n()` | 轻量上下文（不含格式规范和故事上下文） |
+Round 1 的 user 消息由两部分组成：一个**前缀块**（角色、格式规范、示例、规则、故事背景）和一个**回合块**（大纲进度、当前状态、量化约束、续写锚点）。前缀块只发送一次，永久锚定；回合块每轮都发，首轮和后继轮内容结构一致。
+
+| 部分 | 说明 |
+|------|------|
+| Round 1 user | 前缀块 + 回合块（首轮：bridge_text 为空，无错误反馈） |
+| Round 1 assistant | LLM 输出，永久保留的 few-shot 范例 |
+| 压缩摘要 | 滑出窗口轮次的 checkpoint 摘要，作为独立的 user/assistant 消息对注入 |
+| 窗口轮次 | 最近 WINDOW_SIZE=3 轮的完整 user/assistant 消息对 |
+| 当前轮 user | 回合块（bridge_text 和错误反馈按实际情况填充） |
 
 #### 滑动窗口与压缩
 
@@ -295,16 +297,16 @@ Format reminder: last round had format issues — {format_error}. Please strictl
 
 | 情况 | 处理 |
 |------|------|
-| 首轮 | 调用 `build_round1()` 而非 `build_round_n()`，bridge_text 为空 |
-| compressed_summaries 为空 | 不注入压缩摘要消息对 |
+| 首轮 | 回合块中 bridge_text 为空，无错误反馈；末尾附首轮标记 |
+| 窗口未满 | 不触发压缩，不注入压缩摘要消息对 |
 | rejected_changes 为空 | 不注入反馈节 |
 | format_error 为空 | 不注入纠正提示 |
 | ending_flag=true | 不组装叙事 Prompt，组装冒险日志 Prompt（§5） |
 
-### 4.2 Round 1 Prompt 模板
+### 4.2 首轮前缀
 
-> `ROUND1_TEMPLATE` 在 `prompt_builder.py` 中定义。`{占位符}` 由 `build_round1()` 替换。
-> 永久保留在 messages[0]，不压缩不删除。
+> 首轮 user 消息的前半段——角色定义、格式规范、示例、核心规则、故事背景。只发送一次，永久锚定。
+> 后半段（大纲进度、当前状态、量化约束、续写锚点）见 §4.3 回合提示词——首轮和后继轮共享同一模板。
 
 ```
 You are the narrative engine for a text adventure game. Generate the next interactive story segment based on the outline and current state.
@@ -470,81 +472,106 @@ Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single pa
 **Conflict:** {conflict}
 **Characters:**
 {characters}
+```
 
+### 4.3 回合提示词
+
+> 每轮都发送的 user 消息内容。首轮和后继轮共享同一结构：首轮时 bridge_text 为空、无错误反馈；后继轮按实际情况填充。
+>
+> 包含：大纲进度（完整树 + 状态标记）、当前节点与目标、状态快照、可选的错误反馈、输出量化约束、续写锚点。
+
+#### 模板
+
+```
 **Outline:**
 {outline_text}
 
 **Active Node:** {active_node} — {node_goal}
 
 **Current State:**
-{state_vars_text}
-
+{state_vars_text}{error_feedback}
 Output {MIN_LINES}-{MAX_LINES} total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
 The active node indicates the current direction; decide whether to complete it this round.
-
-(This is the start of the whole story.)
+{bridge_text}
 ```
 
-### 4.3 Round N 上下文
+#### 各字段说明
 
-> Round N（N ≥ 2）的 user 消息由 `PromptBuilder.build_round_n()` 构建。
-> 不含角色定义、格式规范、故事上下文——这些已在 Round 1 中永久锚定。
+| 字段 | 说明 |
+|------|------|
+| `outline_text` | 完整大纲树，含 `[completed]`/`[active]`/`[pending]` 状态标记和路由关系 |
+| `active_node` / `node_goal` | 当前节点 ID 及其叙事目标 |
+| `state_vars_text` | 所有变量的当前值。number 类型带 `/ 100` 上限后缀，string 类型不带 |
+| `error_feedback` | 可选。上轮被拒的变量变更 + 格式错误提醒。首轮留空 |
+| `bridge_text` | 上轮 `<bridge/>` 之后过滤出的纯文本。首轮留空。无 bridge_text 时此行为空行 |
+| `MIN_LINES` / `MAX_LINES` | 输出行数范围，与首轮前缀中的约束一致 |
 
-#### 消息内容
+#### 格式示例
 
-| 内容 | 来源 | 说明 |
-|------|------|------|
-| 当前节点 | `current_node` | 当前大纲节点 ID |
-| 目标 | `goal` | 当前节点的叙事目标（含标题前缀，格式 `{title}：{goal}`） |
-| 已完成节点 | `completed_nodes` | 已通过的 checkpoint 列表 |
-| 压缩摘要 | `compressed_summaries` | 滑出窗口轮次的 checkpoint 摘要 |
-| 状态快照 | `state_vars` | 所有变量的当前值 |
-| 被拒变更 | `rejected_changes` | 仅当非空时注入 |
-| 格式错误 | `format_error` | 仅当存在时注入 |
-| bridge_text | 上一轮 assistant 输出 | 从 `<bridge/>` 之后提取的纯文本 |
-
-#### 格式示例（Round N）
+首轮（无 bridge_text、无错误反馈）：
 
 ```
-Current node: ch3_ally — 盟友之路：通过地下网络逃离
-Completed nodes: ch1_bar, ch2_confrontation
+**Outline:**
+ch1_bar [active] — 霓虹深渊：在酒吧获取情报
+  → ch2_confrontation [pending]
+ch2_confrontation [pending] — 地下交易：与耗子会面
+  ├→ ch3_ally [pending]
+  └→ ch3_betrayal [pending]
+ch3_ally [pending] — 盟友之路：通过地下网络逃离
+ch3_betrayal [pending] — 背叛之路：杀出重围
+ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 
-Completed chapter summaries:
-- 在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式
-- 与耗子完成芯片交易，耗子透露芯片来自荒坂R&D
+**Active Node:** ch1_bar — 霓虹深渊：在酒吧获取情报
 
-Current state:
-  体力: 60
-  信任度: 25
-  所属势力: 自由佣兵
+**Current State:**
+体力: 80 / 100
+信任度: 10 / 100
+所属势力: 自由佣兵
 
-Last round ending:
+Output 150-300 total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
+The active node indicates the current direction; decide whether to complete it this round.
+
+```
+
+中盘轮次（有 bridge_text、有错误反馈）：
+
+```
+**Outline:**
+ch1_bar [completed] — 霓虹深渊：在酒吧获取情报
+  → ch2_confrontation [active]
+ch2_confrontation [active] — 地下交易：与耗子会面
+  ├→ ch3_ally [pending]
+  └→ ch3_betrayal [pending]
+ch3_ally [pending] — 盟友之路：通过地下网络逃离
+ch3_betrayal [pending] — 背叛之路：杀出重围
+ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
+
+**Active Node:** ch2_confrontation — 地下交易：与耗子会面完成芯片交易
+
+**Current State:**
+体力: 60 / 100
+信任度: 25 / 100
+所属势力: 自由佣兵
+
+Rejected state changes from last round:
+  - 体力变更被拒：超出范围[0,100]
+
+Output 150-300 total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
+The active node indicates the current direction; decide whether to complete it this round.
+
 你对耗子点了点头。
 耗子: 跟我来。
+他转身推开一扇锈迹斑斑的铁门。
 ```
 
-#### 状态变量格式化
+### 4.4 完整示例
 
-Round N 消息中直接展示当前值（无 `/100` 后缀）：
+> Round 1，赛博朋克 medium 故事（zh-CN）。`{MIN_LINES}=150` `{MAX_LINES}=300` `{BRIDGE_PCT}=75`。
+> 以下为 §4.2 首轮前缀 + §4.3 回合提示词拼接后的完整 messages[0]，也就是实际发送给 LLM 的内容。
+>
+> 前缀和回合块之间的分隔线（`---`）仅为阅读标注，实际 Prompt 中不存在，两者直接拼接。
 
-| 类型 | 格式 |
-|------|------|
-| number | `变量名：当前值` |
-| string | `变量名：当前值` |
-> Round 1 中 number 类型使用 `变量名：初始值 / 100` 格式（含上限），由 `_format_state_vars()` 生成。
-
-#### 大纲格式化
-
-> **仅 Round 1 包含完整大纲树**（含 `[completed]`/`[active]`/`[pending]` 状态标记）。Round N 上下文仅发送 `current_node` + `goal` + `completed_nodes` 列表，不含大纲树。
-
-格式（Round 1）：
-- 每节点一行：`node_id [status] — 标题：目标`
-- 分支缩进：`├→ target [status]`
-- status：`[completed]` / `[active]` / `[pending]`
-
-### 4.4 Round 1 Prompt 示例
-
-> Round 1，赛博朋克 medium 故事（zh-CN）。`{MIN_LINES}=150` `{MAX_LINES}=300` `{BRIDGE_PCT}=75`。以下为 `build_round1()` 填充后的实际输出。
+#### 首轮前缀
 
 ```
 You are the narrative engine for a text adventure game. Generate the next interactive story segment based on the outline and current state.
@@ -710,7 +737,13 @@ Rough guide: ~lines 001-225 before bridge + ~75 after (single path) or ~38 per b
 **Conflict:** 一枚从企业R&D部门流出的神秘芯片正在寻找宿主
 **Characters:**
 耗子（地下情报贩子，亦敌亦友）、美智子（荒坂安全主管，前上司）
+```
 
+---
+
+#### 回合提示词
+
+```
 **Outline:**
 ch1_bar [completed] — 霓虹深渊：在酒吧获取情报
   → ch2_confrontation [active]
@@ -734,8 +767,13 @@ ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 Output 150-300 total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
 The active node indicates the current direction; decide whether to complete it this round.
 
-(This is the start of the whole story.)
 ```
+
+#### 拼接
+
+首轮完整 Prompt = 首轮前缀 + 回合提示词 + `(This is the start of the whole story.)`
+
+> 实际发送给 LLM 时，前缀和回合块之间没有分隔线，就是一个整体文本。首轮末尾的 `(This is the start of the whole story.)` 仅首轮出现，后续轮次不追加。
 
 ## §5 冒险日志 Prompt
 
