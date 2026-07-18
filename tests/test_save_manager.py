@@ -50,7 +50,6 @@ class TestSaveManagerInstance:
                 ],
                 "checkpoint_snapshots": {},
             },
-            "bridge_text": "",
         }
 
     # ── save / load round-trip ─────────────────────────────────
@@ -185,7 +184,6 @@ class TestSaveManagerStatic:
             "state_vars": {},
             "outline": [],
             "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_snapshots": {}},
-            "bridge_text": "",
         })
         games = SaveManager.list_games(root)
         assert len(games) == 1
@@ -204,7 +202,6 @@ class TestSaveManagerStatic:
             "state_vars": {},
             "outline": [],
             "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_snapshots": {}},
-            "bridge_text": "",
         })
         saves = SaveManager.list_saves_for_game(root, game_id)
         assert len(saves) == 1

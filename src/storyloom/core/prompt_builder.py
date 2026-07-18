@@ -208,13 +208,15 @@ class PromptBuilder:
         current_node: str,
         goal: str,
         state_vars: dict[str, int | str],
-        checkpoint_history: list[dict] | None = None,
-        bridge_text: str = "",
     ) -> str:
         """Build Round 1 prompt (permanent anchor).
 
         Concatenates ROUND1_PREFIX (format + rules + story context)
         with ROUND_TEMPLATE (outline + state + constraints).
+
+        Round 1 fills bridge_text with a start-of-story placeholder
+        instead of actual post-bridge text.  error_feedback is empty
+        (no previous round to reject changes from).
 
         Args:
             story_config: Story configuration dict.
@@ -222,10 +224,6 @@ class PromptBuilder:
             current_node: Current outline node ID.
             goal: Current node narrative goal.
             state_vars: Current state variable values (new game or loaded).
-            checkpoint_history: Past checkpoint records (loaded games only).
-                [{node, title, goal, summary}]. Empty for new games.
-            bridge_text: Post-bridge text formatted as continuation
-                section (loaded games only). Empty for new games.
 
         Returns:
             Full Round 1 prompt string.
@@ -286,7 +284,7 @@ class PromptBuilder:
             error_feedback="",
             MIN_LINES=LINES_PER_ROUND_MIN,
             MAX_LINES=LINES_PER_ROUND_MAX,
-            bridge_text=bridge_text,
+            bridge_text="(Story begins)",
         )
 
         return prefix + "\n" + round_part

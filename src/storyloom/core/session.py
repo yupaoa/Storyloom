@@ -176,5 +176,4 @@ class GameSession:
                 "current_node": first_node_id,
                 "checkpoint_snapshots": {},
             },
-            "bridge_text": "",
         }

@@ -586,18 +586,12 @@ class GameLoop:
             raise RuntimeError("Round 1 already started")
         self._game_started = True
 
-        bridge_section = ""
-        if self._last_bridge_text:
-            bridge_section = f"\n**Continue from:**\n{self._last_bridge_text}"
-
         r1_prompt = self._prompter.build_round1(
             story_config=self.story_config,
             outline_text=self.outline_text,
             current_node=self.current_node or "",
             goal=self.goal or "",
             state_vars=self.game_state.state_vars,
-            checkpoint_history=self.checkpoint_history or None,
-            bridge_text=bridge_section,
         )
 
         messages = [{"role": "user", "content": r1_prompt}]
@@ -1062,7 +1056,6 @@ class GameLoop:
                 "current_node": self.current_node or "",
                 "checkpoint_snapshots": copy.deepcopy(self._checkpoint_snapshots),
             },
-            "bridge_text": self._last_bridge_text,
         }
 
     @classmethod
@@ -1107,7 +1100,6 @@ class GameLoop:
             outline_nodes=outline_nodes,
         )
 
-        gl._last_bridge_text = data.get("bridge_text", "")
         gl._checkpoint_snapshots = dict(progress.get("checkpoint_snapshots", {}))
 
         # Restore temperature

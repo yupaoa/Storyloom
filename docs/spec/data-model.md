@@ -89,7 +89,7 @@ saves/
 
 - **`_init.json`**：元存档。共创阶段完成后立即写入。新游戏和 checkpoint 存档共享完全相同的 JSON 结构，由统一的加载路径读取。
 - **Checkpoint 存档**：每次到达 checkpoint 时追加写入新文件，文件名格式 `{cp_title}_{timestamp}.json`（紧凑 UTC 时间戳），永不覆盖。玩家可回溯到任意历史关键节点。
-- **存档内容结构**：所有存档文件（含 `_init.json`）共享同一 JSON 结构——`version`、`metadata`、`config`、`story_config`（含 `variables`）、`state_vars`、`outline`（含节点状态）、`progress`（含 checkpoint 历史/摘要/快照）、`bridge_text`。
+- **存档内容结构**：所有存档文件（含 `_init.json`）共享同一 JSON 结构——`version`、`metadata`、`config`、`story_config`（含 `variables`）、`state_vars`、`outline`（含节点状态）、`progress`（含 checkpoint 历史/摘要/快照）。
 
 > **概念区分**：「游戏存档」是游戏目录下的 JSON 文件；「checkpoint 快照」是存档内部的 `checkpoint_snapshots`（为 Phase 2 回档预留，Phase 1 仅存储不读取）。
 
@@ -122,7 +122,6 @@ saves/
 | `metadata.updated_at` | 每次写入时更新 | |
 | `outline` | 每次 checkpoint 时更新 | 每个节点含 id / title / goal / status / summary / routes。status 标记推进状态，summary 在 checkpoint 时写入当前节点 |
 | `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |
-| `bridge_text` | 每次写入时更新 | 加载后作为首轮 User Message |
 
 ---
 

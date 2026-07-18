@@ -69,23 +69,14 @@ class TestBuildRound1:
         assert "体力" in result
         assert "信任度" in result
 
-    def test_round1_ends_with_bridge_text_when_provided(self):
-        pb = PromptBuilder()
-        result = pb.build_round1(
-            SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation",
-            "与耗子完成交易", SAMPLE_STATE_VARS,
-            bridge_text="\n**Continue from:**\n耗子: 跟我来。",
-        )
-        assert "Continue from" in result
-        assert "耗子: 跟我来" in result
-
-    def test_round1_no_bridge_text_for_new_game(self):
+    def test_round1_starts_with_placeholder(self):
         pb = PromptBuilder()
         result = pb.build_round1(
             SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation",
             "与耗子完成交易", SAMPLE_STATE_VARS,
         )
-        assert "start of the whole story" not in result
+        assert "(Story begins)" in result
+        assert "Continue from" not in result
 
     def test_round1_uses_state_vars_not_initial_values(self):
         """When state_vars differ from story_config.variables initial values,
