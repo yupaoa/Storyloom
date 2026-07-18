@@ -201,6 +201,7 @@ class PromptBuilder:
         current_node: str,
         goal: str,
         state_vars: dict[str, int | str],
+        checkpoint_history: list[dict] | None = None,
     ) -> str:
         """Build Round 1 prompt (permanent anchor).
 
@@ -210,6 +211,8 @@ class PromptBuilder:
             current_node: Current outline node ID.
             goal: Current node narrative goal.
             state_vars: Current state variable values (new game or loaded).
+            checkpoint_history: Past checkpoint records (loaded games only).
+                [{node, title, goal, summary}]. Empty for new games.
 
         Returns:
             Full Round 1 prompt string.

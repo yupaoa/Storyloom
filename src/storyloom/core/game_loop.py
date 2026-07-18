@@ -552,6 +552,7 @@ class GameLoop:
             current_node=self.current_node or "",
             goal=self.goal or "",
             state_vars=self.game_state.state_vars,
+            checkpoint_history=self._checkpoint_history or None,
         )
 
         # If resuming from a save, append bridge_text per
