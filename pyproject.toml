@@ -7,6 +7,9 @@ name = "storyloom"
 version = "0.1.0"
 description = "AI-powered interactive text fiction game engine"
 requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.28.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]

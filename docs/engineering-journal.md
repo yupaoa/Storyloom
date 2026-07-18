@@ -8,6 +8,18 @@
 
 ## 2026-07-18（周六）
 
+### ApiClient 从 urllib 迁移到 httpx——连接池解决代理 400
+
+**背景**：WSL2 环境下 API 请求经 Windows 侧代理 `127.0.0.1:19828`。`urllib` 每次 `urlopen()` 新建 TCP 连接 + CONNECT 隧道，co-create 多轮 Q&A 和 daemon 线程流式连接累积后，代理隧道达到上限，拒绝新请求（HTTP 400）。错误信息不可读（代理返回 HTML，JSON 解析失败后 fallback 为 generic "Bad Request"），重试无效（完全相同的请求过同一拥塞代理）。另一方面，`deepseek-v4-pro` reasoning model 会在输出中产生 `\udcef` 等孤立代理字符（lone surrogates），`json.dumps()` 编码时抛出 `UnicodeEncodeError`，该异常不是 `ApiError` 子类，逃逸到 game_driver 层被当成致命错误而非触发重试。
+
+**决策**：(1) 用 `httpx.Client` 替代 `urllib`——客户端实例持有连接池，复用 TCP 连接和 CONNECT 隧道，代理侧连接数稳定在 2-3 条，不再触及上限；(2) `_handle_http_error` 改为接收 `httpx.Response`，JSON 解析失败时展示原始响应体片段（最多 500 字符）；(3) `_extract_content` 处理 reasoning model 的 `content: null`；(4) `chat()` / `stream_chat_iter()` 增加可选 `max_tokens` 参数（默认 None，向后兼容）；(5) 新增 `except UnicodeError` 捕获，将 JSON 序列化错误转为 `ApiError` 进入正常 retry 流程。公共 API（`chat()`、`stream_chat_iter()`、`stream_chat()`、`ApiResult`、`ApiError`）签名不变，所有调用方零改动。
+
+**依赖变更**：`pyproject.toml` 新增 `httpx>=0.28.0`——项目首个运行时依赖。
+
+**依据**：`docs/spec/exec-flow.md` §4.3, §6.1；`data-model.md` §A.6。
+
+### 大纲数据模型统一——status 与 summary 归于节点
+
 ### 大纲数据模型统一——status 与 summary 归于节点
 
 **背景**：四个独立结构维护同一批大纲节点的不同侧面——`_outline_nodes`（纯结构）、`_completed_nodes`（状态列表）、`_checkpoint_history`（summary 列表，含 title/goal 副本）、`outline_text`（格式化快照，仅在构造时设置，永不更新）。这导致：(1) `outline_text` 在 checkpoint 推进后过时，状态标记不再准确；(2) `title`/`goal` 在 `_outline_nodes` 和 `_checkpoint_history` 中重复存储；(3) checkpoint summary 只在压缩消息和冒险日志中可见，不在每轮的 outline 段落中；(4) 读档后 ContextManager 的 `_compressed_summaries` 为空，LLM 看不到历史摘要。

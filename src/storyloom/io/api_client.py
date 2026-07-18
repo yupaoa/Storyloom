@@ -1,4 +1,4 @@
-"""OpenAI-compatible API client using urllib (standard library only).
+"""OpenAI-compatible API client using httpx with connection pooling.
 
 Reads API configuration from UserConfig, with os.environ as override.
 Supports streaming (SSE) and non-streaming chat completions.
@@ -7,10 +7,10 @@ Supports streaming (SSE) and non-streaming chat completions.
 import json
 import os
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass
+
+import httpx
 
 from storyloom.config import DEFAULT_MODEL, STREAM_STALL_TIMEOUT_SEC
 
@@ -32,6 +32,9 @@ class ApiClient:
     """OpenAI-compatible chat completion API client.
 
     Reads credentials from UserConfig, with os.environ as override.
+    Uses httpx.Client for connection pooling — TCP connections and
+    CONNECT tunnels (through proxies) are reused across requests.
+
     Supports streaming (SSE) via stream_chat() and one-shot via chat().
     """
 
@@ -49,6 +52,13 @@ class ApiClient:
 
         self._validate_config()
 
+        # Connection pool — reused across all calls.
+        # httpx auto-reads HTTP_PROXY / HTTPS_PROXY / NO_PROXY from env.
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(STREAM_STALL_TIMEOUT_SEC, connect=30.0),
+            follow_redirects=True,
+        )
+
     def _validate_config(self) -> None:
         """Validate that required config is present."""
         if not self.api_key:
@@ -62,37 +72,97 @@ class ApiClient:
                 "or via the LLM_BASE_URL environment variable."
             )
 
-    def _build_request(
-        self, messages: list[dict], stream: bool = True
-    ) -> urllib.request.Request:
-        """Build a POST Request to the chat completions endpoint."""
-        url = f"{self.base_url}/chat/completions"
-        body = json.dumps({
-            "model": self.model,
-            "messages": messages,
-            "stream": stream,
-        }).encode("utf-8")
+    # ── request helpers ──────────────────────────────────────────────
 
-        headers = {
+    def _build_headers(self) -> dict[str, str]:
+        return {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
 
-        return urllib.request.Request(
-            url, data=body, headers=headers, method="POST"
-        )
+    def _build_payload(
+        self,
+        messages: list[dict],
+        stream: bool = False,
+        max_tokens: int | None = None,
+    ) -> dict:
+        payload: dict = {
+            "model": self.model,
+            "messages": messages,
+            "stream": stream,
+        }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        return payload
+
+    # ── error handling ────────────────────────────────────────────────
 
     @staticmethod
-    def _handle_http_error(e: urllib.error.HTTPError) -> None:
-        """Convert HTTPError to ApiError with readable message."""
+    def _handle_http_error(response: httpx.Response) -> None:
+        """Convert HTTP error response to ApiError with readable message."""
+        raw_body = response.text
         try:
-            detail = json.loads(e.read())
-            msg = detail.get("error", {}).get("message", str(e))
-        except Exception:
-            msg = str(e)
-        raise ApiError(f"HTTP {e.code}: {msg}") from e
+            detail = json.loads(raw_body)
+            msg = detail.get("error", {}).get("message", str(response.status_code))
+        except (json.JSONDecodeError, ValueError):
+            snippet = raw_body[:500] if raw_body else "(empty body)"
+            msg = f"Non-JSON response: {snippet}"
+        raise ApiError(f"HTTP {response.status_code}: {msg}")
 
-    def stream_chat_iter(self, messages: list[dict]) -> Iterator[dict]:
+    @staticmethod
+    def _extract_content(data: dict) -> str:
+        """Extract message content, handling reasoning model nulls."""
+        choices = data.get("choices", [])
+        if not choices:
+            raise ApiError("No choices in API response")
+        content = choices[0].get("message", {}).get("content")
+        # Reasoning models (e.g. deepseek-v4-pro) may return content: null
+        if content is None:
+            content = ""
+        return content
+
+    # ── public API ────────────────────────────────────────────────────
+
+    def chat(
+        self, messages: list[dict], max_tokens: int | None = None
+    ) -> str:
+        """Non-streaming chat for one-shot calls.
+
+        Args:
+            messages: List of message dicts with role and content keys.
+            max_tokens: Optional max completion tokens (None = API default).
+
+        Returns:
+            Content string from the assistant response.
+
+        Raises:
+            ApiError: On network errors, HTTP errors, or malformed responses.
+        """
+        url = f"{self.base_url}/chat/completions"
+        payload = self._build_payload(messages, stream=False, max_tokens=max_tokens)
+
+        try:
+            response = self._client.post(
+                url, json=payload, headers=self._build_headers()
+            )
+            response.raise_for_status()
+            data = response.json()
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e.response)
+        except httpx.RequestError as e:
+            raise ApiError(f"Connection error: {e}") from e
+        except UnicodeError as e:
+            raise ApiError(f"Encoding error: {e}") from e
+
+        if "error" in data:
+            msg = data["error"].get("message", "Unknown API error")
+            raise ApiError(f"API error: {msg}")
+
+        return self._extract_content(data)
+
+    def stream_chat_iter(
+        self, messages: list[dict], max_tokens: int | None = None
+    ) -> Iterator[dict]:
         """Yield streaming chat tokens one by one.
 
         Each yielded dict has:
@@ -101,6 +171,7 @@ class ApiClient:
 
         Args:
             messages: List of message dicts with role and content keys.
+            max_tokens: Optional max completion tokens (None = API default).
 
         Yields:
             Token dicts as described above.
@@ -108,24 +179,30 @@ class ApiClient:
         Raises:
             ApiError: On network errors, HTTP errors, or malformed responses.
         """
-        request = self._build_request(messages, stream=True)
+        url = f"{self.base_url}/chat/completions"
+        payload = self._build_payload(messages, stream=True, max_tokens=max_tokens)
         t_start = time.perf_counter()
         ttft: float | None = None
 
         try:
-            with urllib.request.urlopen(request, timeout=STREAM_STALL_TIMEOUT_SEC) as response:
-                status = response.status
-                if status >= 400:
+            with self._client.stream(
+                "POST", url, json=payload, headers=self._build_headers()
+            ) as response:
+                if response.status_code >= 400:
                     raise ApiError(
-                        f"HTTP {status}: API returned error during streaming"
+                        f"HTTP {response.status_code}: "
+                        f"API returned error during streaming"
                     )
 
-                while True:
-                    line = response.readline()
-                    if not line:
-                        break
+                for line_bytes in response.iter_lines():
+                    if not line_bytes:
+                        continue
 
-                    raw = line.decode("utf-8", errors="replace").strip()
+                    # httpx.iter_lines() returns str; decode if bytes (safety net)
+                    if isinstance(line_bytes, bytes):
+                        raw = line_bytes.decode("utf-8", errors="replace").strip()
+                    else:
+                        raw = line_bytes.strip()
                     if not raw:
                         continue
 
@@ -133,9 +210,9 @@ class ApiClient:
                         break
 
                     if raw.startswith("data: "):
-                        payload = raw[6:]
+                        payload_str = raw[6:]
                         try:
-                            data = json.loads(payload)
+                            data = json.loads(payload_str)
                         except json.JSONDecodeError:
                             continue
 
@@ -148,7 +225,7 @@ class ApiClient:
                                 chunk["ttft"] = ttft
                             yield chunk
 
-                        # Capture usage from final chunk (if API provides it)
+                        # Capture usage from final chunk
                         if "usage" in data:
                             u = data["usage"]
                             yield {
@@ -160,14 +237,16 @@ class ApiClient:
                                 "done": True,
                             }
 
-        except urllib.error.HTTPError as e:
-            self._handle_http_error(e)
-        except urllib.error.URLError as e:
-            raise ApiError(f"Connection error: {e.reason}") from e
-        except OSError as e:
-            raise ApiError(f"Network error: {e}") from e
+        except httpx.HTTPStatusError as e:
+            self._handle_http_error(e.response)
+        except httpx.RequestError as e:
+            raise ApiError(f"Connection error: {e}") from e
+        except UnicodeError as e:
+            raise ApiError(f"Encoding error: {e}") from e
 
-    def stream_chat(self, messages: list[dict]) -> ApiResult:
+    def stream_chat(
+        self, messages: list[dict], max_tokens: int | None = None
+    ) -> ApiResult:
         """Send messages via streaming API, collect and return the full response.
 
         Convenience wrapper around stream_chat_iter() for callers that want
@@ -175,6 +254,7 @@ class ApiClient:
 
         Args:
             messages: List of message dicts with role and content keys.
+            max_tokens: Optional max completion tokens (None = API default).
 
         Returns:
             ApiResult with content, TTFT (time to first token), and token usage.
@@ -186,7 +266,7 @@ class ApiClient:
         ttft: float | None = None
         tokens: dict | None = None
 
-        for chunk in self.stream_chat_iter(messages):
+        for chunk in self.stream_chat_iter(messages, max_tokens=max_tokens):
             if chunk.get("done"):
                 tokens = chunk.get("usage")
             else:
@@ -200,46 +280,12 @@ class ApiClient:
             tokens=tokens,
         )
 
-    def chat(self, messages: list[dict]) -> str:
-        """Non-streaming chat for one-shot calls.
+    # ── lifecycle ────────────────────────────────────────────────────
 
-        Args:
-            messages: List of message dicts with role and content keys.
+    def close(self) -> None:
+        """Close the underlying HTTP client connection pool."""
+        self._client.close()
 
-        Returns:
-            Content string from the assistant response.
-
-        Raises:
-            ApiError: On network errors, HTTP errors, or malformed responses.
-        """
-        request = self._build_request(messages, stream=False)
-
-        try:
-            with urllib.request.urlopen(request, timeout=STREAM_STALL_TIMEOUT_SEC) as response:
-                status = response.status
-                if status >= 400:
-                    raise ApiError(
-                        f"HTTP {status}: API returned error"
-                    )
-
-                body = response.read()
-                data = json.loads(body)
-
-                # Check for API-level error in response body
-                if "error" in data:
-                    msg = data["error"].get("message", "Unknown API error")
-                    raise ApiError(f"API error: {msg}")
-
-                choices = data.get("choices", [])
-                if not choices:
-                    raise ApiError("No choices in API response")
-
-                content = choices[0].get("message", {}).get("content", "")
-                return content
-
-        except urllib.error.HTTPError as e:
-            self._handle_http_error(e)
-        except urllib.error.URLError as e:
-            raise ApiError(f"Connection error: {e.reason}") from e
-        except OSError as e:
-            raise ApiError(f"Network error: {e}") from e
+    def __del__(self) -> None:
+        if hasattr(self, "_client"):
+            self._client.close()
