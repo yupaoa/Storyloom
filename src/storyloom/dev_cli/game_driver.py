@@ -60,6 +60,7 @@ class DisplayController:
     def __init__(self, initial_mode: str = "auto"):
         self.mode = initial_mode
         self._term = TerminalInput()
+        self._enter_hint_shown = False
 
     # ── Toggle detection ────────────────────────────────────────
 
@@ -373,7 +374,9 @@ def _wait_enter(ctrl: DisplayController) -> None:
     Uses raw (cbreak) mode so Tab is detected without Enter,
     same as ``_sleep()``.
     """
-    print("[Enter to continue, Tab for auto]")
+    if not ctrl._enter_hint_shown:
+        print("[Enter to continue, Tab for auto]")
+        ctrl._enter_hint_shown = True
     with ctrl._term.raw_mode():
         while True:
             ch = ctrl._term.get_char(0.1)
