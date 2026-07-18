@@ -180,7 +180,7 @@
 
 约束：
 - 节点数：short 3-5 / medium 5-8 / long 8-15
-- 每个节点有明确叙事目标
+- 每个节点的 goal 是本章主要内容的具体概览。2-4 句，更多也可以。
 - 允许分支（if 条件 → route），条件只能引用已声明的变量
 - 最后节点为结局——其 routes: 留空（不写任何文本）。系统通过空 routes 检测结局，不要写"（结局）"等标记。
 - node_id 格式：ch{序号}_{英文缩写}
@@ -201,8 +201,8 @@ id: ch2_branch
 title: {节点标题}
 goal: {本章叙事目标}
 routes:
-  if 信任度 >= 30 → ch3_ally
-  if 信任度 < 30 → ch3_betrayal
+  if {variable} >= 30 → ch3_ally
+  if {variable} < 30 → ch3_betrayal
 
 [node]
 id: ch3_ending
