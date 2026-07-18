@@ -1220,6 +1220,8 @@ class GameLoop:
                 "id": nid,
                 "title": node.get("title", ""),
                 "goal": node.get("goal", ""),
+                "status": node.get("status", "pending"),
+                "summary": node.get("summary", ""),
                 "routes": routes,
             })
         return normalized
