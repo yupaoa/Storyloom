@@ -209,6 +209,7 @@ class PromptBuilder:
         goal: str,
         state_vars: dict[str, int | str],
         checkpoint_history: list[dict] | None = None,
+        bridge_text: str = "",
     ) -> str:
         """Build Round 1 prompt (permanent anchor).
 
@@ -223,6 +224,8 @@ class PromptBuilder:
             state_vars: Current state variable values (new game or loaded).
             checkpoint_history: Past checkpoint records (loaded games only).
                 [{node, title, goal, summary}]. Empty for new games.
+            bridge_text: Post-bridge text formatted as continuation
+                section (loaded games only). Empty for new games.
 
         Returns:
             Full Round 1 prompt string.
@@ -283,10 +286,10 @@ class PromptBuilder:
             error_feedback="",
             MIN_LINES=LINES_PER_ROUND_MIN,
             MAX_LINES=LINES_PER_ROUND_MAX,
-            bridge_text="",
+            bridge_text=bridge_text,
         )
 
-        return prefix + "\n" + round_part + "\n(This is the start of the whole story.)"
+        return prefix + "\n" + round_part
 
     @staticmethod
     def build_round_n(
@@ -353,7 +356,6 @@ class PromptBuilder:
         story_config: dict,
         state_vars: dict,
         outline_text: str,
-        checkpoint_history: list[dict],
     ) -> str:
         """Build adventure log prompt per prompt-design.md §5.
 
@@ -362,9 +364,8 @@ class PromptBuilder:
         Args:
             story_config: Story configuration dict.
             state_vars: Current state variables.
-            outline_text: Formatted outline tree text.
-            checkpoint_history: Structured checkpoint records
-                              [{node, title, goal, summary}].
+            outline_text: Formatted outline tree text with status
+                markers and ↳ summary lines under completed nodes.
 
         Returns:
             Prompt string for adventure log generation.
@@ -402,19 +403,6 @@ class PromptBuilder:
             bg_parts.append(f"Characters:\n{characters}")
         background_text = "\n".join(bg_parts) if bg_parts else "(No background)"
 
-        # ── Chapter sections ───────────────────────────────────────
-        chapter_sections = []
-        for i, cp in enumerate(checkpoint_history, 1):
-            title = cp.get("title", f"Chapter {i}")
-            summary = cp.get("summary", "")
-            goal = cp.get("goal", "")
-            parts = [f"### Chapter {i}: {title}"]
-            if goal:
-                parts.append(f"**Goal:** {goal}")
-            parts.append(f"**What happened:** {summary}")
-            chapter_sections.append("\n".join(parts))
-        chapters_text = "\n\n".join(chapter_sections) if chapter_sections else "(No chapter records)"
-
         # ── State vars ─────────────────────────────────────────────
         state_lines = []
         for name, value in state_vars.items():
@@ -431,15 +419,13 @@ Use Markdown format. Write in the story's language ({language}).
 ## Story Outline
 {outline_text}
 
-(The outline shows the story structure. [completed] = nodes the player went through.
-[active] = the final node. [pending] = nodes that were skipped due to branching.)
-
-## Adventure Recap: {story_label}
-
-{chapters_text}
+(The outline shows the story structure with status markers. [completed] nodes include
+a ↳ summary of what actually happened — use these as the basis for each chapter recap.
+[active] is the final node. [pending] nodes were skipped due to branching.)
 
 ## Ending
-(Write a warm, satisfying conclusion based on the chapters above. Reference specific events and decisions — do not fabricate.)
+(Write a warm, satisfying conclusion. Reference specific events from the summaries
+above — do not fabricate.)
 
 ## Final State
 {state_text}

@@ -195,14 +195,24 @@ class SaveManager:
 
             meta = data.get("metadata", {})
             progress = data.get("progress", {})
-            cp_history = progress.get("checkpoint_history", [])
 
+            # Read checkpoint info from completed outline nodes with summaries.
+            # Falls back to legacy checkpoint_history for old saves.
             cp_title = ""
             cp_node = ""
-            if cp_history:
-                last_cp = cp_history[-1]
-                cp_title = last_cp.get("title", "")
-                cp_node = last_cp.get("node", "")
+            outline_nodes = data.get("outline", [])
+            for node in reversed(outline_nodes):
+                if node.get("status") == "completed" and node.get("summary"):
+                    nid = node.get("node_id", node.get("id", ""))
+                    cp_title = node.get("title", "")
+                    cp_node = nid
+                    break
+            if not cp_node:
+                cp_history = progress.get("checkpoint_history", [])
+                if cp_history:
+                    last_cp = cp_history[-1]
+                    cp_title = last_cp.get("title", "")
+                    cp_node = last_cp.get("node", "")
 
             result.append({
                 "filename": path.name,

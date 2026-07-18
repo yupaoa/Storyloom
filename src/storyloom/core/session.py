@@ -151,6 +151,7 @@ class GameSession:
                 "title": node.get("title", ""),
                 "goal": node.get("goal", ""),
                 "status": "active" if i == 0 else "pending",
+                "summary": "",
                 "branches": [
                     {"condition": r.get("condition"),
                      "target": r.get("target", "")}
@@ -173,7 +174,6 @@ class GameSession:
             "outline": outline_for_save,
             "progress": {
                 "current_node": first_node_id,
-                "checkpoint_history": [],
                 "checkpoint_snapshots": {},
             },
             "bridge_text": "",

@@ -397,7 +397,6 @@ def _record_adv(observer: DevObserver, game_loop: GameLoop, response: str) -> No
         story_config=game_loop.story_config,
         state_vars=game_loop.game_state.state_vars,
         outline_text=game_loop.outline_text,
-        checkpoint_history=game_loop.checkpoint_history,
     )
     observer.record_adventure_log(prompt, response)
 
