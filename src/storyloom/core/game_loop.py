@@ -434,7 +434,6 @@ class GameLoop:
 
         # Checkpoint and save accumulators
         self._temperature = getattr(api_client, "temperature", None)
-        self._checkpoint_summaries: list[str] = []
         self._checkpoint_history: list[dict] = []
         self._checkpoint_snapshots: dict[str, dict] = {}
         self.ending_flag: bool = False
@@ -1030,7 +1029,6 @@ class GameLoop:
             "progress": {
                 "current_node": self.current_node or "",
                 "checkpoint_history": list(self._checkpoint_history),
-                "checkpoint_summaries": list(self._checkpoint_summaries),
                 "checkpoint_snapshots": copy.deepcopy(self._checkpoint_snapshots),
             },
             "bridge_text": self._last_bridge_text,
@@ -1108,7 +1106,6 @@ class GameLoop:
         gl._last_bridge_text = data.get("bridge_text", "")
 
         # Restore checkpoint accumulations
-        gl._checkpoint_summaries = list(progress.get("checkpoint_summaries", []))
         gl._checkpoint_history = list(progress.get("checkpoint_history", []))
         gl._checkpoint_snapshots = dict(progress.get("checkpoint_snapshots", {}))
 
@@ -1464,13 +1461,9 @@ class GameLoop:
         Called by ``_handle_checkpoint`` during streaming parse
         (Phase 3) for every checkpoint — ending or non-ending.
 
-        Side effects on: ``_checkpoint_summaries``,
-        ``_checkpoint_history``, ``_checkpoint_snapshots``,
-        ``_save_manager``.
+        Side effects on: ``_checkpoint_history``,
+        ``_checkpoint_snapshots``, ``_save_manager``.
         """
-        if cp_summary:
-            self._checkpoint_summaries.append(cp_summary)
-
         cp_title = cp_node
         cp_goal = ""
         if self._outline_nodes:

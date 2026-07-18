@@ -174,7 +174,6 @@ class GameSession:
             "progress": {
                 "current_node": first_node_id,
                 "checkpoint_history": [],
-                "checkpoint_summaries": [],
                 "checkpoint_snapshots": {},
             },
             "bridge_text": "",

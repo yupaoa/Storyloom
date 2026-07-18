@@ -46,9 +46,8 @@ class TestSaveManagerInstance:
             "progress": {
                 "current_node": "ch1",
                 "checkpoint_history": [
-                    {"node": "ch1", "title": "Start", "summary": "began"}
+                    {"node": "ch1", "title": "Start", "goal": "", "summary": "began"}
                 ],
-                "checkpoint_summaries": [],
                 "checkpoint_snapshots": {},
             },
             "bridge_text": "",
@@ -185,7 +184,7 @@ class TestSaveManagerStatic:
             "story_config": {"label": "my_story", "language": "zh-CN", "genre": "fantasy", "tier": "short", "variables": []},
             "state_vars": {},
             "outline": [],
-            "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_summaries": [], "checkpoint_snapshots": {}},
+            "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_snapshots": {}},
             "bridge_text": "",
         })
         games = SaveManager.list_games(root)
@@ -204,7 +203,7 @@ class TestSaveManagerStatic:
             "story_config": {"label": "test", "variables": []},
             "state_vars": {},
             "outline": [],
-            "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_summaries": [], "checkpoint_snapshots": {}},
+            "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_snapshots": {}},
             "bridge_text": "",
         })
         saves = SaveManager.list_saves_for_game(root, game_id)
