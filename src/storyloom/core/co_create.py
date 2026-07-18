@@ -411,6 +411,18 @@ _LANG_META = {
             "All questions, example answers, and the story title (label) must be in Chinese."
         ),
         "label_hint": "{a short Chinese title, 5-15 characters, used for save files}",
+        "example_variables": (
+            "体力: number, 80\n"
+            "信任度: number, 10\n"
+            "所属势力: string, 自由佣兵"
+        ),
+        "example_branch_var": "信任度",
+        "example_goal": (
+            "在霓虹深渊酒吧，情报贩子向主角透露了一枚神秘芯片的存在。"
+            "通过隐藏终端查询，发现芯片来自企业研发部门的绝密项目，"
+            "多个势力正在逼近。"
+            "主角必须决定是深入调查还是暂避锋芒——时间不多了。"
+        ),
     },
     "en": {
         "instruction": (
@@ -419,6 +431,19 @@ _LANG_META = {
             "All questions, example answers, and the story title (label) must be in English."
         ),
         "label_hint": "{unique story identifier for save files}",
+        "example_variables": (
+            "Stamina: number, 80\n"
+            "Trust: number, 10\n"
+            "Faction: string, Freelancer"
+        ),
+        "example_branch_var": "Trust",
+        "example_goal": (
+            "At the Neon Abyss bar, a fixer tips off the protagonist about a mysterious "
+            "data chip. A search through a hidden terminal reveals the chip is from a "
+            "top-secret corporate R&D project, and multiple factions are already closing "
+            "in. The protagonist must decide whether to dig deeper or lie low — time is "
+            "running out."
+        ),
     },
 }
 
@@ -471,7 +496,7 @@ Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
 
 ## Outline
 - Node count by tier: $node_count_hint. Your outline must match your declared tier.
-- Each node has a clear narrative goal which describes the specific events, characters, and stakes in 2-3 sentences.
+- Each node's goal provides a specific overview of the chapter's main content. 2-4 sentences, more is fine.
 - Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
 - Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
 - node_id format: ch{number}_{english_abbreviation}
@@ -497,15 +522,13 @@ characters:
   (at least 1)
 
 === variables ===
-体力: number, 80
-信任度: number, 10
-所属势力: string, 自由佣兵
+$example_variables
 
 === outline ===
 [node]
 id: ch1_intro
 title: {node title}
-goal: {narrative goal of this node}
+goal: $example_goal
 routes: → ch2_next
 
 [node]
@@ -513,8 +536,8 @@ id: ch2_next
 title: {node title}
 goal: {narrative goal}
 routes:
-  if 信任度 >= 30 → ch3_path_a
-  if 信任度 < 30 → ch3_path_b
+  if $example_branch_var >= 30 → ch3_path_a
+  if $example_branch_var < 30 → ch3_path_b
 
 [node]
 id: ch3_path_a
@@ -599,7 +622,7 @@ class CoCreateFlow:
         lang = get_current_lang()
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
-        meta = _LANG_META[lang]
+        meta = _LANG_META.get(lang, _LANG_META[DEFAULT_LANGUAGE])
         node_count_hint = " / ".join(
             f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
         )
@@ -607,6 +630,9 @@ class CoCreateFlow:
             label_hint=meta["label_hint"],
             language=lang,
             node_count_hint=node_count_hint,
+            example_variables=meta["example_variables"],
+            example_goal=meta["example_goal"],
+            example_branch_var=meta["example_branch_var"],
         )
 
     def __init__(self, api_client: ApiClient):

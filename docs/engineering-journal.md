@@ -8,6 +8,14 @@
 
 ## 2026-07-18（周六）
 
+### Co-Create 大纲 goal 提示词优化 + 示例数据语言感知
+
+**背景**：大纲各节点的 `goal` 字段偏短、不够详细，影响后续叙事生成的质量参照。根因有二：(1) Prompt 中 goal 的约束表述罗列要素（events, characters, stakes）而非传达功能定位和详细度要求；(2) `CO_CREATE_GENERATION_PROMPT` 的示例数据（变量名、分支条件、goal 占位符）硬编码中文，与语言感知设计不一致，且 goal 占位符为元指令而非具体示例，LLM 无样本可模仿。
+
+**决策**：(1) goal 约束从 "Each node has a clear narrative goal which describes the specific events, characters, and stakes in 2-3 sentences." 改为 "Each node's goal provides a specific overview of the chapter's main content. 2-4 sentences, more is fine."——去掉要素罗列，聚焦于"章的主要内容的详细概览"，`more is fine` 给 LLM 写长的信号；(2) 示例数据从模板硬编码提取到 `_LANG_META` dict，新增 `example_variables`、`example_goal`、`example_branch_var` 三个 key，中英各一套（goal 示例 ~3 句，展示具体事件与张力）；(3) `_build_generation_prompt()` 增加 `_LANG_META.get(lang, _LANG_META[DEFAULT_LANGUAGE])` 兜底未知语言。模板中 `$example_*` 占位符均为单行文本，不引入换行——`parse_outline` 无须改动。
+
+**依据**：`CO_CREATE_GENERATION_PROMPT`（`co_create.py`）；`_LANG_META`（`co_create.py` L406-448）；prompt-design.md §1.2 示例先行原则。
+
 ### 存档 bridge_text 移除 + checkpoint 存档 guard
 
 **背景**：审计存档触发机制发现两个问题。其一，`to_save_dict()` 在 Phase 3（流式解析中）被调用，此时 `_last_bridge_text` 仍是上一轮 Phase 5 写入的值——存入的 bridge_text 比当前 checkpoint 滞后两轮。更深层的问题是：checkpoint 存档代表故事节点完成边界，不是 bridge 延续；加载存档后应"从 checkpoint 节点全新开始"，而非携带上一轮的 bridge_text 作为 "Continue from:" 注入首轮 Prompt。其二，`_handle_checkpoint` 中节点推进失败（target 为 None）时仍无条件执行 `_accumulate_checkpoint`，可能产生未推进状态却已存档的"僵尸存档"。
