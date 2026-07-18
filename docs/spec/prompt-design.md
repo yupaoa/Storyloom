@@ -780,7 +780,7 @@ The active node indicates the current direction; decide whether to complete it t
 ### 5.1 规范
 
 - **调用时机**：结局轮 bridge 处（ending_flag=true）或 Q 键结束后。独立调用，不流式。
-- **输入**：story_config 全文、state_vars 当前值、checkpoint_summaries、checkpoint_history。
+- **输入**：story_config 全文、state_vars 当前值、outline_text（含各节点 status 和 summary）。
 - **输出**：Markdown 格式，500-1000 字。面向玩家回顾性口吻。不加区块分隔符。
 - **Prompt 语言**：英文（与所有系统 Prompt 一致）。通过 `{language}` 占位符指示 LLM 以故事语言输出。
 

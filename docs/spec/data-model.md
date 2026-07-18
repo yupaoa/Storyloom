@@ -17,14 +17,11 @@
 game_state = GameState()
 game_state.story_config   = story_config           // CoCreationResult.story_config（含 variables）
 game_state.state_vars     = init_from_variables(story_config.variables)  // 初始值深拷贝
-game_state.outline        = outline                // CoCreationResult.outline_nodes（含 outline_text）
-  → 第一个节点 status = "active"，其余 = "pending"
-game_state.progress = {
-    current_node:         outline[0].node_id,
-    checkpoint_history:   [],
-    checkpoint_summaries: [],
-    checkpoint_snapshots: {}
-}
+game_state.outline        = outline                // CoCreationResult.outline_nodes
+  → 每个节点含 id / title / goal / routes / status / summary
+  → 第一个节点 status = "active"，其余 = "pending"，summary 初始为空
+game_state.current_node   = outline[0].node_id     // 当前活跃节点
+game_state.checkpoint_snapshots = {}               // 节点状态快照（为回档预留）
 game_state.bridge_text    = ""                     // 首轮为空
 game_state.rejected_changes = []
 
@@ -50,7 +47,8 @@ game_state.rejected_changes = []
    ├── 否 → 记日志，忽略该 checkpoint，继续
    └── 是
 
-3. 标记旧 current_node 为 "completed"
+3. 将旧 current_node 的 status 标记为 "completed"，同时将本轮 checkpoint
+   的 summary 记录到该节点的 summary 字段
 
 4. 若有 if 条件行：
    逐条评估（按物理顺序，取首个命中）。
@@ -63,13 +61,11 @@ game_state.rejected_changes = []
 
    若无分支 → 目标节点 = outline 中下一个节点
 
-5. 标记目标节点为 "active"，更新 progress.current_node
+5. 标记目标节点的 status 为 "active"，更新 current_node
 
-6. 存入 checkpoint_summaries（summary 字段）
+6. 存储 checkpoint_snapshots[current_node] = deep_copy(state_vars)
 
-7. 存储 checkpoint_snapshots[current_node] = deep_copy(state_vars)
-
-8. 触发自动存档 → 覆盖 saves/{label}.json（原子写入，见 §3.3）
+7. 触发自动存档（见 §3.3）
 ```
 
 **兜底策略说明**：分支条件全部不命中 → 取 LLM 列出的第一个分支。这要求 LLM 按优先级排列分支条件。
@@ -124,8 +120,7 @@ saves/
 | `metadata.label` | 共创结束后首次写入 | 来源于 `story_config.label` |
 | `metadata.created_at` | 首次写入时设定 | 之后不变 |
 | `metadata.updated_at` | 每次写入时更新 | |
-| `progress.checkpoint_history` | 每次 checkpoint 时追加 | checkpoint 节点和标题记录 |
-| `progress.checkpoint_summaries` | 每次 checkpoint 时追加 | 情节摘要列表 |
+| `outline` | 每次 checkpoint 时更新 | 每个节点含 id / title / goal / status / summary / routes。status 标记推进状态，summary 在 checkpoint 时写入当前节点 |
 | `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |
 | `bridge_text` | 每次写入时更新 | 加载后作为首轮 User Message |
 

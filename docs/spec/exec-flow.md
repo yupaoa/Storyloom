@@ -42,7 +42,6 @@
 | **状态变量 (state_vars)** | 游戏内可变数据，由共创阶段 variables 定义初始化 | [data-model.md](./data-model.md) |
 | **GameState** | 程序内存中维护的完整游戏状态 | [data-model.md](./data-model.md) |
 | **rejected_changes** | 被校验拒绝的 state 变更条目 | [block-spec.md](./block-spec.md) |
-| **checkpoint_summaries** | 累积的 checkpoint 情节摘要列表 | §4.3 |
 | **游戏存档** | `saves/` 下的独立 `.json` 文件 | [data-model.md](./data-model.md) |
 
 ### 1.2 程序生命周期总览
@@ -539,11 +538,10 @@ UI 展示选项面板后，接收用户输入。引擎期望的输入范围：
   1. 正常解析 → 展示 narrative → 处理 state（如有）
   2. 处理 checkpoint：
      a. routes 为空 → 检测为结局节点
-     b. 标记当前节点为 completed
+     b. 标记当前节点 status 为 completed，summary 记录到节点
      c. 设置 ending_flag = true
-     d. 存入 checkpoint_summaries
-     e. 存储 checkpoint_snapshots
-     f. 触发自动存档（与其他 checkpoint 行为一致）
+     d. 存储 checkpoint_snapshots
+     e. 触发自动存档（与其他 checkpoint 行为一致）
   3. 执行到 bridge：
      a. 检测到 ending_flag == true
      b. 不组装正常下一轮 Prompt
@@ -588,7 +586,7 @@ UI 触发主动结束
 
 **程序行为**：
 ```
-prompt = build_adventure_log_prompt(story_config, state_vars, checkpoint_summaries, checkpoint_history)
+prompt = build_adventure_log_prompt(story_config, state_vars, outline_text)
 response = api_client.chat([{"role": "user", "content": prompt}])   // 非流式，快速生成
 展示 response 正文
 ```
