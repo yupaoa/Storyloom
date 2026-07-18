@@ -1447,10 +1447,17 @@ class GameLoop:
         Side effects on: ``_outline_nodes`` (summary field),
         ``_checkpoint_snapshots``, ``_save_manager``.
         """
+        cp_title = cp_node
         if cp_summary:
             for node in self._outline_nodes:
                 if node.get("id") == cp_node:
                     node["summary"] = cp_summary
+                    cp_title = node.get("title", cp_node)
+                    break
+        else:
+            for node in self._outline_nodes:
+                if node.get("id") == cp_node:
+                    cp_title = node.get("title", cp_node)
                     break
 
         self._checkpoint_snapshots[cp_node] = copy.deepcopy(
