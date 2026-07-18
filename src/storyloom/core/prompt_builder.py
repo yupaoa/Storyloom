@@ -183,7 +183,7 @@ ROUND_TEMPLATE = """**Outline:**
 **Current State:**
 {state_vars_text}{error_feedback}
 Output {MIN_LINES}-{MAX_LINES} total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
-The active node shows the story's heading. Advance toward it at a natural pace — whether you reach it this round is your call.
+The active node may take several rounds to reach. Do not force progress — simply continue from where the story left off.
 {bridge_text}"""
 
 

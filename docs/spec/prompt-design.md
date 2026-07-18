@@ -492,7 +492,7 @@ Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single pa
 **Current State:**
 {state_vars_text}{error_feedback}
 Output {MIN_LINES}-{MAX_LINES} total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
-The active node shows the story's heading. Advance toward it at a natural pace — whether you reach it this round is your call.
+The active node may take several rounds to reach. Do not force progress — simply continue from where the story left off.
 {bridge_text}
 ```
 
@@ -530,7 +530,7 @@ ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 所属势力: 自由佣兵
 
 Output 150-300 total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
-The active node shows the story's heading. Advance toward it at a natural pace — whether you reach it this round is your call.
+The active node may take several rounds to reach. Do not force progress — simply continue from where the story left off.
 
 ```
 
@@ -558,7 +558,7 @@ Rejected state changes from last round:
   - 体力变更被拒：超出范围[0,100]
 
 Output 150-300 total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
-The active node shows the story's heading. Advance toward it at a natural pace — whether you reach it this round is your call.
+The active node may take several rounds to reach. Do not force progress — simply continue from where the story left off.
 
 你对耗子点了点头。
 耗子: 跟我来。
@@ -767,7 +767,7 @@ ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）
 所属势力: 自由佣兵
 
 Output 150-300 total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
-The active node shows the story's heading. Advance toward it at a natural pace — whether you reach it this round is your call.
+The active node may take several rounds to reach. Do not force progress — simply continue from where the story left off.
 
 ```
 
