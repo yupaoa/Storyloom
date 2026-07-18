@@ -503,8 +503,7 @@ def run_manage_saves(session: GameSession) -> None:
             for i, s in enumerate(saves):
                 cp_title = s.get("checkpoint_title") or "_init"
                 print(f"  [{i + 1}] {cp_title} "
-                      f"(round {s.get('round', '?')}, "
-                      f"{s.get('saved_at', '?')})")
+                      f"({s.get('saved_at', '?')})")
             print("  [D] Delete this game")
             print("  [0] Back")
 
@@ -533,7 +532,6 @@ def run_manage_saves(session: GameSession) -> None:
             print(f"\nSave: {cp_title}")
             print(f"  Checkpoint: {save.get('checkpoint_title') or '(initial)'}")
             print(f"  Checkpoint Node: {save.get('checkpoint_node') or '(none)'}")
-            print(f"  Round: {save.get('round', '?')}")
             print(f"  Current Node: {save.get('current_node', '?')}")
             print(f"  Saved at: {save.get('saved_at', '?')}")
             print("  [D] Delete this save")
@@ -658,8 +656,7 @@ def dev_main(argv: list[str] | None = None) -> None:
             for i, s in enumerate(saves):
                 label = s.get("checkpoint_title") or s.get("filename", "?")
                 print(f"  [{i + 1}] {label} "
-                      f"(round {s.get('round', '?')}, "
-                      f"{s.get('saved_at', '?')})")
+                      f"({s.get('saved_at', '?')})")
             pick = _ask("Pick a save").strip()
             if not (pick.isdigit() and 1 <= int(pick) <= len(saves)):
                 continue

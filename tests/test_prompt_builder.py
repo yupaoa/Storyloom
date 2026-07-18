@@ -208,7 +208,7 @@ class TestAdventureLogPrompt:
         config = {"label": "霓虹深渊", "genre": "cyberpunk"}
         state_vars = {"体力": 25}
         summaries = ["抵达了边陲小镇"]
-        history = [{"node": "ch1", "title": "序章", "summary": "抵达边陲小镇", "round": 3}]
+        history = [{"node": "ch1", "title": "序章", "summary": "抵达边陲小镇"}]
 
         prompt = pb.build_adventure_log_prompt(config, state_vars, summaries, history)
         assert "霓虹深渊" in prompt
@@ -219,7 +219,7 @@ class TestAdventureLogPrompt:
         config = {"label": "test", "genre": "fantasy"}
         state_vars = {"魔力": 50}
         summaries = ["first checkpoint"]
-        history = [{"node": "ch1", "title": "开始", "summary": "first checkpoint", "round": 2}]
+        history = [{"node": "ch1", "title": "开始", "summary": "first checkpoint"}]
 
         prompt = pb.build_adventure_log_prompt(config, state_vars, summaries, history)
         assert "开始" in prompt

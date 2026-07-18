@@ -25,7 +25,6 @@ class TestSaveManagerInstance:
                 "label": "test-story",
                 "created_at": "2026-01-01T00:00:00Z",
                 "updated_at": "2026-01-01T00:00:00Z",
-                "round_count": 3,
             },
             "config": {"temperature": None},
             "story_config": {
@@ -46,9 +45,8 @@ class TestSaveManagerInstance:
             ],
             "progress": {
                 "current_node": "ch1",
-                "round_count": 3,
                 "checkpoint_history": [
-                    {"node": "ch1", "title": "Start", "summary": "began", "round": 3}
+                    {"node": "ch1", "title": "Start", "summary": "began"}
                 ],
                 "checkpoint_summaries": [],
                 "checkpoint_snapshots": {},
@@ -86,7 +84,6 @@ class TestSaveManagerInstance:
         assert len(saves) == 1
         assert saves[0]["checkpoint_title"] == "Start"
         assert saves[0]["checkpoint_node"] == "ch1"
-        assert saves[0]["round"] == 3
 
     def test_list_init_has_empty_cp_fields(self, game_dir, save_data):
         sm = SaveManager(game_dir)
@@ -183,12 +180,12 @@ class TestSaveManagerStatic:
         sm = SaveManager(os.path.join(root, game_id))
         sm.save({
             "version": 1,
-            "metadata": {"label": "my_story", "created_at": "2026-01-01T00:00:00Z", "updated_at": "", "round_count": 0},
+            "metadata": {"label": "my_story", "created_at": "2026-01-01T00:00:00Z", "updated_at": ""},
             "config": {"temperature": None},
             "story_config": {"label": "my_story", "language": "zh-CN", "genre": "fantasy", "tier": "short", "variables": []},
             "state_vars": {},
             "outline": [],
-            "progress": {"current_node": "", "round_count": 0, "checkpoint_history": [], "checkpoint_summaries": [], "checkpoint_snapshots": {}},
+            "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_summaries": [], "checkpoint_snapshots": {}},
             "bridge_text": "",
         })
         games = SaveManager.list_games(root)
@@ -202,12 +199,12 @@ class TestSaveManagerStatic:
         sm = SaveManager(os.path.join(root, game_id))
         sm.save({
             "version": 1,
-            "metadata": {"label": "test", "created_at": "2026-01-01T00:00:00Z", "updated_at": "", "round_count": 0},
+            "metadata": {"label": "test", "created_at": "2026-01-01T00:00:00Z", "updated_at": ""},
             "config": {"temperature": None},
             "story_config": {"label": "test", "variables": []},
             "state_vars": {},
             "outline": [],
-            "progress": {"current_node": "", "round_count": 0, "checkpoint_history": [], "checkpoint_summaries": [], "checkpoint_snapshots": {}},
+            "progress": {"current_node": "", "checkpoint_history": [], "checkpoint_summaries": [], "checkpoint_snapshots": {}},
             "bridge_text": "",
         })
         saves = SaveManager.list_saves_for_game(root, game_id)

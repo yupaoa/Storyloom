@@ -805,7 +805,7 @@ class TestCheckpointHistory:
             api_client=MockApiClient(),
         )
         history = gl.checkpoint_history
-        history.append({"node": "fake", "title": "x", "summary": "x", "round": 99})
+        history.append({"node": "fake", "title": "x", "summary": "x"})
         assert gl.checkpoint_history == []  # internal list unchanged
 
 
