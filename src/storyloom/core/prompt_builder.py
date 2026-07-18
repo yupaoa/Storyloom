@@ -138,6 +138,7 @@ Below is a format example (content is a short fictional fantasy story in English
 - Condition syntax: same as Choice above.
 
 **Checkpoint**
+- Trigger the checkpoint as soon as the active node's goal is achieved — don't delay.
 - Copy the `node` attribute verbatim from the outline — exact character-for-character match.
   Outline has `ch2_confrontation` → write `node="ch2_confrontation"`.
 - Copy `<route>` `target` attributes verbatim from outline node IDs.
