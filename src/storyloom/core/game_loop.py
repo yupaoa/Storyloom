@@ -793,22 +793,34 @@ class GameLoop:
                         # Self-closing <checkpoint/>: _in_checkpoint
                         # stays False → process immediately.
                         if not sp._in_checkpoint:
-                            self._handle_checkpoint(
+                            saved_file = self._handle_checkpoint(
                                 sp.routes,
                                 pending_cp["node"] or "",
                                 pending_cp["summary"] or "",
                                 choice_dict,
                             )
+                            if saved_file:
+                                yield {
+                                    "type": "save",
+                                    "filename": saved_file,
+                                    "checkpoint_node": pending_cp["node"],
+                                }
                             pending_cp["node"] = None
 
                     elif etype == EventType.CHECKPOINT_END:
                         if pending_cp["node"]:
-                            self._handle_checkpoint(
+                            saved_file = self._handle_checkpoint(
                                 sp.routes,
                                 pending_cp["node"],
                                 pending_cp["summary"] or "",
                                 choice_dict,
                             )
+                            if saved_file:
+                                yield {
+                                    "type": "save",
+                                    "filename": saved_file,
+                                    "checkpoint_node": pending_cp["node"],
+                                }
                             pending_cp["node"] = None
 
         # ── Flush any remaining partial line ────────────────────────
@@ -1276,7 +1288,7 @@ class GameLoop:
         cp_node: str,
         cp_summary: str,
         choice_dict: dict[str, int],
-    ) -> None:
+    ) -> str | None:
         """Process a checkpoint during streaming parse (Phase 3).
 
         Called at ``</checkpoint>`` (or self-closing ``<checkpoint/>``).
@@ -1289,6 +1301,9 @@ class GameLoop:
             cp_node: Node ID from the ``<checkpoint>`` element.
             cp_summary: Summary text from the element.
             choice_dict: Per-round player choice mapping.
+
+        Returns:
+            Auto-save filename if a save occurred, ``None`` otherwise.
         """
         # Validate node exists in outline
         if self._outline_nodes:
@@ -1299,7 +1314,7 @@ class GameLoop:
                 else:
                     self._format_error = ""
                 self._format_error += f"Unknown checkpoint node: {cp_node}"
-                return
+                return None
 
         # ── Ending detection ─────────────────────────────────────
         # Consult the outline definition for this node.  An outline
@@ -1364,7 +1379,8 @@ class GameLoop:
 
         # ── Accumulate checkpoint data + auto-save ───────────────
         if node_advanced:
-            self._accumulate_checkpoint(cp_node, cp_summary)
+            return self._accumulate_checkpoint(cp_node, cp_summary)
+        return None
 
     # ── Routes ────────────────────────────────────────────────────
 
@@ -1439,7 +1455,7 @@ class GameLoop:
                 return self._outline_nodes[i + 1].get("id")
         return None
 
-    def _accumulate_checkpoint(self, cp_node: str, cp_summary: str) -> None:
+    def _accumulate_checkpoint(self, cp_node: str, cp_summary: str) -> str | None:
         """Accumulate checkpoint data and trigger auto-save.
 
         Called by ``_handle_checkpoint`` during streaming parse
@@ -1447,6 +1463,10 @@ class GameLoop:
 
         Side effects on: ``_outline_nodes`` (summary field),
         ``_checkpoint_snapshots``, ``_save_manager``.
+
+        Returns:
+            The saved filename if auto-save succeeded, ``None`` otherwise
+            (no save manager configured, or save failed).
         """
         cp_title = cp_node
         if cp_summary:
@@ -1467,9 +1487,10 @@ class GameLoop:
 
         if self._save_manager is not None:
             try:
-                self._save_manager.save(self.to_save_dict(), cp_title)
+                return self._save_manager.save(self.to_save_dict(), cp_title)
             except Exception:
                 pass
+        return None
 
     # ── Adventure Log ─────────────────────────────────────────────
 
