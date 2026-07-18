@@ -470,7 +470,7 @@ Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
   Horror → sanity
 
 ## Outline
-- Node count by tier: $node_count_hint
+- Node count by tier: $node_count_hint. Your outline must match your declared tier.
 - Each node has a clear narrative goal which describes the specific events, characters, and stakes in 2-3 sentences.
 - Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
 - Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.

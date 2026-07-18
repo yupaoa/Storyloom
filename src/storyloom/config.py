@@ -39,9 +39,9 @@ STORY_LABEL_MAX_CHARS = 15
 
 # Outline node ranges by tier (prompt reference only — not engine-enforced)
 OUTLINE_NODE_RANGES = {
-    "short":  (3, 5),
-    "medium": (5, 10),
-    "long":   (10, 25),
+    "short":  (5, 10),
+    "medium": (10, 20),
+    "long":   (20, 30),
 }
 
 # ── API defaults ──────────────────────────────────────────────
