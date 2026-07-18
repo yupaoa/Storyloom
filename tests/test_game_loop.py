@@ -60,8 +60,8 @@ SAMPLE_XML = """<story>
 </choice>
 <set var="体力" op="-" val="10" if="approach==1"/>
 <set var="信任度" op="+" val="5" if="approach==2"/>
-<checkpoint node="ch2_meeting" summary="在旅店接头。">
-  <route if="approach==1" target="ch3_lead"/>
+<checkpoint node="ch2_confrontation" summary="在旅店接头。">
+  <route if="approach==1" target="ch3_ally"/>
 </checkpoint>
 <bridge/>
 <branch name="take_lead">
@@ -75,6 +75,14 @@ SAMPLE_XML = """<story>
 SIMPLE_XML = """<story>
 <seg n="1">开场叙事。</seg>
 <bridge/>
+</story>"""
+
+ENDING_XML = """<story>
+<seg n="1">最终对决。</seg>
+<seg n="2">你做出了选择。</seg>
+<checkpoint node="ch3_ally" summary="选择了盟友之路。"/>
+<bridge/>
+<seg n="3">尾声叙事。</seg>
 </story>"""
 
 
@@ -906,3 +914,107 @@ class TestOutlineNodes:
         assert node["id"] == "ch1_intro"       # normalized from node_id
         assert node["branches"] == ["ch2_next"]  # normalized from branches
         assert node["status"] == "completed"     # computed dynamically
+
+
+class TestCheckpointProcessing:
+    """Tests for checkpoint handling and auto-save triggering."""
+
+    def test_checkpoint_advances_node(self):
+        """A valid checkpoint with routes should advance current_node."""
+        mock = MockApiClient()
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
+            api_client=mock,
+            current_node="ch1_bar",
+        )
+        gl.start_game()
+        _run_round(gl, choice_key="1")
+        # ch2_confrontation checkpoint → route approach==1 → target ch3_ally
+        assert gl.current_node == "ch3_ally"
+        # ch1_bar and ch2_confrontation marked completed
+        assert gl._outline_nodes[0]["status"] == "completed"   # ch1_bar
+        assert gl._outline_nodes[1]["status"] == "completed"   # ch2_confrontation
+        assert gl._outline_nodes[2]["status"] == "active"      # ch3_ally
+
+    def test_checkpoint_triggers_auto_save(self):
+        """A valid checkpoint should trigger save via SaveManager."""
+        import tempfile
+        from storyloom.core.save_manager import SaveManager
+
+        mock = MockApiClient()
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
+            api_client=mock,
+            current_node="ch1_bar",
+        )
+        with tempfile.TemporaryDirectory() as d:
+            sm = SaveManager(d)
+            gl.set_save_manager(sm)
+            gl.start_game()
+            _run_round(gl, choice_key="1")
+            saves = sm.list_saves()
+            assert len(saves) == 1
+            assert saves[0]["checkpoint_node"] == "ch2_confrontation"
+
+    def test_checkpoint_no_save_when_node_unknown(self):
+        """An unknown checkpoint node should NOT trigger save."""
+        import tempfile
+        from storyloom.core.save_manager import SaveManager
+
+        # Use a mock that outputs an unknown checkpoint node
+        xml = """<story>
+        <seg n="1">测试。</seg>
+        <checkpoint node="nonexistent_node" summary="x"/>
+        <bridge/>
+        </story>"""
+        mock = MockApiClient(response=xml)
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
+            api_client=mock,
+            current_node="ch1_bar",
+        )
+        with tempfile.TemporaryDirectory() as d:
+            sm = SaveManager(d)
+            gl.set_save_manager(sm)
+            gl.start_game()
+            _run_round(gl)
+            saves = sm.list_saves()
+            assert len(saves) == 0
+
+    def test_ending_checkpoint_sets_ending_flag(self):
+        """A checkpoint on a node with empty routes should set ending_flag."""
+        mock = MockApiClient(response=ENDING_XML)
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
+            api_client=mock,
+            current_node="ch3_ally",  # ch3_ally has routes=[] → ending
+        )
+        gl.start_game()
+        _run_round(gl)
+        assert gl.ending_flag is True
+        assert gl.current_node == "ch3_ally"
+
+    def test_ending_checkpoint_triggers_save(self):
+        """An ending checkpoint should still trigger auto-save."""
+        import tempfile
+        from storyloom.core.save_manager import SaveManager
+
+        mock = MockApiClient(response=ENDING_XML)
+        gl = GameLoop(
+            story_config=SAMPLE_STORY_CONFIG,
+            outline_nodes=SAMPLE_OUTLINE_NODES,
+            api_client=mock,
+            current_node="ch3_ally",
+        )
+        with tempfile.TemporaryDirectory() as d:
+            sm = SaveManager(d)
+            gl.set_save_manager(sm)
+            gl.start_game()
+            _run_round(gl)
+            saves = sm.list_saves()
+            assert len(saves) == 1
+            assert saves[0]["checkpoint_node"] == "ch3_ally"

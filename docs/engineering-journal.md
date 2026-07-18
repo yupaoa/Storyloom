@@ -8,6 +8,14 @@
 
 ## 2026-07-18（周六）
 
+### 存档 bridge_text 移除 + checkpoint 存档 guard
+
+**背景**：审计存档触发机制发现两个问题。其一，`to_save_dict()` 在 Phase 3（流式解析中）被调用，此时 `_last_bridge_text` 仍是上一轮 Phase 5 写入的值——存入的 bridge_text 比当前 checkpoint 滞后两轮。更深层的问题是：checkpoint 存档代表故事节点完成边界，不是 bridge 延续；加载存档后应"从 checkpoint 节点全新开始"，而非携带上一轮的 bridge_text 作为 "Continue from:" 注入首轮 Prompt。其二，`_handle_checkpoint` 中节点推进失败（target 为 None）时仍无条件执行 `_accumulate_checkpoint`，可能产生未推进状态却已存档的"僵尸存档"。
+
+**决策**：(1) 从存档格式（`to_save_dict` / `from_save_dict` / `_build_init_dict`）中移除 `bridge_text` 字段——该字段属于游戏内跨轮循环，不属于持久化边界；(2) `build_round1()` 删除死参数 `checkpoint_history`（从未在函数体中引用）和 `bridge_text`，内部固定填入 `"(Story begins)"` 占位符；(3) `start_game()` 删除 bridge_section 构建死代码；(4) `_handle_checkpoint` 新增 `node_advanced` guard——仅当 checkpoint 成功推进节点后才触发 `_accumulate_checkpoint`；(5) `SAMPLE_XML` 测试 fixture 修复节点 ID（`ch2_meeting`→`ch2_confrontation`，`ch3_lead`→`ch3_ally`），新增 5 个 checkpoint 测试覆盖推进、存档、ending、未知节点拒绝等路径。
+
+**依据**：`docs/spec/data-model.md` §3.1, §3.2, §3.5；`docs/spec/prompt-design.md` §4.3。
+
 ### ApiClient 从 urllib 迁移到 httpx——连接池解决代理 400
 
 **背景**：WSL2 环境下 API 请求经 Windows 侧代理 `127.0.0.1:19828`。`urllib` 每次 `urlopen()` 新建 TCP 连接 + CONNECT 隧道，co-create 多轮 Q&A 和 daemon 线程流式连接累积后，代理隧道达到上限，拒绝新请求（HTTP 400）。错误信息不可读（代理返回 HTML，JSON 解析失败后 fallback 为 generic "Bad Request"），重试无效（完全相同的请求过同一拥塞代理）。另一方面，`deepseek-v4-pro` reasoning model 会在输出中产生 `\udcef` 等孤立代理字符（lone surrogates），`json.dumps()` 编码时抛出 `UnicodeEncodeError`，该异常不是 `ApiError` 子类，逃逸到 game_driver 层被当成致命错误而非触发重试。

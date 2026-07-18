@@ -1325,9 +1325,14 @@ class GameLoop:
             self._set_node_status(old_node, "completed")
 
         # ── Mark checkpoint node completed, advance to target ────
+        # Track whether the checkpoint was successfully processed —
+        # only accumulate + auto-save when the node actually advanced.
+        node_advanced = False
+
         if self.ending_flag:
             self._set_node_status(cp_node, "completed")
             self.current_node = cp_node
+            node_advanced = True
         elif routes:
             target = self._evaluate_routes(choice_dict, routes=routes)
             if target:
@@ -1335,6 +1340,7 @@ class GameLoop:
                 self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
+                node_advanced = True
         elif outline_routes:
             rt_routes = [
                 RouteTarget(condition=r.get("condition"), target=r.get("target", ""))
@@ -1346,6 +1352,7 @@ class GameLoop:
                 self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
+                node_advanced = True
         else:
             target = self._next_outline_node()
             if target:
@@ -1353,9 +1360,11 @@ class GameLoop:
                 self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
+                node_advanced = True
 
         # ── Accumulate checkpoint data + auto-save ───────────────
-        self._accumulate_checkpoint(cp_node, cp_summary)
+        if node_advanced:
+            self._accumulate_checkpoint(cp_node, cp_summary)
 
     # ── Routes ────────────────────────────────────────────────────
 
