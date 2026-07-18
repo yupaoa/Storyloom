@@ -8,6 +8,32 @@
 
 ## 2026-07-18（周六）
 
+### 从持久化层移除 round_count 和 round
+
+**背景**：读档后 ContextManager 完全重置（`_round_count = 0`），存档中记录的 `round_count` 与读档后的实际轮数完全断开——存档说第 15 轮，读档后下一轮被当作 Round 1。轮数仅在 ContextManager 内部用于滑动窗口压缩触发（`_maybe_compress()` 中 `total_rounds >= FIRST_COMPRESSION_AT`），不应该暴露给持久化层或 UI。
+
+审计确认：
+- `metadata.round_count` / `progress.round_count`：`from_save_dict()` 不读取
+- `checkpoint_history[N].round`：零消费者（adventure log 用 `enumerate(cp, 1)` 自己编号）
+- `list_saves()` 返回的 `round`：唯一消费者是 dev_cli 的保存列表展示
+- streaming event 的 `done.round` / `ending.round`：UI 不应关注轮数实现细节
+
+**决策**：从持久化层（save dict + checkpoint_history + list_saves）和流式事件（done/ending）中完全移除 `round_count` 和 `round`。保留 ContextManager 内部 `_round_count`（压缩逻辑需要）。
+
+变更范围：
+- `game_loop.py`：`to_save_dict()` 删 `round_count`；`_accumulate_checkpoint()` 删 `round`；3 个 yield event 删 `round`
+- `session.py`：`_build_init_dict()` 删 `round_count`
+- `save_manager.py`：`list_saves()` 删 `round` 字段
+- `game_driver.py`：保存列表删除 round 展示
+- `data-model.md`、`prompt-design.md`：同步删除 `round_count` 引用
+- 现有存档 JSON 同步清理（`saves/` 在 `.gitignore` 中）
+
+**依据**：commit `f8de931`（持久化层 + 文档）+ `dc98498`（dev_cli + 测试）；266 测试全绿。
+
+---
+
+## 2026-07-18（周六）
+
 ### 修复 Windows 文件名非法字符：存档目录 + Co-Create Prompt 格式歧义
 
 **背景**：两起 Windows 端崩溃均与文件名/格式解析有关：
