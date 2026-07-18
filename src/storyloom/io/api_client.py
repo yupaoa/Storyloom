@@ -111,15 +111,20 @@ class ApiClient:
 
     @staticmethod
     def _extract_content(data: dict) -> str:
-        """Extract message content, handling reasoning model nulls."""
+        """Extract message content, handling reasoning model nulls.
+
+        Also strips lone surrogates (``\\udcef`` etc.) that some LLMs
+        emit in their output.  These would break ``json.dumps`` on the
+        next request when the text is sent back in the messages array.
+        """
         choices = data.get("choices", [])
         if not choices:
             raise ApiError("No choices in API response")
         content = choices[0].get("message", {}).get("content")
-        # Reasoning models (e.g. deepseek-v4-pro) may return content: null
         if content is None:
             content = ""
-        return content
+        # Strip lone surrogates — encode then decode to replace them
+        return content.encode("utf-8", errors="replace").decode("utf-8")
 
     # ── public API ────────────────────────────────────────────────────
 
