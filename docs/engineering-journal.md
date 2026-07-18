@@ -8,6 +8,24 @@
 
 ## 2026-07-18（周六）
 
+### Round 1 prompt 拆分为前缀块和回合模板
+
+**背景**：`ROUND1_TEMPLATE` 是一个整体文本，从角色定义一路写到 bridge_text。`build_round1()` 和 `build_round_n()` 是两个独立的构建路径——前者用模板填充，后者手拼字符串。两者产生的结构不一致（Round 1 叫 "Active Node"，Round N 叫 "Current node"；Round 1 有 `/100` 范围后缀，Round N 没有；Round 1 含行数约束，Round N 不含）。每轮都需要的状态上下文和量化约束分散在两条路径里，迭代时容易顾此失彼。
+
+**决策**：将 Round 1 user 消息拆分为前缀块和回合块两部分：
+
+- **首轮前缀**（`ROUND1_PREFIX`）：角色定义、XML 格式规范、Kael 示例、核心规则、故事背景。只发一次，永久锚定。
+- **回合提示词**（`ROUND_TEMPLATE`）：大纲树、当前节点、状态快照、错误反馈、行数约束、bridge_text。每轮都发，首轮和后继轮共享。
+
+Round 1 user = 前缀 + 回合块（bridge_text 为空，无错误反馈）+ 首轮尾句。
+Round N user = 回合块（按实际填充）。
+
+`build_round_n` 签名简化：去掉 `completed_nodes`（大纲状态标记已体现进度）和 `compressed_summaries`（ContextManager 的压缩消息对独立处理），新增 `outline_text` 和 `variables`（统一用 `_format_current_state` 带类型后缀）。状态变量在首轮和后继轮均采用 `变量名：值 / 100` 格式，消除此前 Round 1 有、Round N 无的差异。
+
+**依据**：commit `68d4028`（spec）+ `90ba48d`（代码）；`docs/spec/prompt-design.md` §4.2–§4.4；268 测试全绿。
+
+---
+
 ### 从持久化层移除 round_count 和 round
 
 **背景**：读档后 ContextManager 完全重置（`_round_count = 0`），存档中记录的 `round_count` 与读档后的实际轮数完全断开——存档说第 15 轮，读档后下一轮被当作 Round 1。轮数仅在 ContextManager 内部用于滑动窗口压缩触发（`_maybe_compress()` 中 `total_rounds >= FIRST_COMPRESSION_AT`），不应该暴露给持久化层或 UI。
