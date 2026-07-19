@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════
    Storyloom Web — Dark Terminal Aesthetic
 
-   Color palette (from prototype):
+   Color palette:
      bg-primary:    #1a1a2e
      bg-secondary:  #16213e
      bg-panel:      rgba(22, 33, 62, 0.85)
@@ -17,18 +17,395 @@
      font-mono:     "Consolas", "Courier New", monospace
      font-serif:    "Georgia", "Noto Serif SC", serif
      font-sans:     "Segoe UI", "PingFang SC", sans-serif
+
+   Authority: CLAUDE.md §Tech Stack (dark theme), prototype reference.
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ── CSS Variables ──────────────────────────────────────────────── */
+
+:root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-panel: rgba(22, 33, 62, 0.85);
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0b0;
+    --text-accent: #4ecca3;
+    --text-warning: #f0a050;
+    --text-error: #e05555;
+    --border-color: #2a2a4a;
+    --button-bg: #0f3460;
+    --button-hover: #1a5080;
+    --button-accent: #4ecca3;
+    --font-mono: "Consolas", "Courier New", monospace;
+    --font-serif: "Georgia", "Noto Serif SC", serif;
+    --font-sans: "Segoe UI", "PingFang SC", sans-serif;
+}
+
 /* ── Reset & Base ───────────────────────────────────────────────── */
+
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    line-height: 1.6;
+}
+
+#app {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    min-height: 100vh;
+}
+
 /* ── Typography ─────────────────────────────────────────────────── */
+
+h1, h2, h3 {
+    color: var(--text-accent);
+    font-family: var(--font-mono);
+    font-weight: normal;
+}
+
+h1 { font-size: 1.8rem; margin-bottom: 1.5rem; }
+h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+
 /* ── Buttons ────────────────────────────────────────────────────── */
+
+button, .btn {
+    display: inline-block;
+    padding: 0.6rem 1.4rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+button:hover, .btn:hover {
+    background: var(--button-hover);
+    border-color: var(--text-accent);
+    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+}
+
+button:disabled, .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+button.accent, .btn-accent {
+    background: var(--text-accent);
+    color: var(--bg-primary);
+    border-color: var(--text-accent);
+}
+
+button.accent:hover, .btn-accent:hover {
+    box-shadow: 0 0 12px rgba(78, 204, 163, 0.4);
+}
+
 /* ── Layout: Menu View ──────────────────────────────────────────── */
-/* ── Layout: Co-Create View ─────────────────────────────────────── */
-/* ── Layout: Game View (main area + sidebar) ────────────────────── */
-/* ── Story Area ─────────────────────────────────────────────────── */
-/* ── Choice Panel ───────────────────────────────────────────────── */
-/* ── Sidebar (state vars + outline) ─────────────────────────────── */
-/* ── Adventure Log ──────────────────────────────────────────────── */
-/* ── Save List ──────────────────────────────────────────────────── */
+
+.menu-view {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 70vh;
+    padding-top: 2rem;
+    text-align: center;
+}
+
+.menu-title {
+    font-family: var(--font-mono);
+    font-size: 3.2rem;
+    font-weight: normal;
+    color: var(--text-accent);
+    letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+    user-select: none;
+}
+
+.menu-subtitle {
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin-bottom: 3rem;
+}
+
+/* ── Menu Buttons ───────────────────────────────────────────────── */
+
+.menu-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.menu-btn {
+    width: 260px;
+    padding: 0.8rem 1.6rem;
+    font-family: var(--font-sans);
+    font-size: 1.05rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    /* Hover grow animation — core menu requirement */
+    transition: transform 0.3s ease, background 0.2s ease,
+                border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.menu-btn:hover {
+    transform: scale(1.08);
+    background: var(--button-hover);
+    border-color: var(--text-accent);
+    box-shadow: 0 0 12px rgba(78, 204, 163, 0.25);
+}
+
+.menu-btn:active {
+    transform: scale(1.02);
+}
+
+.menu-btn.accent {
+    background: var(--text-accent);
+    color: var(--bg-primary);
+    border-color: var(--text-accent);
+}
+
+.menu-btn.accent:hover {
+    box-shadow: 0 0 18px rgba(78, 204, 163, 0.4);
+}
+
+/* ── Continue Panel ─────────────────────────────────────────────── */
+
+.continue-panel {
+    margin-top: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.continue-item {
+    width: 260px;
+    padding: 0.7rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-panel);
+    cursor: pointer;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    text-align: left;
+}
+
+.continue-item:hover {
+    transform: scale(1.05);
+    border-color: var(--text-accent);
+    box-shadow: 0 0 10px rgba(78, 204, 163, 0.2);
+}
+
+.continue-item .ci-label {
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    display: block;
+    margin-bottom: 0.15rem;
+}
+
+.continue-item .ci-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* ── Settings Overlay ───────────────────────────────────────────── */
+
+.settings-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    animation: fadeIn 0.2s ease;
+}
+
+.settings-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 2rem;
+    min-width: 420px;
+    max-width: 520px;
+}
+
+.settings-panel h2 {
+    font-family: var(--font-mono);
+    color: var(--text-accent);
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.setting-label {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.settings-panel select {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    min-width: 120px;
+}
+
+.settings-panel select:focus,
+.settings-panel input[type="text"]:focus,
+.settings-panel input[type="password"]:focus {
+    outline: none;
+    border-color: var(--text-accent);
+}
+
+.settings-panel input[type="text"],
+.settings-panel input[type="password"] {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    width: 200px;
+}
+
+.settings-close {
+    margin-top: 1.5rem;
+    width: 100%;
+}
+
+/* ── Settings: read-only value + edit button ────────────────────── */
+
+.setting-val {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    min-width: 220px;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.setting-val.muted {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.setting-input {
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    width: 260px;
+}
+
+.setting-input:focus {
+    outline: none;
+    border-color: var(--text-accent);
+}
+
+.setting-edit-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: color 0.2s, background 0.2s;
+}
+
+.setting-edit-btn:hover {
+    color: var(--text-accent);
+    background: rgba(78, 204, 163, 0.1);
+}
+
+/* ── Credits ────────────────────────────────────────────────────── */
+
+.credits-app {
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    color: var(--text-accent);
+    margin-bottom: 0.2rem;
+}
+
+.credits-section {
+    margin-bottom: 1rem;
+}
+
+.credits-section h3 {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.3rem;
+}
+
+.credits-name {
+    font-size: 1rem;
+    color: var(--text-primary);
+    margin-bottom: 0.15rem;
+}
+
+/* ── Save List (placeholder for #saves navigation target) ───────── */
+
 /* ── Utility Classes ────────────────────────────────────────────── */
+
+.hidden { display: none !important; }
+.text-muted { color: var(--text-secondary); }
+.text-accent { color: var(--text-accent); }
+.text-error { color: var(--text-error); }
+.no-saves-msg { color: var(--text-secondary); font-style: italic; margin-top: 0.5rem; }
+
+.placeholder-view {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 50vh;
+    text-align: center;
+}
+
+.placeholder-view h2 {
+    margin-bottom: 1rem;
+}
+
+/* ── Keyframes ──────────────────────────────────────────────────── */
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
