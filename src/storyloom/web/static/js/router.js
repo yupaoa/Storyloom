@@ -155,6 +155,7 @@
                 panel.classList.add("hidden");
                 navigate("game-preview");
             } catch (err) {
+                console.error("Continue failed:", err);
                 showToast(_("Something went wrong"));
                 panel.classList.add("hidden");
             }

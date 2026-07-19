@@ -267,6 +267,13 @@ function showToast(message, duration = 3000) {
     toast.classList.add("toast--visible");
     setTimeout(() => {
         toast.classList.remove("toast--visible");
-        toast.addEventListener("transitionend", () => toast.remove());
+        const cleanup = () => {
+            toast.remove();
+            toast.removeEventListener("transitionend", cleanup);
+        };
+        toast.addEventListener("transitionend", cleanup);
+        /* Fallback: force-remove after transition duration in case
+           transitionend never fires (e.g. element removed from DOM). */
+        setTimeout(cleanup, 500);
     }, duration);
 }
