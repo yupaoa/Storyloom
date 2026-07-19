@@ -153,9 +153,9 @@
                     return;
                 }
 
-                // Sort by created_at descending, show top 3
+                // Sort by last_played_at descending, show top 3
                 const recent = games
-                    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
+                    .sort((a, b) => (b.last_played_at || "").localeCompare(a.last_played_at || ""))
                     .slice(0, 3);
 
                 panel.innerHTML = recent.map(g => `
@@ -167,7 +167,9 @@
                     </div>
                 `).join("");
 
-                // Click handler: load latest save for the selected game
+                // Click handler: load latest save → game preview page
+                // Mirrors dev_cli "Continue" flow: auto-resume the most
+                // recent save and show story info before launching.
                 panel.querySelectorAll(".continue-item").forEach(item => {
                     item.addEventListener("click", async () => {
                         const gameId = item.dataset.gameId;
@@ -179,6 +181,7 @@
                                 panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
                                 return;
                             }
+                            // Latest save by filename (ISO timestamp sort)
                             const latestSave = saves[saves.length - 1];
                             const filename = latestSave.filename;
                             const res = await API.post(
@@ -187,7 +190,8 @@
                             GameState.gameId = res.game_id;
                             GameState.roundCount = res.round_count || 0;
                             GameState.currentNode = res.current_node || null;
-                            navigate(`game/${res.game_id}`);
+                            GameState.storyConfig = res.story_config || {};
+                            navigate("game-preview");
                         } catch (err) {
                             panel.innerHTML = `<p class="text-error">${esc(err.message)}</p>`;
                         }

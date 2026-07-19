@@ -306,6 +306,7 @@ async def game_start(game_id: str):
         "game_id": game_id,
         "round_count": gl.round_count,
         "current_node": gl.current_node,
+        "story_config": result.story_config,
     }
 
 
@@ -314,12 +315,28 @@ async def game_start(game_id: str):
 # ═══════════════════════════════════════════════════════════════════
 
 
+@app.get("/api/saves/games")
+async def saves_list_games():
+    """List all games with their metadata."""
+    return _game_session.list_games()
+
+
+@app.get("/api/saves/{game_id}")
+async def saves_list(game_id: str):
+    """List all saves in a game directory."""
+    try:
+        return _game_session.list_saves(game_id)
+    except FileNotFoundError:
+        raise HTTPException(404, f"Game not found: {game_id}")
+
+
 @app.post("/api/saves/{game_id}/load/{filename}")
 async def save_load(game_id: str, filename: str):
-    """Load a save file and return its full data.
+    """Load a save file and return its data with computed fields.
 
-    The preview page uses this with ``_init.json`` to read the
-    story config; the game page uses it to restore from checkpoints.
+    Returns the complete save dict plus ``game_id``, ``round_count``,
+    and ``current_node`` for the UI.  The preview page reads
+    ``story_config``; the game page uses the full state.
     """
     sm = SaveManager(os.path.join(_APP_DIR, "saves", game_id))
     try:
@@ -330,7 +347,31 @@ async def save_load(game_id: str, filename: str):
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return data
+    progress = data.get("progress", {})
+    return {
+        **data,
+        "game_id": game_id,
+        "round_count": progress.get("round_count", 0),
+        "current_node": progress.get("current_node", ""),
+    }
+
+
+@app.delete("/api/saves/{game_id}")
+async def saves_delete_game(game_id: str):
+    """Delete an entire game directory and all its saves."""
+    deleted = _game_session.delete_game(game_id)
+    sessions.remove_game(game_id)
+    return {"status": "deleted" if deleted else "not_found"}
+
+
+@app.delete("/api/saves/{game_id}/{filename}")
+async def saves_delete(game_id: str, filename: str):
+    """Delete a single save file."""
+    try:
+        deleted = _game_session.delete_save(game_id, filename)
+    except FileNotFoundError:
+        raise HTTPException(404, f"Game not found: {game_id}")
+    return {"status": "deleted" if deleted else "not_found"}
 
 
 # ═══════════════════════════════════════════════════════════════════
