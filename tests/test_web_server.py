@@ -44,13 +44,13 @@ def app_dir():
 
 @pytest.fixture
 def client(app_dir):
-    """FastAPI TestClient with mocked ApiClient."""
+    """FastAPI TestClient with mocked ApiClient (dev_cli pattern)."""
     mock_api = MagicMock(spec=ApiClient)
     mock_api.chat.return_value = "Hello! Tell me about your story idea."
 
-    with patch("storyloom.web.server._get_api_client", return_value=mock_api):
+    # Patch the module-level _api_client before importing server
+    with patch("storyloom.web.server._api_client", mock_api):
         from storyloom.web.server import app
-        # Reset session store before each test
         from storyloom.web import sessions
         sessions.remove_co_create()
         with TestClient(app) as tc:
@@ -62,9 +62,9 @@ def client_with_session(client):
     """Client with an active co-creation session already started."""
     from storyloom.web import sessions
     from storyloom.core.co_create import CoCreateFlow
-    from storyloom.web.server import _get_api_client
+    from storyloom.web.server import _api_client
 
-    flow = CoCreateFlow(_get_api_client())
+    flow = CoCreateFlow(_api_client)
     flow.start()
     sessions.store_co_create(flow)
     return client

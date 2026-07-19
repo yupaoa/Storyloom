@@ -61,6 +61,13 @@ _APP_DIR = os.environ.get("STORYLOOM_APP_DIR", str(_PROJECT_ROOT))
 app = FastAPI(title="Storyloom", docs_url=None, redoc_url=None)
 cfg = UserConfig(_APP_DIR)
 
+# ── Engine wiring (mirrors dev_cli/dev_main.py) ──────────────────
+# One ApiClient + one GameSession for the lifetime of the server.
+# dev_cli creates these once at startup and reuses them across
+# co-creation → game transitions.  We follow the same pattern.
+_api_client = ApiClient(cfg)
+_game_session = GameSession(_api_client, saves_dir=os.path.join(_APP_DIR, "saves"))
+
 app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
 
@@ -130,11 +137,6 @@ async def update_config(body: ConfigUpdate):
 # ═══════════════════════════════════════════════════════════════════
 
 
-def _get_api_client() -> ApiClient:
-    """Build an ApiClient from the current server config."""
-    return ApiClient(cfg)
-
-
 class CoCreateStartReply(BaseModel):
     phase: str
     prompt: str
@@ -148,8 +150,7 @@ async def co_create_start():
     The returned *prompt* is the LLM's opening question — display it
     as the first assistant message in the chat UI.
     """
-    api = _get_api_client()
-    flow = GameSession(api).new_co_create()
+    flow = _game_session.new_co_create()
     result = flow.start()
     sessions.store_co_create(flow)
     return CoCreateStartReply(**result)
@@ -273,9 +274,7 @@ async def game_new():
             "No co-creation result found.  Call /api/co-create/generate first.",
         )
 
-    api = _get_api_client()
-    session = GameSession(api)
-    gl, game_id = session.start_game(result)
+    gl, game_id = _game_session.start_game(result)
     sessions.store_game(game_id, gl)
     sessions.remove_co_create()  # clean up — game is now live
 
