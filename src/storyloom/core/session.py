@@ -85,6 +85,20 @@ class GameSession:
         self._game_loop = gl
         return gl
 
+    def read_save(self, game_id: str, filename: str) -> dict:
+        """Read a save file and return its raw data.
+
+        Lightweight counterpart to :meth:`load_game`.  Use when the
+        caller only needs save contents (e.g. preview page reading
+        ``story_config``), not a fully reconstructed ``GameLoop``.
+
+        Raises:
+            FileNotFoundError: Save file or game directory not found.
+            ValueError: Save file is corrupt (deleted automatically).
+        """
+        sm = SaveManager(os.path.join(self._saves_root, game_id))
+        return sm.load(filename)
+
     # ── Save management ───────────────────────────────────────────
 
     def list_games(self) -> list[dict]:

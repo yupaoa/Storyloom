@@ -44,7 +44,6 @@ from pydantic import BaseModel
 
 from storyloom.config import SUPPORTED_LANGUAGES
 from storyloom.core.co_create import CoCreateError
-from storyloom.core.save_manager import SaveManager
 from storyloom.core.session import GameSession
 from storyloom.i18n import init_i18n, switch_language
 from storyloom.io.api_client import ApiClient
@@ -339,9 +338,8 @@ async def save_load(game_id: str, filename: str):
     and ``current_node`` for the UI.  The preview page reads
     ``story_config``; the game page uses the full state.
     """
-    sm = SaveManager(os.path.join(_APP_DIR, "saves", game_id))
     try:
-        data = sm.load(filename)
+        data = _game_session.read_save(game_id, filename)
     except FileNotFoundError:
         raise HTTPException(
             404, f"Save '{filename}' not found in game '{game_id}'."
