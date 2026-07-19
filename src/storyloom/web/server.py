@@ -7,7 +7,9 @@ Endpoint groups:
                  GET  /health                             — health check
   Co-Create:     POST /api/co-create/start                — start Q&A session
                  POST /api/co-create/send                 — send message in Q&A
+                 POST /api/co-create/retry-send           — retry failed send()
                  POST /api/co-create/generate             — generate story setup
+                 POST /api/co-create/retry-generate       — retry failed generate()
                  POST /api/co-create/abort                — abort co-creation
   Game:          POST /api/game/new                       — create game from result
                  GET  /api/game/{id}/stream               — SSE narrative stream
