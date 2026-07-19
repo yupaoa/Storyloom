@@ -411,3 +411,305 @@ button.accent:hover, .btn-accent:hover {
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Co-Create Chat View — modern AI chat layout
+   ═══════════════════════════════════════════════════════════════════ */
+
+.co-create-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 4rem);
+    max-width: 800px;
+    margin: 0 auto;
+    background: var(--bg-primary);
+}
+
+/* ── Header bar (no border, blends with background) ───────────── */
+
+.cc-header {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0.25rem;
+    flex-shrink: 0;
+    background: var(--bg-primary);
+    gap: 0.6rem;
+}
+
+.cc-back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1.6rem;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: color 0.2s, background 0.2s;
+    flex-shrink: 0;
+}
+
+.cc-back-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+}
+
+.cc-title {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--text-accent);
+    font-weight: normal;
+}
+
+.cc-start-btn {
+    margin-left: auto;
+    padding: 0.35rem 0.9rem;
+    border: 1px solid var(--text-accent);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-accent);
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    flex-shrink: 0;
+}
+
+.cc-start-btn:hover {
+    background: rgba(78, 204, 163, 0.1);
+    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+}
+
+.cc-start-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* ── Messages area (no border, seamless with header) ──────────── */
+
+.cc-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 0.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    background: var(--bg-primary);
+}
+
+.cc-message {
+    max-width: 85%;
+    padding: 0.7rem 1rem;
+    border-radius: 12px;
+    line-height: 1.55;
+    font-size: 0.95rem;
+    animation: fadeIn 0.25s ease;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.cc-message.assistant {
+    align-self: flex-start;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-bottom-left-radius: 4px;
+}
+
+.cc-message.user {
+    align-self: flex-end;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    border-bottom-right-radius: 4px;
+}
+
+.cc-message.info {
+    align-self: center;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-style: italic;
+    max-width: 100%;
+    text-align: center;
+}
+
+.cc-message.error {
+    align-self: center;
+    background: rgba(224, 85, 85, 0.12);
+    border: 1px solid var(--text-error);
+    color: var(--text-error);
+    font-size: 0.9rem;
+    max-width: 90%;
+    text-align: center;
+}
+
+.cc-typing {
+    align-self: flex-start;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 0.5rem 1rem;
+    font-style: italic;
+}
+
+/* ── Input area ───────────────────────────────────────────────── */
+
+.cc-input-bar {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0.25rem 1rem;
+    flex-shrink: 0;
+    background: var(--bg-primary);
+}
+
+/* Rounded outer container holding input + circular send button */
+.cc-input-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 24px;
+    padding: 0.5rem 0.35rem 0.5rem 1.2rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.cc-input-wrap:focus-within {
+    border-color: var(--text-accent);
+    box-shadow: 0 0 0 2px rgba(78, 204, 163, 0.2);
+}
+
+.cc-input {
+    flex: 1;
+    padding: 0.4rem 0;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    resize: none;
+    min-height: 2.8rem;
+    max-height: 10rem;
+    outline: none;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.cc-input::-webkit-scrollbar {
+    display: none;
+}
+
+.cc-input:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.cc-input::placeholder {
+    color: var(--text-secondary);
+}
+
+/* Circular send button inside the input wrap */
+.cc-send-btn {
+    width: 2.2rem;
+    height: 2.2rem;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--text-accent);
+    color: var(--bg-primary);
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, box-shadow 0.2s;
+    flex-shrink: 0;
+}
+
+.cc-send-btn:hover {
+    background: #5ddbae;
+    box-shadow: 0 0 12px rgba(78, 204, 163, 0.4);
+}
+
+.cc-send-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+/* ── Confirm dialog ──────────────────────────────────────────── */
+
+.cc-confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    animation: fadeIn 0.15s ease;
+}
+
+.cc-confirm-box {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 2rem 2.2rem;
+    min-width: 360px;
+    max-width: 440px;
+    text-align: center;
+}
+
+.cc-confirm-box h3 {
+    font-family: var(--font-mono);
+    color: var(--text-accent);
+    font-size: 1.1rem;
+    margin-bottom: 0.6rem;
+}
+
+.cc-confirm-box p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+    line-height: 1.5;
+}
+
+.cc-confirm-buttons {
+    display: flex;
+    gap: 0.8rem;
+    justify-content: center;
+}
+
+.cc-confirm-yes {
+    padding: 0.5rem 1.6rem;
+    border: 1px solid var(--text-accent);
+    border-radius: 6px;
+    background: var(--text-accent);
+    color: var(--bg-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.cc-confirm-yes:hover {
+    box-shadow: 0 0 10px rgba(78, 204, 163, 0.4);
+}
+
+.cc-confirm-no {
+    padding: 0.5rem 1.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.cc-confirm-no:hover {
+    border-color: var(--text-secondary);
+}
