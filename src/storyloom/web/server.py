@@ -10,10 +10,10 @@ Endpoint groups:
   Co-Create:     POST /api/co-create/start                — start Q&A session
                  POST /api/co-create/send                 — send message in Q&A
                  POST /api/co-create/retry-send           — retry failed send()
-                 POST /api/co-create/generate             — generate story setup
+                 POST /api/co-create/generate             — gen story setup + create save
                  POST /api/co-create/retry-generate       — retry failed generate()
                  POST /api/co-create/abort                — abort co-creation
-  Game:          POST /api/game/new                       — create game from result
+  Game:          POST /api/game/{id}/start               — start Round 1 prompt
                  GET  /api/game/{id}/stream               — SSE narrative stream
                  POST /api/game/{id}/choice               — inject player choice
                  POST /api/game/{id}/retry                — retry failed API call
@@ -44,6 +44,7 @@ from pydantic import BaseModel
 
 from storyloom.config import SUPPORTED_LANGUAGES
 from storyloom.core.co_create import CoCreateError
+from storyloom.core.save_manager import SaveManager
 from storyloom.core.session import GameSession
 from storyloom.i18n import init_i18n, switch_language
 from storyloom.io.api_client import ApiClient
@@ -208,9 +209,9 @@ async def co_create_retry_send():
 async def co_create_generate():
     """Generate the story setup from the Q&A conversation.
 
-    On success, caches the CoCreationResult server-side so that
-    POST /api/game/new can consume it.  Returns the parsed story
-    config and outline.
+    On success, creates the save file immediately (``_init.json``) and
+    loads the GameLoop, ready for ``POST /api/game/{game_id}/start``
+    to kick off Round 1.  Returns the game_id and story config.
     """
     flow = sessions.get_co_create()
     if flow is None:
@@ -222,9 +223,16 @@ async def co_create_generate():
     except RuntimeError as e:
         raise HTTPException(400, str(e))
 
-    sessions.store_co_create_result(result)
+    # Create save file immediately — the save is the canonical source
+    # of truth for story_config.  GameLoop is loaded but not started
+    # (Round 1 prompt is deferred to POST /api/game/{game_id}/start).
+    gl, game_id = _game_session.start_game(result)
+    sessions.store_game(game_id, gl)
+    sessions.remove_co_create()  # co-create is done — game is now live
+
     return {
         "status": "ok",
+        "game_id": game_id,
         "story_config": result.story_config,
         "outline_text": result.outline_text,
     }
@@ -243,9 +251,13 @@ async def co_create_retry_generate():
     except RuntimeError as e:
         raise HTTPException(400, str(e))
 
-    sessions.store_co_create_result(result)
+    gl, game_id = _game_session.start_game(result)
+    sessions.store_game(game_id, gl)
+    sessions.remove_co_create()
+
     return {
         "status": "ok",
+        "game_id": game_id,
         "story_config": result.story_config,
         "outline_text": result.outline_text,
     }
@@ -266,30 +278,59 @@ async def co_create_abort():
 # ═══════════════════════════════════════════════════════════════════
 
 
-@app.post("/api/game/new")
-async def game_new():
-    """Create a new game from the cached co-creation result.
+@app.post("/api/game/{game_id}/start")
+async def game_start(game_id: str):
+    """Start Round 1 for a game created by co-create/generate.
 
-    Requires a prior successful POST /api/co-create/generate.
-    Returns the game_id for subsequent navigation to #game/{id}.
+    The game must have been created by a prior successful
+    ``POST /api/co-create/generate``, which writes ``_init.json``
+    and loads the GameLoop server-side.
+
+    Calls ``GameLoop.start_game()`` to build the Round 1 prompt and
+    launch the background API call.  The UI then connects to
+    ``GET /api/game/{game_id}/stream`` for the SSE narrative stream.
     """
-    result = sessions.get_co_create_result()
-    if result is None:
+    gl = sessions.get_game(game_id)
+    if gl is None:
         raise HTTPException(
-            400,
-            "No co-creation result found.  Call /api/co-create/generate first.",
+            404,
+            f"Game '{game_id}' not found.  Call /api/co-create/generate first.",
         )
-
-    gl, game_id = _game_session.start_game(result)
-    sessions.store_game(game_id, gl)
-    sessions.remove_co_create()  # clean up — game is now live
+    try:
+        gl.start_game()
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
 
     return {
+        "status": "ok",
         "game_id": game_id,
-        "label": result.story_config.get("label", ""),
         "round_count": gl.round_count,
         "current_node": gl.current_node,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Saves — list, load, delete
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.post("/api/saves/{game_id}/load/{filename}")
+async def save_load(game_id: str, filename: str):
+    """Load a save file and return its full data.
+
+    The preview page uses this with ``_init.json`` to read the
+    story config; the game page uses it to restore from checkpoints.
+    """
+    sm = SaveManager(os.path.join(_APP_DIR, "saves", game_id))
+    try:
+        data = sm.load(filename)
+    except FileNotFoundError:
+        raise HTTPException(
+            404, f"Save '{filename}' not found in game '{game_id}'."
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return data
 
 
 # ═══════════════════════════════════════════════════════════════════

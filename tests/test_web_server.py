@@ -1,4 +1,4 @@
-"""Tests for web server endpoints (co-create + game/new).
+"""Tests for web server endpoints (co-create, game start, saves).
 
 Uses FastAPI TestClient with mocked sessions + ApiClient.
 CoCreateFlow / GameSession engine methods are NOT mocked — only
@@ -228,19 +228,31 @@ SAMPLE_RESULT = CoCreationResult(
 
 
 class TestCoCreateGenerate:
-    def test_generate_stores_result(self, client):
+    def test_generate_creates_save_and_returns_game_id(self, client):
         from storyloom.web import sessions
+        from storyloom.web.server import _game_session
 
         mock_flow = MagicMock()
         mock_flow.generate.return_value = SAMPLE_RESULT
         sessions.store_co_create(mock_flow)
 
-        res = client.post("/api/co-create/generate")
+        # Mock start_game to avoid real filesystem writes
+        mock_gl = MagicMock()
+        mock_gl.round_count = 0
+        mock_gl.current_node = "ch1"
+        with patch.object(_game_session, "start_game",
+                          return_value=(mock_gl, "test-game-123")):
+            res = client.post("/api/co-create/generate")
+
         assert res.status_code == 200
         data = res.json()
         assert data["status"] == "ok"
+        assert data["game_id"] == "test-game-123"
         assert data["story_config"]["label"] == "Test"
-        assert sessions.get_co_create_result() is not None
+        # GameLoop stored for later start
+        assert sessions.get_game("test-game-123") is mock_gl
+        # Co-create session cleaned up — game is now live
+        assert sessions.get_co_create() is None
 
     def test_generate_no_session_returns_400(self, client):
         res = client.post("/api/co-create/generate")
@@ -267,14 +279,23 @@ class TestCoCreateGenerate:
 class TestCoCreateRetryGenerate:
     def test_retry_generate_returns_result(self, client):
         from storyloom.web import sessions
+        from storyloom.web.server import _game_session
 
         mock_flow = MagicMock()
         mock_flow.retry_generate.return_value = SAMPLE_RESULT
         sessions.store_co_create(mock_flow)
 
-        res = client.post("/api/co-create/retry-generate")
+        mock_gl = MagicMock()
+        mock_gl.round_count = 0
+        mock_gl.current_node = "ch1"
+        with patch.object(_game_session, "start_game",
+                          return_value=(mock_gl, "test-retry-456")):
+            res = client.post("/api/co-create/retry-generate")
+
         assert res.status_code == 200
-        assert res.json()["status"] == "ok"
+        data = res.json()
+        assert data["status"] == "ok"
+        assert data["game_id"] == "test-retry-456"
 
     def test_retry_generate_no_session_returns_400(self, client):
         res = client.post("/api/co-create/retry-generate")
@@ -303,26 +324,37 @@ class TestCoCreateAbort:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Game: new
+# Game: start (Round 1)
 # ═══════════════════════════════════════════════════════════════════
 
 
-class TestGameNew:
-    def test_game_new_requires_result(self, client):
-        """No co-create result → 400."""
-        res = client.post("/api/game/new")
-        assert res.status_code == 400
+class TestGameStart:
+    def test_game_start_requires_existing_game(self, client):
+        """No stored game → 404."""
+        res = client.post("/api/game/nonexistent/start")
+        assert res.status_code == 404
 
-    def test_game_new_creates_game(self, client):
+    def test_game_start_calls_start_game(self, client):
         from storyloom.web import sessions
 
-        sessions.store_co_create_result(SAMPLE_RESULT)
+        mock_gl = MagicMock()
+        mock_gl.round_count = 0
+        mock_gl.current_node = "ch1"
+        sessions.store_game("test-game-123", mock_gl)
 
-        res = client.post("/api/game/new")
+        res = client.post("/api/game/test-game-123/start")
         assert res.status_code == 200
         data = res.json()
-        assert "game_id" in data
-        assert data["label"] == "Test"
-        assert data["round_count"] == 0
-        # co-create session cleaned up after game creation
-        assert sessions.get_co_create() is None
+        assert data["status"] == "ok"
+        assert data["game_id"] == "test-game-123"
+        mock_gl.start_game.assert_called_once()
+
+    def test_game_start_already_started_returns_400(self, client):
+        from storyloom.web import sessions
+
+        mock_gl = MagicMock()
+        mock_gl.start_game.side_effect = RuntimeError("Round 1 already started")
+        sessions.store_game("test-game-123", mock_gl)
+
+        res = client.post("/api/game/test-game-123/start")
+        assert res.status_code == 400

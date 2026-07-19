@@ -420,23 +420,75 @@
     /* ═══════════════════════════════════════════════════════════════
        View: Game Preview (#game-preview)
        ──────────────────────────────────────────────────────────────
-       Transition page between co-creation generate and game/new.
-       Shows story label and setting so the player can review
-       before launching the actual game.
+       Transition page between co-creation generate and game start.
+       Reads story_config from the save file (_init.json) so the
+       save is the canonical source of truth.
 
        Layout:
          header:  ← Back button (top-left)
          content: story label (title) + setting text (centered)
-         footer:  Begin Adventure button (disabled — future hook)
+                  + Begin Adventure button → Round 1 prompt
        ═══════════════════════════════════════════════════════════════ */
 
     function renderGamePreview() {
-        const config = GameState.storyConfig;
-        if (!config) {
+        const gameId = GameState.gameId;
+        if (!gameId) {
             navigate("menu");
             return;
         }
 
+        // Show loading state while fetching save data
+        app.innerHTML = `
+            <div class="gp-view">
+                <div class="gp-header">
+                    <button class="cc-back-btn" id="gp-back"
+                            title="${esc(_("Back to Menu"))}">←</button>
+                </div>
+                <div class="gp-content">
+                    <p class="text-muted">${esc(_("Loading..."))}</p>
+                </div>
+            </div>
+        `;
+
+        document.getElementById("gp-back").addEventListener("click", () => {
+            GameState.reset();
+            navigate("menu");
+        });
+
+        // Fetch story_config from the save file — the canonical source
+        API.post(`/api/saves/${encodeURIComponent(gameId)}/load/_init.json`)
+            .then(data => {
+                const config = data.story_config || {};
+                _renderPreviewContent(config);
+            })
+            .catch(err => {
+                // Fall back to in-memory story_config if save fetch fails
+                const config = GameState.storyConfig;
+                if (config) {
+                    console.warn("Save fetch failed, using in-memory config:", err);
+                    _renderPreviewContent(config);
+                } else {
+                    app.innerHTML = `
+                        <div class="gp-view">
+                            <div class="gp-content">
+                                <p class="text-error">${esc(err.message)}</p>
+                                <button class="menu-btn" style="margin-top:1.5rem" id="gp-back-err">
+                                    ${esc(_("Back to Menu"))}
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById("gp-back-err").addEventListener("click", () => {
+                        GameState.reset();
+                        navigate("menu");
+                    });
+                }
+            });
+    }
+
+    /** Render the preview content with story label, setting, and the
+     *  enabled Begin Adventure button.  Called once save data is loaded. */
+    function _renderPreviewContent(config) {
         app.innerHTML = `
             <div class="gp-view">
                 <div class="gp-header">
@@ -448,17 +500,38 @@
                     <h1 class="gp-label">${esc(config.label)}</h1>
                     <p class="gp-setting">${esc(config.setting || "")}</p>
 
-                    <button class="gp-start-btn" id="gp-start" disabled>
+                    <button class="gp-start-btn" id="gp-start">
                         ${esc(_("Begin Adventure"))}
                     </button>
                 </div>
             </div>
         `;
 
-        document.getElementById("gp-back").addEventListener("click", async () => {
-            try { await API.post("/api/co-create/abort"); } catch (_) { /* ok */ }
+        document.getElementById("gp-back").addEventListener("click", () => {
             GameState.reset();
             navigate("menu");
+        });
+
+        document.getElementById("gp-start").addEventListener("click", async () => {
+            const btn = document.getElementById("gp-start");
+            btn.disabled = true;
+            btn.textContent = esc(_("Loading..."));
+
+            try {
+                await API.post(`/api/game/${encodeURIComponent(GameState.gameId)}/start`);
+                navigate(`game/${GameState.gameId}`);
+            } catch (err) {
+                btn.disabled = false;
+                btn.textContent = esc(_("Begin Adventure"));
+                const content = document.querySelector(".gp-content");
+                if (content) {
+                    const errEl = document.createElement("p");
+                    errEl.className = "text-error";
+                    errEl.style.marginTop = "1rem";
+                    errEl.textContent = err.message;
+                    content.appendChild(errEl);
+                }
+            }
         });
     }
 

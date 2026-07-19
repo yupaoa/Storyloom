@@ -138,7 +138,8 @@ const CoCreateView = (function () {
             // Step 1: Generate story setup (co_create.py generate)
             const genData = await API.post("/api/co-create/generate");
 
-            // Step 2: Store story config for the preview page
+            // Step 2: Store game_id + story config for the preview page
+            GameState.gameId = genData.game_id;
             GameState.storyConfig = genData.story_config;
 
             // Step 3: Navigate to the game preview (transition) page
@@ -163,7 +164,8 @@ const CoCreateView = (function () {
             // Step 1: Retry generate
             const genData = await API.post("/api/co-create/retry-generate");
 
-            // Step 2: Store story config for the preview page
+            // Step 2: Store game_id + story config for the preview page
+            GameState.gameId = genData.game_id;
             GameState.storyConfig = genData.story_config;
 
             // Step 3: Navigate to the game preview (transition) page
