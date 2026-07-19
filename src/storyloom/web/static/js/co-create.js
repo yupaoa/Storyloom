@@ -136,14 +136,13 @@ const CoCreateView = (function () {
 
         try {
             // Step 1: Generate story setup (co_create.py generate)
-            await API.post("/api/co-create/generate");
+            const genData = await API.post("/api/co-create/generate");
 
-            // Step 2: Create game + write _init.json save (GameSession.start_game)
-            const gameData = await API.post("/api/game/new");
-            GameState.gameId = gameData.game_id;
-            GameState.roundCount = gameData.round_count || 0;
-            GameState.currentNode = gameData.current_node || null;
-            Router.navigate(`game-init/${gameData.game_id}`);
+            // Step 2: Store story config for the preview page
+            GameState.storyConfig = genData.story_config;
+
+            // Step 3: Navigate to the game preview (transition) page
+            Router.navigate("game-preview");
         } catch (err) {
             if (err.status === 502) {
                 // CoCreateError — retriable (generate or generate_parse failure)
@@ -161,14 +160,13 @@ const CoCreateView = (function () {
 
         try {
             // Step 1: Retry generate
-            await API.post("/api/co-create/retry-generate");
+            const genData = await API.post("/api/co-create/retry-generate");
 
-            // Step 2: Create game (GameSession.start_game)
-            const gameData = await API.post("/api/game/new");
-            GameState.gameId = gameData.game_id;
-            GameState.roundCount = gameData.round_count || 0;
-            GameState.currentNode = gameData.current_node || null;
-            Router.navigate(`game-init/${gameData.game_id}`);
+            // Step 2: Store story config for the preview page
+            GameState.storyConfig = genData.story_config;
+
+            // Step 3: Navigate to the game preview (transition) page
+            Router.navigate("game-preview");
         } catch (err) {
             if (err.status === 502) {
                 _renderTransitionError(err.message, _retryGenerate);

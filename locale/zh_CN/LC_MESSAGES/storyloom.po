@@ -101,6 +101,11 @@ msgstr "正在思考"
 msgid "Generating settings"
 msgstr "正在生成设定"
 
+# ── Web UI: game preview ──
+
+msgid "Begin Adventure"
+msgstr "开始冒险"
+
 # ── Web UI: shared ──
 
 msgid "Loading..."

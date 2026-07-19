@@ -698,4 +698,80 @@ button.accent:hover, .btn-accent:hover {
     font-size: 2.2rem;
 }
 
+/* ── Game Preview Screen ────────────────────────────────────────── */
+/* Transition page between co-creation generate and game/new.
+   Shows story label and setting, centered, with a back button
+   and a disabled Begin Adventure button.                            */
 
+.gp-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 4rem);
+    max-width: 800px;
+    margin: 0 auto;
+    animation: fadeIn 0.3s ease;
+}
+
+/* ── Header (back button, same style as co-create) ────────────── */
+
+.gp-header {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0.25rem;
+    flex-shrink: 0;
+}
+
+/* ── Content (centered story info) ────────────────────────────── */
+
+.gp-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding-bottom: 3rem;
+}
+
+.gp-label {
+    font-family: var(--font-mono);
+    font-size: 2.2rem;
+    font-weight: normal;
+    color: var(--text-accent);
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.05em;
+}
+
+.gp-setting {
+    font-family: var(--font-sans);
+    font-size: 1.05rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    max-width: 500px;
+    margin-bottom: 2.5rem;
+}
+
+/* ── Begin Adventure button ───────────────────────────────────── */
+
+.gp-start-btn {
+    padding: 0.7rem 2.2rem;
+    border: 1px solid var(--text-accent);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-accent);
+    font-family: var(--font-sans);
+    font-size: 1.05rem;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+}
+
+.gp-start-btn:hover:not(:disabled) {
+    background: rgba(78, 204, 163, 0.1);
+    box-shadow: 0 0 12px rgba(78, 204, 163, 0.25);
+}
+
+.gp-start-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+}
