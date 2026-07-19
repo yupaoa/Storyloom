@@ -80,6 +80,7 @@ const T = {
         "Type your story idea...": "输入你的故事想法...",
         "Type your answer...": "输入你的回答...",
         "Retry": "重试",
+        "Thinking": "正在思考",
         /* Shared */
         "Loading...": "加载中...",
         "Save": "存档",
