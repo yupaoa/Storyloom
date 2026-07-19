@@ -141,7 +141,8 @@
             try {
                 const lp = await API.get("/api/saves/last-played");
                 if (!lp || !lp.game_id || !lp.save_file) {
-                    panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
+                    showToast(_("No saves found"));
+                    panel.classList.add("hidden");
                     return;
                 }
                 const res = await API.post(
@@ -154,7 +155,8 @@
                 panel.classList.add("hidden");
                 navigate("game-preview");
             } catch (err) {
-                panel.innerHTML = `<p class="text-error">${esc(err.message)}</p>`;
+                showToast(_("Something went wrong"));
+                panel.classList.add("hidden");
             }
         });
 

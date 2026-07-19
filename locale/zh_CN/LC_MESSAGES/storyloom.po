@@ -134,3 +134,6 @@ msgstr "再见"
 
 msgid "You may close this tab."
 msgstr "你可以关闭此标签页。"
+
+msgid "Something went wrong"
+msgstr "出了点问题"
