@@ -301,7 +301,7 @@ async def game_start(game_id: str):
     except RuntimeError as e:
         raise HTTPException(400, str(e))
 
-    sc = gl.story_config if hasattr(gl, "story_config") else {}
+    sc = gl.story_config
     return {
         "status": "ok",
         "game_id": game_id,
@@ -349,10 +349,14 @@ async def save_load(game_id: str, filename: str):
     except ValueError as e:
         raise HTTPException(400, str(e))
     progress = data.get("progress", {})
+    # ContextManager._round_count is never persisted to save files
+    # (to_save_dict / _build_init_dict only write current_node +
+    # checkpoint_snapshots).  After load the counter always starts at 0.
     return {
-        **data,
         "game_id": game_id,
-        "round_count": progress.get("round_count", 0),
+        "story_config": data.get("story_config", {}),
+        "metadata": data.get("metadata", {}),
+        "round_count": 0,
         "current_node": progress.get("current_node", ""),
     }
 
@@ -361,8 +365,10 @@ async def save_load(game_id: str, filename: str):
 async def saves_delete_game(game_id: str):
     """Delete an entire game directory and all its saves."""
     deleted = _game_session.delete_game(game_id)
+    if not deleted:
+        raise HTTPException(404, f"Game not found: {game_id}")
     sessions.remove_game(game_id)
-    return {"status": "deleted" if deleted else "not_found"}
+    return {"status": "deleted"}
 
 
 @app.delete("/api/saves/{game_id}/{filename}")
