@@ -95,6 +95,9 @@ msgstr "输入你的回答..."
 msgid "Retry"
 msgstr "重试"
 
+msgid "Thinking"
+msgstr "正在思考"
+
 # ── Web UI: shared ──
 
 msgid "Loading..."

@@ -75,8 +75,10 @@ const CoCreateView = (function () {
         _bindEvents();
 
         // Call /start — get opening prompt
+        _showTyping();
         try {
             const data = await API.post("/api/co-create/start");
+            _hideTyping();
             _clearMessages();
             _addMessage("assistant", data.prompt);
             _phase = "chatting";
@@ -84,6 +86,7 @@ const CoCreateView = (function () {
             _updatePlaceholder();
             _focusInput();
         } catch (err) {
+            _hideTyping();
             _clearMessages();
             _showFatalError(err.message);
         }
@@ -192,13 +195,14 @@ const CoCreateView = (function () {
         _scrollToBottom();
     }
 
+    /** Show typing indicator with animated bouncing dots. */
     function _showTyping() {
         const msgs = $("#cc-messages");
         if (!msgs) return;
         const el = document.createElement("div");
         el.className = "cc-typing";
         el.id = "cc-typing-indicator";
-        el.textContent = "...";
+        el.innerHTML = `<span>${esc(_("Thinking"))}</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
         msgs.appendChild(el);
         _scrollToBottom();
     }

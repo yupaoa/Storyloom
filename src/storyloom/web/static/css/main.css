@@ -558,7 +558,24 @@ button.accent:hover, .btn-accent:hover {
     color: var(--text-secondary);
     font-size: 0.85rem;
     padding: 0.5rem 1rem;
-    font-style: italic;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.cc-dots span {
+    display: inline-block;
+    animation: cc-bounce 1.4s infinite ease-in-out both;
+    font-weight: bold;
+}
+
+.cc-dots span:nth-child(1) { animation-delay: 0s; }
+.cc-dots span:nth-child(2) { animation-delay: 0.2s; }
+.cc-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes cc-bounce {
+    0%, 80%, 100% { transform: translateY(0); }
+    40% { transform: translateY(-4px); }
 }
 
 /* ── Input area ───────────────────────────────────────────────── */
