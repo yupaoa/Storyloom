@@ -301,12 +301,13 @@ async def game_start(game_id: str):
     except RuntimeError as e:
         raise HTTPException(400, str(e))
 
+    sc = gl.story_config if hasattr(gl, "story_config") else {}
     return {
         "status": "ok",
         "game_id": game_id,
         "round_count": gl.round_count,
         "current_node": gl.current_node,
-        "story_config": result.story_config,
+        "story_config": sc,
     }
 
 

@@ -34,7 +34,6 @@
         "menu": renderMenu,
         "co-create": renderCoCreate,
         "game": renderGame,
-        "game-init": renderGameInit,
         "game-preview": renderGamePreview,
         "saves": renderSaveList,
     };
@@ -389,14 +388,6 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       View: Game Init (#game-init/{id}) — TEMPORARY (will be removed)
-       ═══════════════════════════════════════════════════════════════ */
-
-    function renderGameInit() {
-        app.innerHTML = `<div class="placeholder-view"></div>`;
-    }
-
-    /* ═══════════════════════════════════════════════════════════════
        View: Game Preview (#game-preview)
        ──────────────────────────────────────────────────────────────
        Transition page between co-creation generate and game start.
@@ -465,8 +456,8 @@
             });
     }
 
-    /** Render the preview content with story label, setting, and the
-     *  enabled Begin Adventure button.  Called once save data is loaded. */
+    /** Render the preview content with story label, setting, and a
+     *  silent (disabled) Begin Adventure button. */
     function _renderPreviewContent(config) {
         app.innerHTML = `
             <div class="gp-view">
@@ -479,7 +470,7 @@
                     <h1 class="gp-label">${esc(config.label)}</h1>
                     <p class="gp-setting">${esc(config.setting || "")}</p>
 
-                    <button class="gp-start-btn" id="gp-start">
+                    <button class="gp-start-btn" id="gp-start" disabled>
                         ${esc(_("Begin Adventure"))}
                     </button>
                 </div>
@@ -489,28 +480,6 @@
         document.getElementById("gp-back").addEventListener("click", () => {
             GameState.reset();
             navigate("menu");
-        });
-
-        document.getElementById("gp-start").addEventListener("click", async () => {
-            const btn = document.getElementById("gp-start");
-            btn.disabled = true;
-            btn.textContent = esc(_("Loading..."));
-
-            try {
-                await API.post(`/api/game/${encodeURIComponent(GameState.gameId)}/start`);
-                navigate(`game/${GameState.gameId}`);
-            } catch (err) {
-                btn.disabled = false;
-                btn.textContent = esc(_("Begin Adventure"));
-                const content = document.querySelector(".gp-content");
-                if (content) {
-                    const errEl = document.createElement("p");
-                    errEl.className = "text-error";
-                    errEl.style.marginTop = "1rem";
-                    errEl.textContent = err.message;
-                    content.appendChild(errEl);
-                }
-            }
         });
     }
 
