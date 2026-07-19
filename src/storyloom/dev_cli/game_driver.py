@@ -634,7 +634,8 @@ def dev_main(argv: list[str] | None = None) -> None:
         else:
             print("  [2] Continue")
         print("  [3] Load Save")
-        print("  [4] Exit")
+        print("  [4] Credits")
+        print("  [5] Exit")
 
         choice = _ask("").strip()
 
@@ -685,6 +686,23 @@ def dev_main(argv: list[str] | None = None) -> None:
             continue
 
         elif choice == "4":
+            print("\n┌─────────────────────────────────────────┐")
+            print("│            Storyloom — 制作人员         │")
+            print("├─────────────────────────────────────────┤")
+            print("│                                         │")
+            print("│  引擎 & 系统架构                        │")
+            print("│  Slev                                  │")
+            print("│                                         │")
+            print("│  Web 界面                               │")
+            print("│  Aiden                                  │")
+            print("│                                         │")
+            print("│  基于 Claude (Anthropic) 驱动           │")
+            print("│                                         │")
+            print("└─────────────────────────────────────────┘")
+            _ask("Press Enter to go back")
+            continue
+
+        elif choice == "5":
             sys.exit(0)
 
 
