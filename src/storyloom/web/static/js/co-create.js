@@ -145,7 +145,6 @@ const CoCreateView = (function () {
             GameState.currentNode = gameData.current_node || null;
             Router.navigate(`game-init/${gameData.game_id}`);
         } catch (err) {
-            _phase = "generating";
             if (err.status === 502) {
                 // CoCreateError — retriable (generate or generate_parse failure)
                 _renderTransitionError(err.message, _retryGenerate);
@@ -157,6 +156,7 @@ const CoCreateView = (function () {
 
     /** Retry generation after a CoCreateError. */
     async function _retryGenerate() {
+        _phase = "generating";
         _renderTransition();
 
         try {

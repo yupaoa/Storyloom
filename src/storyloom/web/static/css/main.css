@@ -691,19 +691,11 @@ button.accent:hover, .btn-accent:hover {
     gap: 0.15rem;
 }
 
-/* Scale up the existing cc-dots for the transition screen */
+/* Scale up the existing cc-dots for the transition screen.
+   Animation rules (.cc-dots span, @keyframes cc-bounce) are inherited
+   from the global definition — only font-size needs overrides here. */
 .cc-transition .cc-dots {
     font-size: 2.2rem;
 }
-
-.cc-transition .cc-dots span {
-    display: inline-block;
-    animation: cc-bounce 1.4s infinite ease-in-out both;
-    font-weight: bold;
-}
-
-.cc-transition .cc-dots span:nth-child(1) { animation-delay: 0s; }
-.cc-transition .cc-dots span:nth-child(2) { animation-delay: 0.2s; }
-.cc-transition .cc-dots span:nth-child(3) { animation-delay: 0.4s; }
 
 
