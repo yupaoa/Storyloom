@@ -141,7 +141,7 @@ saves/
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
 | `STORY_LABEL_MIN_CHARS` | 1 | 故事标签最短字符数 |
-| `STORY_LABEL_MAX_CHARS` | 15 | 故事标签最长字符数 |
+| `STORY_LABEL_MAX_CHARS` | 30 | 故事标签最长字符数 |
 | `VARIABLE_CAP` | 3 | 变量总数上限（per 2026-07-05 variable-cap spec） |
 | `VARIABLE_NUMERIC_CAP` | 2 | number 型变量上限 |
 | `VARIABLE_LABEL_CAP` | 1 | string 型变量上限 |
