@@ -9,7 +9,6 @@
      updateStatePanel(vars, changes) — sidebar state variables
      updateOutline(nodes)          — sidebar outline progress
      showAdventureLog(text)        — render adventure log
-     _esc(s)                       — HTML entity escape
    ═══════════════════════════════════════════════════════════════════ */
 
 const Display = {
@@ -20,5 +19,5 @@ const Display = {
     // updateStatePanel(vars, changes)
     // updateOutline(nodes)
     // showAdventureLog(text)
-    // _esc(s) — HTML escape
+    // escapeHtml(s) — HTML entity escape (internal utility)
 };
