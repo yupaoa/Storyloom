@@ -62,7 +62,7 @@
        View: Main Menu (#menu / default)
        ──────────────────────────────────────────────────────────────
        Layout:
-         centered "storyloom" title
+         centered "Storyloom" title
          6 buttons: New Game | Continue | Load Save | Settings | Credits | Exit
          hover → scale(1.08) grow (CSS-driven, no JS animation)
 
@@ -248,7 +248,7 @@
             // 1. Render terminal state — no interactive elements remain
             app.innerHTML = `
                 <div class="menu-view">
-                    <h1 class="menu-title">storyloom</h1>
+                    <h1 class="menu-title">${esc(_("Storyloom"))}</h1>
                     <p style="font-size:1.3rem; color:var(--text-accent); margin-top:2rem">
                         ${esc(_("Goodbye"))}
                     </p>
