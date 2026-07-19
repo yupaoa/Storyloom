@@ -9,7 +9,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 const CREDITS = {
-    app: "Storyloom",
+    app: "Storyloom",                 // msgid
     tagline: "AI Text Adventure",   // msgid
     sections: [
         {

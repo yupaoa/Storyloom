@@ -84,7 +84,7 @@
 
         app.innerHTML = `
             <div class="menu-view">
-                <h1 class="menu-title">${esc(_("storyloom"))}</h1>
+                <h1 class="menu-title">${esc(_("Storyloom"))}</h1>
                 <p class="menu-subtitle">${esc(_("AI Text Adventure"))}</p>
 
                 <div class="menu-buttons">
@@ -222,7 +222,7 @@
             overlay.innerHTML = `
                 <div class="settings-panel">
                     <h2>${esc(_("Credits"))}</h2>
-                    <p class="credits-app">${esc(CREDITS.app)}</p>
+                    <p class="credits-app">${esc(_(CREDITS.app))}</p>
                     <p class="text-muted" style="margin-bottom:1.5rem">${esc(_(CREDITS.tagline))}</p>
                     ${sections}
                     <button class="menu-btn settings-close" id="btn-credits-close">
@@ -327,9 +327,14 @@
                 el.addEventListener("change", () => {
                     const needsRerender = applySetting(def.key, el.value);
                     if (needsRerender) {
-                        // Re-render panel in-place so labels update
-                        renderSettingsPanel(overlay);
+                        // renderMenu() rebuilds the whole DOM, so we must
+                        // re-acquire the overlay from the fresh tree.
                         renderMenu();
+                        const newOverlay = document.getElementById("settings-overlay");
+                        if (newOverlay) {
+                            renderSettingsPanel(newOverlay);
+                            newOverlay.classList.remove("hidden");
+                        }
                     }
                 });
                 return;
@@ -367,10 +372,16 @@
             });
         });
 
-        /* Close handlers */
-        overlay.addEventListener("click", (e) => {
+        /* Close handlers — use a named reference to avoid listener
+           accumulation across multiple renderSettingsPanel() calls. */
+        if (overlay._closeHandler) {
+            overlay.removeEventListener("click", overlay._closeHandler);
+        }
+        overlay._closeHandler = (e) => {
             if (e.target === overlay) overlay.classList.add("hidden");
-        });
+        };
+        overlay.addEventListener("click", overlay._closeHandler);
+
         document.getElementById("btn-settings-close").addEventListener("click", () => {
             overlay.classList.add("hidden");
         });

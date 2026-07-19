@@ -35,20 +35,24 @@ GameSession construction:
 """
 
 import os
-import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from storyloom.config import SUPPORTED_LANGUAGES
 from storyloom.user_config import UserConfig
 
 # ── App setup ──────────────────────────────────────────────────────
 
 _STATIC = Path(__file__).resolve().parent / "static"
-_APP_DIR = os.environ.get("STORYLOOM_APP_DIR", str(Path.cwd()))
+# Default to the project root (two levels above this file), not cwd,
+# so config.json is always at <repo>/config.json regardless of where
+# the server is started from.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_APP_DIR = os.environ.get("STORYLOOM_APP_DIR", str(_PROJECT_ROOT))
 
 app = FastAPI(title="Storyloom", docs_url=None, redoc_url=None)
 cfg = UserConfig(_APP_DIR)
@@ -72,10 +76,18 @@ async def health():
 
 @app.get("/api/config")
 async def get_config():
-    """Return current config.  UserConfig properties are the source."""
+    """Return current config.  api_key is masked — only first 4 and
+       last 4 characters are shown."""
+    key = cfg.api_key
+    if len(key) > 8:
+        masked = key[:4] + "****" + key[-4:]
+    elif key:
+        masked = "****"
+    else:
+        masked = ""
     return {
         "language": cfg.language,
-        "api_key": cfg.api_key,
+        "api_key": masked,
         "api_base_url": cfg.api_base_url,
         "api_model": cfg.api_model,
     }
@@ -92,6 +104,12 @@ class ConfigUpdate(BaseModel):
 async def update_config(body: ConfigUpdate):
     """Update fields and persist to config.json via UserConfig.save()."""
     if body.language is not None:
+        if body.language not in SUPPORTED_LANGUAGES:
+            raise HTTPException(
+                400,
+                f"Unsupported language: {body.language}. "
+                f"Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}",
+            )
         cfg.language = body.language
     if body.api_key is not None:
         cfg.api_key = body.api_key

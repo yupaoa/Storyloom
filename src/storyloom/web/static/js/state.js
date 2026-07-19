@@ -46,12 +46,17 @@ const GameState = {
 /* ── UI text dictionary ─────────────────────────────────────────── */
 /* Keys are English source strings (msgid), matching gettext convention
    and locale/zh_CN/LC_MESSAGES/storyloom.po msgid entries.
-   The en dict is an identity map — _() returns the key itself.        */
+   The en dict is an identity map — _() returns the key itself.
+
+   ⚠️  DUAL-WRITE CONVENTION: Every new msgid must be added to BOTH
+   this T dictionary AND locale/zh_CN/LC_MESSAGES/storyloom.po.
+   The .po file is the authoritative source; this dictionary is the
+   SPA's client-side mirror (browsers cannot consume gettext .mo).   */
 
 const T = {
     "zh-CN": {
         /* Menu */
-        "storyloom": "storyloom",
+        "Storyloom": "Storyloom",
         "AI Text Adventure": "AI 文字冒险",
         "New Game": "新游戏",
         "Continue": "继续",
@@ -95,7 +100,11 @@ const T = {
    GameState.lang for convenience.
 
    Authority: keys, defaults, and structure mirror
-              src/storyloom/user_config.py UserConfig._DEFAULTS.   */
+              src/storyloom/user_config.py UserConfig._DEFAULTS.
+
+   ⚠️  SYNC: api_base_url and api_model placeholder values must
+   stay in sync with UserConfig._DEFAULTS.  When the backend
+   defaults change, update the placeholders here too.             */
 
 const SETTINGS_STORE = "storyloom-setting-";
 
@@ -151,14 +160,19 @@ function applySetting(key, value) {
 
 /** Push current settings to server → UserConfig.save(). */
 async function saveConfig() {
-    try {
-        await API.post("/api/config", {
-            language: getSetting("lang"),
-            api_key: getSetting("api_key"),
-            api_base_url: getSetting("api_base_url"),
-            api_model: getSetting("api_model"),
-        });
-    } catch (_) { /* offline — values stay in localStorage */ }
+    const key = getSetting("api_key");
+    const body = {
+        language: getSetting("lang"),
+        api_base_url: getSetting("api_base_url"),
+        api_model: getSetting("api_model"),
+    };
+    /* Only send api_key if the user typed a real one — an empty or
+       masked value means "keep the existing key on disk". */
+    if (key && !key.includes("****")) body.api_key = key;
+
+    try { await API.post("/api/config", body); } catch (err) {
+        console.warn("saveConfig: server unreachable, values in localStorage only", err);
+    }
 }
 
 /** Pull config from server (UserConfig properties) at startup.
@@ -170,7 +184,9 @@ async function initConfig() {
             GameState.setLang(data.language);
             localStorage.setItem(SETTINGS_STORE + "lang", data.language);
         }
-        if (data.api_key) {
+        /* Server returns masked key for display; only store if we
+           don't already have the real key from a previous save. */
+        if (data.api_key && !localStorage.getItem(SETTINGS_STORE + "api_key")) {
             localStorage.setItem(SETTINGS_STORE + "api_key", data.api_key);
         }
         if (data.api_base_url) {
@@ -179,7 +195,9 @@ async function initConfig() {
         if (data.api_model) {
             localStorage.setItem(SETTINGS_STORE + "api_model", data.api_model);
         }
-    } catch (_) { /* offline — keep localStorage values */ }
+    } catch (err) {
+        console.warn("initConfig: server unreachable, using localStorage", err);
+    }
 }
 
 /**

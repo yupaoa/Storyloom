@@ -284,6 +284,7 @@ button.accent:hover, .btn-accent:hover {
 .settings-panel input[type="password"]:focus {
     outline: none;
     border-color: var(--text-accent);
+    box-shadow: 0 0 0 2px rgba(78, 204, 163, 0.35);
 }
 
 .settings-panel input[type="text"],
@@ -335,6 +336,7 @@ button.accent:hover, .btn-accent:hover {
 .setting-input:focus {
     outline: none;
     border-color: var(--text-accent);
+    box-shadow: 0 0 0 2px rgba(78, 204, 163, 0.35);
 }
 
 .setting-edit-btn {

@@ -25,8 +25,8 @@ msgstr "（或输入你自己的答案）"
 
 # ── Web UI: main menu ──
 
-msgid "storyloom"
-msgstr "storyloom"
+msgid "Storyloom"
+msgstr "Storyloom"
 
 msgid "AI Text Adventure"
 msgstr "AI 文字冒险"
