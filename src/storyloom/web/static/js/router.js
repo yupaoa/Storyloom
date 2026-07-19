@@ -131,72 +131,47 @@
             navigate("co-create");
         });
 
-        // ── Button 2: Continue ──────────────────────────────────────
+        // ── Button 2: Continue (auto-resume latest save) ─────────────
+        // Mirrors dev_cli: find latest game → latest save → load → play.
+        // No selection UI — "Load Save" handles manual save browsing.
 
         document.getElementById("btn-continue").addEventListener("click", async () => {
             const panel = document.getElementById("continue-panel");
-
-            // Toggle off if already visible
-            if (!panel.classList.contains("hidden")) {
-                panel.classList.add("hidden");
-                return;
-            }
-
             panel.classList.remove("hidden");
             panel.innerHTML = `<p class="text-muted">${esc(_("Loading..."))}</p>`;
 
             try {
+                // Step 1: Find the most recently played game
                 const games = await API.get("/api/saves/games");
-
                 if (!games || games.length === 0) {
                     panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
                     return;
                 }
+                const latestGame = games.reduce((a, b) =>
+                    (b.last_played_at || "").localeCompare(a.last_played_at || "") > 0 ? b : a
+                );
 
-                // Sort by last_played_at descending, show top 3
-                const recent = games
-                    .sort((a, b) => (b.last_played_at || "").localeCompare(a.last_played_at || ""))
-                    .slice(0, 3);
+                // Step 2: Find the latest save in that game
+                const gameId = latestGame.game_id;
+                const saves = await API.get(`/api/saves/${encodeURIComponent(gameId)}`);
+                if (!saves || saves.length === 0) {
+                    panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
+                    return;
+                }
+                const latestSave = saves.reduce((a, b) =>
+                    (b.saved_at || "").localeCompare(a.saved_at || "") > 0 ? b : a
+                );
 
-                panel.innerHTML = recent.map(g => `
-                    <div class="continue-item" data-game-id="${esc(g.game_id)}">
-                        <span class="ci-label">${esc(g.label)}</span>
-                        <span class="ci-meta">
-                            ${esc(g.genre || "?")} · ${esc(g.tier || "?")} · ${esc(_("Save"))}: ${g.save_count}
-                        </span>
-                    </div>
-                `).join("");
-
-                // Click handler: load latest save → game preview page
-                // Mirrors dev_cli "Continue" flow: auto-resume the most
-                // recent save and show story info before launching.
-                panel.querySelectorAll(".continue-item").forEach(item => {
-                    item.addEventListener("click", async () => {
-                        const gameId = item.dataset.gameId;
-                        try {
-                            const saves = await API.get(
-                                `/api/saves/${encodeURIComponent(gameId)}`
-                            );
-                            if (!saves || saves.length === 0) {
-                                panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
-                                return;
-                            }
-                            // Latest save by filename (ISO timestamp sort)
-                            const latestSave = saves[saves.length - 1];
-                            const filename = latestSave.filename;
-                            const res = await API.post(
-                                `/api/saves/${encodeURIComponent(gameId)}/load/${encodeURIComponent(filename)}`
-                            );
-                            GameState.gameId = res.game_id;
-                            GameState.roundCount = res.round_count || 0;
-                            GameState.currentNode = res.current_node || null;
-                            GameState.storyConfig = res.story_config || {};
-                            navigate("game-preview");
-                        } catch (err) {
-                            panel.innerHTML = `<p class="text-error">${esc(err.message)}</p>`;
-                        }
-                    });
-                });
+                // Step 3: Load → game preview page
+                const res = await API.post(
+                    `/api/saves/${encodeURIComponent(gameId)}/load/${encodeURIComponent(latestSave.filename)}`
+                );
+                GameState.gameId = res.game_id;
+                GameState.roundCount = res.round_count || 0;
+                GameState.currentNode = res.current_node || null;
+                GameState.storyConfig = res.story_config || {};
+                panel.classList.add("hidden");
+                navigate("game-preview");
             } catch (err) {
                 panel.innerHTML = `<p class="text-error">${esc(err.message)}</p>`;
             }
