@@ -48,10 +48,10 @@ from storyloom.user_config import UserConfig
 # ── App setup ──────────────────────────────────────────────────────
 
 _STATIC = Path(__file__).resolve().parent / "static"
-# Default to the project root (two levels above this file), not cwd,
-# so config.json is always at <repo>/config.json regardless of where
-# the server is started from.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# Default to the repository root, not cwd, so config.json is always
+# at <repo>/config.json regardless of where the server is started.
+# server.py → web → storyloom → src → repo root  (4 levels up)
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _APP_DIR = os.environ.get("STORYLOOM_APP_DIR", str(_PROJECT_ROOT))
 
 app = FastAPI(title="Storyloom", docs_url=None, redoc_url=None)

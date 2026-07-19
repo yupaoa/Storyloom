@@ -142,10 +142,17 @@ const SETTINGS = [
 
 /** Get the current value of a setting by key.
  *  Reads from localStorage first (instant); server is the
- *  authoritative source loaded via initConfig() at startup.     */
+ *  authoritative source loaded via initConfig() at startup.
+ *  For api_key: returns the real key if set, otherwise falls
+ *  back to the server-provided masked display hint.            */
 function getSetting(key) {
     if (key === "lang") return GameState.lang;
-    return localStorage.getItem(SETTINGS_STORE + key) || "";
+    const val = localStorage.getItem(SETTINGS_STORE + key);
+    if (val) return val;
+    if (key === "api_key") {
+        return localStorage.getItem(SETTINGS_STORE + "api_key_display") || "";
+    }
+    return "";
 }
 
 /** Apply a setting change — localStorage immediately, then
@@ -153,6 +160,11 @@ function getSetting(key) {
  *  Returns true if the change requires a UI re-render.         */
 function applySetting(key, value) {
     localStorage.setItem(SETTINGS_STORE + key, value);
+    /* Once the user has typed a real key, the masked display hint
+       is no longer needed. */
+    if (key === "api_key" && value && !value.includes("****")) {
+        localStorage.removeItem(SETTINGS_STORE + "api_key_display");
+    }
     if (key === "lang") GameState.setLang(value);
     saveConfig();
     return key === "lang";
@@ -184,10 +196,12 @@ async function initConfig() {
             GameState.setLang(data.language);
             localStorage.setItem(SETTINGS_STORE + "lang", data.language);
         }
-        /* Server returns masked key for display; only store if we
-           don't already have the real key from a previous save. */
-        if (data.api_key && !localStorage.getItem(SETTINGS_STORE + "api_key")) {
-            localStorage.setItem(SETTINGS_STORE + "api_key", data.api_key);
+        /* Server returns masked key for display hint only.
+           Store it separately so the masked value never pollutes
+           the editable api_key slot — saveConfig's guard relies on
+           this separation. */
+        if (data.api_key) {
+            localStorage.setItem(SETTINGS_STORE + "api_key_display", data.api_key);
         }
         if (data.api_base_url) {
             localStorage.setItem(SETTINGS_STORE + "api_base_url", data.api_base_url);
