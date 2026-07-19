@@ -388,22 +388,19 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       View: Co-Create (#co-create) — PLACEHOLDER
+       View: Co-Create (#co-create)
+       ──────────────────────────────────────────────────────────────
+       Full chat-style Q&A interface for co-creating the story setup.
+       Delegates to CoCreateView.render() (co-create.js).
+
+       Layout:
+         top bar:  /quit (left)  |  "Co-Create" title (center)
+         messages: scrollable chat bubbles (assistant / user / info / error)
+         input bar:  textarea + ↑ send button + /go button
        ═══════════════════════════════════════════════════════════════ */
 
     function renderCoCreate() {
-        app.innerHTML = `
-            <div class="placeholder-view">
-                <h2>Co-Create</h2>
-                <p class="text-muted">Co-creation Q&A view — coming soon.</p>
-                <button class="menu-btn" style="margin-top:1.5rem" id="btn-back-menu">
-                    ${esc(_("Back to Menu"))}
-                </button>
-            </div>
-        `;
-        document.getElementById("btn-back-menu").addEventListener("click", () => {
-            navigate("menu");
-        });
+        CoCreateView.render(app);
     }
 
     /* ═══════════════════════════════════════════════════════════════

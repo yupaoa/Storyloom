@@ -43,7 +43,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from storyloom.config import SUPPORTED_LANGUAGES
+from storyloom.core.co_create import CoCreateError
+from storyloom.core.session import GameSession
+from storyloom.io.api_client import ApiClient
 from storyloom.user_config import UserConfig
+from storyloom.web import sessions
 
 # ── App setup ──────────────────────────────────────────────────────
 
@@ -119,6 +123,168 @@ async def update_config(body: ConfigUpdate):
         cfg.api_model = body.api_model
     cfg.save()
     return {"status": "ok"}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Co-Create — Q&A phase before story generation
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _get_api_client() -> ApiClient:
+    """Build an ApiClient from the current server config."""
+    return ApiClient(cfg)
+
+
+class CoCreateStartReply(BaseModel):
+    phase: str
+    prompt: str
+
+
+@app.post("/api/co-create/start", response_model=CoCreateStartReply)
+async def co_create_start():
+    """Start a new co-creation Q&A session.
+
+    Creates a CoCreateFlow, calls start(), and stores it server-side.
+    The returned *prompt* is the LLM's opening question — display it
+    as the first assistant message in the chat UI.
+    """
+    api = _get_api_client()
+    flow = GameSession(api).new_co_create()
+    result = flow.start()
+    sessions.store_co_create(flow)
+    return CoCreateStartReply(**result)
+
+
+class CoCreateSendBody(BaseModel):
+    text: str
+
+
+class CoCreateSendReply(BaseModel):
+    reply: str
+
+
+@app.post("/api/co-create/send", response_model=CoCreateSendReply)
+async def co_create_send(body: CoCreateSendBody):
+    """Send a user message in the co-creation Q&A.
+
+    Returns the LLM's reply text.  On API failure, returns HTTP 502
+    so the UI can offer a retry.
+    """
+    flow = sessions.get_co_create()
+    if flow is None:
+        raise HTTPException(400, "No active co-creation session.  Call start first.")
+    try:
+        reply = flow.send(body.text)
+    except CoCreateError as e:
+        raise HTTPException(502, e.message)
+    except (ValueError, RuntimeError) as e:
+        raise HTTPException(400, str(e))
+    return CoCreateSendReply(reply=reply)
+
+
+@app.post("/api/co-create/retry-send", response_model=CoCreateSendReply)
+async def co_create_retry_send():
+    """Retry the last failed send() call."""
+    flow = sessions.get_co_create()
+    if flow is None:
+        raise HTTPException(400, "No active co-creation session.")
+    try:
+        reply = flow.retry_send()
+    except CoCreateError as e:
+        raise HTTPException(502, e.message)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    return CoCreateSendReply(reply=reply)
+
+
+@app.post("/api/co-create/generate")
+async def co_create_generate():
+    """Generate the story setup from the Q&A conversation.
+
+    On success, caches the CoCreationResult server-side so that
+    POST /api/game/new can consume it.  Returns the parsed story
+    config and outline.
+    """
+    flow = sessions.get_co_create()
+    if flow is None:
+        raise HTTPException(400, "No active co-creation session.")
+    try:
+        result = flow.generate()
+    except CoCreateError as e:
+        raise HTTPException(502, e.message)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+    sessions.store_co_create_result(result)
+    return {
+        "status": "ok",
+        "story_config": result.story_config,
+        "outline_text": result.outline_text,
+    }
+
+
+@app.post("/api/co-create/retry-generate")
+async def co_create_retry_generate():
+    """Retry the last failed generate() call."""
+    flow = sessions.get_co_create()
+    if flow is None:
+        raise HTTPException(400, "No active co-creation session.")
+    try:
+        result = flow.retry_generate()
+    except CoCreateError as e:
+        raise HTTPException(502, e.message)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+    sessions.store_co_create_result(result)
+    return {
+        "status": "ok",
+        "story_config": result.story_config,
+        "outline_text": result.outline_text,
+    }
+
+
+@app.post("/api/co-create/abort")
+async def co_create_abort():
+    """Abort the co-creation session and discard all state."""
+    flow = sessions.get_co_create()
+    if flow is not None:
+        flow.abort()
+    sessions.remove_co_create()
+    return {"status": "ok"}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Game — create from co-creation result
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.post("/api/game/new")
+async def game_new():
+    """Create a new game from the cached co-creation result.
+
+    Requires a prior successful POST /api/co-create/generate.
+    Returns the game_id for subsequent navigation to #game/{id}.
+    """
+    result = sessions.get_co_create_result()
+    if result is None:
+        raise HTTPException(
+            400,
+            "No co-creation result found.  Call /api/co-create/generate first.",
+        )
+
+    api = _get_api_client()
+    session = GameSession(api)
+    gl, game_id = session.start_game(result)
+    sessions.store_game(game_id, gl)
+    sessions.remove_co_create()  # clean up — game is now live
+
+    return {
+        "game_id": game_id,
+        "label": result.story_config.get("label", ""),
+        "round_count": gl.round_count,
+        "current_node": gl.current_node,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════
