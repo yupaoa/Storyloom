@@ -16,7 +16,7 @@ Endpoint groups:
                  POST /api/game/{id}/choice               — inject player choice
                  POST /api/game/{id}/retry                — retry failed API call
                  GET  /api/game/{id}/state                — sidebar state
-                 GET  /api/game/{id}/adventure-log        — post-ending log
+                 GET  /api/game/{id}/adventure-log        — post-ending log (Phase 2 — requires engine persistence)
   Saves:         GET    /api/saves/games                  — list all games
                  GET    /api/saves/{game_id}              — list saves in a game
                  POST   /api/saves/{game_id}/load/{filename} — load a save
