@@ -256,7 +256,9 @@ class SaveManager:
 
         Returns:
             List of ``{game_id, label, language, genre, tier,
-            created_at, save_count}`` dicts.
+            created_at, save_count, last_played_at}`` dicts.
+            *last_played_at* is the most recent save file mtime (ISO 8601
+            UTC), or ``""`` if no saves exist.
         """
         root_path = Path(root)
         if not root_path.exists():
@@ -275,7 +277,16 @@ class SaveManager:
                 continue
             meta = data.get("metadata", {})
             sc = data.get("story_config", {})
-            save_count = len(list(game_dir.glob("*.json")))
+            save_files = list(game_dir.glob("*.json"))
+            save_count = len(save_files)
+            last_mtime = (
+                max(p.stat().st_mtime for p in save_files)
+                if save_files else 0.0
+            )
+            last_played_at = (
+                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last_mtime))
+                if last_mtime else ""
+            )
             result.append({
                 "game_id": game_dir.name,
                 "label": meta.get("label", game_dir.name),
@@ -284,6 +295,7 @@ class SaveManager:
                 "tier": sc.get("tier", ""),
                 "created_at": meta.get("created_at", ""),
                 "save_count": save_count,
+                "last_played_at": last_played_at,
             })
         return result
 

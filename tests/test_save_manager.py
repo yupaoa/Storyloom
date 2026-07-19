@@ -190,6 +190,10 @@ class TestSaveManagerStatic:
         assert games[0]["game_id"] == game_id
         assert games[0]["label"] == "my_story"
         assert games[0]["save_count"] == 1
+        assert re.match(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
+            games[0]["last_played_at"],
+        )
 
     def test_list_saves_for_game(self, root):
         _, game_id, _ = SaveManager.create_game(root, "test")

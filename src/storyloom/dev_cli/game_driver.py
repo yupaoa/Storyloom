@@ -450,8 +450,9 @@ def _show_choices(evt: dict) -> str | None:
 # Save management
 # ═══════════════════════════════════════════════════════════════════
 
-def run_manage_saves(session: GameSession) -> None:
-    """Manage saved games and individual saves.
+def run_load_save(session: GameSession, ctrl: DisplayController,
+                  observer: DevObserver | None = None) -> None:
+    """Browse saves — load or delete.
 
     Three-level nested menu:
 
@@ -463,16 +464,17 @@ def run_manage_saves(session: GameSession) -> None:
         to delete the entire game.
 
     Level 3 — Save detail:
-        Show metadata for a single save.  [D] to delete.
+        Show metadata for a single save.  [L] to load and play,
+        [D] to delete.
 
     Reuses ``session.list_games()``, ``session.list_saves()``,
-    ``session.delete_game()``, ``session.delete_save()`` — no
-    engine-layer changes.
+    ``session.load_game()``, ``session.delete_game()``,
+    ``session.delete_save()`` — no engine-layer changes.
     """
     # ── Level 1: Game list ──────────────────────────────────────
     while True:
         games = session.list_games()
-        print("\nManage Saves")
+        print("\nLoad Save")
         if not games:
             print("  No games found.")
             _ask("Press Enter to go back")
@@ -513,7 +515,6 @@ def run_manage_saves(session: GameSession) -> None:
             if pick in ("0", "b", "back"):
                 break
             if pick.lower() == "d":
-                # ── Delete game ────────────────────────────────
                 ans = _ask(f"Delete game '{game_label}' and ALL its saves? "
                            f"This cannot be undone. (y/n)").strip().lower()
                 if ans in ("y", "yes"):
@@ -536,6 +537,7 @@ def run_manage_saves(session: GameSession) -> None:
             print(f"  Checkpoint Node: {save.get('checkpoint_node') or '(none)'}")
             print(f"  Current Node: {save.get('current_node', '?')}")
             print(f"  Saved at: {save.get('saved_at', '?')}")
+            print("  [L] Load this save")
             print("  [D] Delete this save")
             print("  [0] Back")
 
@@ -550,6 +552,18 @@ def run_manage_saves(session: GameSession) -> None:
                         print(f"  Save '{filename}' deleted.")
                     else:
                         _error(f"Failed to delete save '{filename}'.")
+            elif pick.lower() == "l":
+                try:
+                    game_loop = session.load_game(game_id, filename)
+                except Exception as e:
+                    _error(f"Load failed: {e}")
+                    continue
+                try:
+                    run_game(game_loop, ctrl, observer)
+                except KeyboardInterrupt:
+                    pass
+                print("\n[Game over]")
+                return  # back to main menu after game ends
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -612,8 +626,14 @@ def dev_main(argv: list[str] | None = None) -> None:
         games = session.list_games()
         print("\nStoryloom")
         print("  [1] New Game")
-        print(f"  [2] Continue" + (f" ({len(games)} games)" if games else ""))
-        print("  [3] Manage Saves")
+        if games:
+            # Show most recent game label as hint
+            latest = max(games, key=lambda g: g.get("last_played_at", ""))
+            hint = latest.get("label", "?")
+            print(f"  [2] Continue ({hint})")
+        else:
+            print("  [2] Continue")
+        print("  [3] Load Save")
         print("  [4] Exit")
 
         choice = _ask("").strip()
@@ -636,36 +656,19 @@ def dev_main(argv: list[str] | None = None) -> None:
             continue
 
         elif choice == "2":
+            # ── Continue: auto-resume last played save ────────────
             if not games:
                 print("  No games found.")
                 continue
-
-            # ── Level 1: pick a game ─────────────────────────────
-            for i, g in enumerate(games):
-                print(f"  [{i + 1}] {g.get('label', '?')} "
-                      f"({g.get('genre', '?')}, "
-                      f"{g.get('save_count', 0)} saves)")
-            pick = _ask("Pick a game").strip()
-            if not (pick.isdigit() and 1 <= int(pick) <= len(games)):
-                continue
-            game_id = games[int(pick) - 1]["game_id"]
-
-            # ── Level 2: pick a save ─────────────────────────────
+            latest_game = max(games, key=lambda g: g.get("last_played_at", ""))
+            game_id = latest_game["game_id"]
             saves = session.list_saves(game_id)
             if not saves:
-                print("  No saves in this game.")
+                print(f"  No saves in '{latest_game.get('label', game_id)}'.")
                 continue
-            for i, s in enumerate(saves):
-                label = s.get("checkpoint_title") or s.get("filename", "?")
-                print(f"  [{i + 1}] {label} "
-                      f"({s.get('saved_at', '?')})")
-            pick = _ask("Pick a save").strip()
-            if not (pick.isdigit() and 1 <= int(pick) <= len(saves)):
-                continue
+            latest_save = max(saves, key=lambda s: s.get("saved_at", ""))
             try:
-                game_loop = session.load_game(
-                    game_id, saves[int(pick) - 1]["filename"]
-                )
+                game_loop = session.load_game(game_id, latest_save["filename"])
             except Exception as e:
                 _error(f"Load failed: {e}")
                 continue
@@ -677,7 +680,8 @@ def dev_main(argv: list[str] | None = None) -> None:
             continue
 
         elif choice == "3":
-            run_manage_saves(session)
+            # ── Load Save: browse, load, or delete saves ──────────
+            run_load_save(session, ctrl, observer)
             continue
 
         elif choice == "4":
