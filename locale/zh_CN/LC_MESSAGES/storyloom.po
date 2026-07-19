@@ -22,3 +22,84 @@ msgstr "请输入一些想法来开始。"
 
 msgid "(or write your own answer)"
 msgstr "（或输入你自己的答案）"
+
+# ── Web UI: main menu ──
+
+msgid "Storyloom"
+msgstr "Storyloom"
+
+msgid "AI Text Adventure"
+msgstr "AI 文字冒险"
+
+msgid "New Game"
+msgstr "新游戏"
+
+msgid "Continue"
+msgstr "继续"
+
+msgid "Load Save"
+msgstr "读取存档"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Credits"
+msgstr "制作人员"
+
+msgid "Exit"
+msgstr "退出"
+
+msgid "Recent Saves"
+msgstr "最近存档"
+
+msgid "No saves found"
+msgstr "暂无存档"
+
+msgid "Language"
+msgstr "语言"
+
+msgid "API Base URL"
+msgstr "API 地址"
+
+msgid "API Key"
+msgstr "API 密钥"
+
+msgid "Model"
+msgstr "模型"
+
+# ── Web UI: credits ──
+
+msgid "Engine & System Architecture"
+msgstr "引擎 & 系统架构"
+
+msgid "Web Interface"
+msgstr "Web 界面"
+
+# ── Web UI: shared ──
+
+msgid "Loading..."
+msgstr "加载中..."
+
+msgid "Save"
+msgstr "存档"
+
+msgid "Delete"
+msgstr "删除"
+
+msgid "Load"
+msgstr "加载"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Back to Menu"
+msgstr "返回主菜单"
+
+msgid "Goodbye"
+msgstr "再见"
+
+msgid "You may close this tab."
+msgstr "你可以关闭此标签页。"

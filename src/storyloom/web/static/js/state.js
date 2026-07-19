@@ -5,14 +5,225 @@
      gameId, roundCount, currentNode, endingFlag,
      outlineNodes, stateVars, displayMode, speedPreset, lang.
 
-   t(key) — i18n lookup (zh-CN / en dictionary).
+   _(msgid) — i18n lookup.  Mirrors server-side gettext _() convention.
+              Keys are English source strings (msgid); translations come
+              from the dictionary matching GameState.lang.
+
+   Authority:
+     src/storyloom/i18n.py (gettext _() convention)
+     locale/zh_CN/LC_MESSAGES/storyloom.po (authoritative translations)
+     CLAUDE.local.md §3.2 (event-driven state updates)
    ═══════════════════════════════════════════════════════════════════ */
 
 const GameState = {
-    // gameId, roundCount, currentNode, endingFlag
-    // outlineNodes, stateVars, displayMode, speedPreset, lang
-    // reset() — clear all state
+    gameId: null,
+    roundCount: 0,
+    currentNode: null,
+    endingFlag: false,
+    outlineNodes: [],
+    stateVars: {},
+    displayMode: "auto",
+    speedPreset: "normal",
+    lang: localStorage.getItem("storyloom-lang") || "zh-CN",
+
+    /** Reset all per-game state.  Called on menu entry. */
+    reset() {
+        this.gameId = null;
+        this.roundCount = 0;
+        this.currentNode = null;
+        this.endingFlag = false;
+        this.outlineNodes = [];
+        this.stateVars = {};
+    },
+
+    /** Set language and persist to localStorage. */
+    setLang(lang) {
+        this.lang = lang;
+        localStorage.setItem("storyloom-lang", lang);
+    },
 };
 
-// UI text dictionary (zh-CN / en)
-// t(key) → translated string
+/* ── UI text dictionary ─────────────────────────────────────────── */
+/* Keys are English source strings (msgid), matching gettext convention
+   and locale/zh_CN/LC_MESSAGES/storyloom.po msgid entries.
+   The en dict is an identity map — _() returns the key itself.
+
+   ⚠️  DUAL-WRITE CONVENTION: Every new msgid must be added to BOTH
+   this T dictionary AND locale/zh_CN/LC_MESSAGES/storyloom.po.
+   The .po file is the authoritative source; this dictionary is the
+   SPA's client-side mirror (browsers cannot consume gettext .mo).   */
+
+const T = {
+    "zh-CN": {
+        /* Menu */
+        "Storyloom": "Storyloom",
+        "AI Text Adventure": "AI 文字冒险",
+        "New Game": "新游戏",
+        "Continue": "继续",
+        "Load Save": "读取存档",
+        "Settings": "设置",
+        "Credits": "制作人员",
+        "Exit": "退出",
+        "Recent Saves": "最近存档",
+        "No saves found": "暂无存档",
+        "Language": "语言",
+        "API Base URL": "API 地址",
+        "API Key": "API 密钥",
+        "Model": "模型",
+        /* Credits */
+        "Engine & System Architecture": "引擎 & 系统架构",
+        "Web Interface": "Web 界面",
+        /* Shared */
+        "Loading...": "加载中...",
+        "Save": "存档",
+        "Delete": "删除",
+        "Load": "加载",
+        "Edit": "编辑",
+        "Cancel": "取消",
+        "Back to Menu": "返回主菜单",
+        "Goodbye": "再见",
+        "You may close this tab.": "你可以关闭此标签页。",
+    },
+    "en": {
+        /* English is the source language — identity map */
+    },
+};
+
+/* ── Settings ────────────────────────────────────────────────────── */
+/* Data-driven settings panel.  Add a new object to the SETTINGS array
+   to add a row to the settings overlay — no HTML changes needed.
+
+   Supported types: "select", "text", "password".
+
+   All setting values are persisted in localStorage under the key
+   "storyloom-setting-<key>".  The "lang" setting is mirrored to
+   GameState.lang for convenience.
+
+   Authority: keys, defaults, and structure mirror
+              src/storyloom/user_config.py UserConfig._DEFAULTS.
+
+   ⚠️  SYNC: api_base_url and api_model placeholder values must
+   stay in sync with UserConfig._DEFAULTS.  When the backend
+   defaults change, update the placeholders here too.             */
+
+const SETTINGS_STORE = "storyloom-setting-";
+
+const SETTINGS = [
+    /* ── Language ── */
+    {
+        key: "lang",
+        type: "select",
+        label: "Language",
+        options: [
+            { value: "zh-CN", label: "中文" },
+            { value: "en", label: "English" },
+        ],
+    },
+    /* ── API Configuration (mirrors UserConfig properties) ── */
+    {
+        key: "api_base_url",
+        type: "text",
+        label: "API Base URL",
+        placeholder: "https://api.deepseek.com",
+    },
+    {
+        key: "api_key",
+        type: "password",
+        label: "API Key",
+        placeholder: "sk-...",
+    },
+    {
+        key: "api_model",
+        type: "text",
+        label: "Model",
+        placeholder: "deepseek-v4-pro",
+    },
+];
+
+/** Get the current value of a setting by key.
+ *  Reads from localStorage first (instant); server is the
+ *  authoritative source loaded via initConfig() at startup.
+ *  For api_key: returns the real key if set, otherwise falls
+ *  back to the server-provided masked display hint.            */
+function getSetting(key) {
+    if (key === "lang") return GameState.lang;
+    const val = localStorage.getItem(SETTINGS_STORE + key);
+    if (val) return val;
+    if (key === "api_key") {
+        return localStorage.getItem(SETTINGS_STORE + "api_key_display") || "";
+    }
+    return "";
+}
+
+/** Apply a setting change — localStorage immediately, then
+ *  persist to config.json via UserConfig.save() in background.
+ *  Returns true if the change requires a UI re-render.         */
+function applySetting(key, value) {
+    localStorage.setItem(SETTINGS_STORE + key, value);
+    /* Once the user has typed a real key, the masked display hint
+       is no longer needed. */
+    if (key === "api_key" && value && !value.includes("****")) {
+        localStorage.removeItem(SETTINGS_STORE + "api_key_display");
+    }
+    if (key === "lang") GameState.setLang(value);
+    saveConfig();
+    return key === "lang";
+}
+
+/** Push current settings to server → UserConfig.save(). */
+async function saveConfig() {
+    const key = getSetting("api_key");
+    const body = {
+        language: getSetting("lang"),
+        api_base_url: getSetting("api_base_url"),
+        api_model: getSetting("api_model"),
+    };
+    /* Only send api_key if the user typed a real one — an empty or
+       masked value means "keep the existing key on disk". */
+    if (key && !key.includes("****")) body.api_key = key;
+
+    try { await API.post("/api/config", body); } catch (err) {
+        console.warn("saveConfig: server unreachable, values in localStorage only", err);
+    }
+}
+
+/** Pull config from server (UserConfig properties) at startup.
+ *  Populates localStorage + GameState.lang.  Call once on load. */
+async function initConfig() {
+    try {
+        const data = await API.get("/api/config");
+        if (data.language) {
+            GameState.setLang(data.language);
+            localStorage.setItem(SETTINGS_STORE + "lang", data.language);
+        }
+        /* Server returns masked key for display hint only.
+           Store it separately so the masked value never pollutes
+           the editable api_key slot — saveConfig's guard relies on
+           this separation. */
+        if (data.api_key) {
+            localStorage.setItem(SETTINGS_STORE + "api_key_display", data.api_key);
+        }
+        if (data.api_base_url) {
+            localStorage.setItem(SETTINGS_STORE + "api_base_url", data.api_base_url);
+        }
+        if (data.api_model) {
+            localStorage.setItem(SETTINGS_STORE + "api_model", data.api_model);
+        }
+    } catch (err) {
+        console.warn("initConfig: server unreachable, using localStorage", err);
+    }
+}
+
+/**
+ * Look up a translated string.
+ * Mirrors server-side gettext _() convention.
+ *
+ * @param {string} msgid — English source string
+ * @returns {string} translated string in the current language,
+ *                   or msgid itself if no translation exists
+ */
+function _(msgid) {
+    const dict = T[GameState.lang];
+    if (dict && dict[msgid] !== undefined) return dict[msgid];
+    return msgid;
+}
