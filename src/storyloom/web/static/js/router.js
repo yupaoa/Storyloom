@@ -35,6 +35,7 @@
         "co-create": renderCoCreate,
         "game": renderGame,
         "game-init": renderGameInit,
+        "game-preview": renderGamePreview,
         "saves": renderSaveList,
     };
 
@@ -410,6 +411,51 @@
 
     function renderGameInit() {
         app.innerHTML = `<div class="placeholder-view"></div>`;
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       View: Game Preview (#game-preview)
+       ──────────────────────────────────────────────────────────────
+       Transition page between co-creation generate and game/new.
+       Shows story label and setting so the player can review
+       before launching the actual game.
+
+       Layout:
+         header:  ← Back button (top-left)
+         content: story label (title) + setting text (centered)
+         footer:  Begin Adventure button (disabled — future hook)
+       ═══════════════════════════════════════════════════════════════ */
+
+    function renderGamePreview() {
+        const config = GameState.storyConfig;
+        if (!config) {
+            navigate("menu");
+            return;
+        }
+
+        app.innerHTML = `
+            <div class="gp-view">
+                <div class="gp-header">
+                    <button class="cc-back-btn" id="gp-back"
+                            title="${esc(_("Back to Menu"))}">←</button>
+                </div>
+
+                <div class="gp-content">
+                    <h1 class="gp-label">${esc(config.label)}</h1>
+                    <p class="gp-setting">${esc(config.setting || "")}</p>
+
+                    <button class="gp-start-btn" id="gp-start" disabled>
+                        ${esc(_("Begin Adventure"))}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.getElementById("gp-back").addEventListener("click", async () => {
+            try { await API.post("/api/co-create/abort"); } catch (_) { /* ok */ }
+            GameState.reset();
+            navigate("menu");
+        });
     }
 
     /* ═══════════════════════════════════════════════════════════════

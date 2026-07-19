@@ -26,6 +26,10 @@ const GameState = {
     speedPreset: "normal",
     lang: localStorage.getItem("storyloom-lang") || "zh-CN",
 
+    /** Story config from co-creation, set before game/new.
+     *  Populated by _handleStart() in co-create.js after generate(). */
+    storyConfig: null,
+
     /** Reset all per-game state.  Called on menu entry. */
     reset() {
         this.gameId = null;
@@ -34,6 +38,7 @@ const GameState = {
         this.endingFlag = false;
         this.outlineNodes = [];
         this.stateVars = {};
+        this.storyConfig = null;
     },
 
     /** Set language and persist to localStorage. */
@@ -82,6 +87,8 @@ const T = {
         "Retry": "重试",
         "Thinking": "正在思考",
         "Generating settings": "正在生成设定",
+        /* Game Preview */
+        "Begin Adventure": "开始冒险",
         /* Shared */
         "Loading...": "加载中...",
         "Save": "存档",
