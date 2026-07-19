@@ -1,0 +1,34 @@
+/* ═══════════════════════════════════════════════════════════════════
+   Storyloom Web — Dark Terminal Aesthetic
+
+   Color palette (from prototype):
+     bg-primary:    #1a1a2e
+     bg-secondary:  #16213e
+     bg-panel:      rgba(22, 33, 62, 0.85)
+     text-primary:  #e0e0e0
+     text-secondary:#a0a0b0
+     text-accent:   #4ecca3
+     text-warning:  #f0a050
+     text-error:    #e05555
+     border-color:  #2a2a4a
+     button-bg:     #0f3460
+     button-hover:  #1a5080
+     button-accent: #4ecca3
+     font-mono:     "Consolas", "Courier New", monospace
+     font-serif:    "Georgia", "Noto Serif SC", serif
+     font-sans:     "Segoe UI", "PingFang SC", sans-serif
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── CSS Variables ──────────────────────────────────────────────── */
+/* ── Reset & Base ───────────────────────────────────────────────── */
+/* ── Typography ─────────────────────────────────────────────────── */
+/* ── Buttons ────────────────────────────────────────────────────── */
+/* ── Layout: Menu View ──────────────────────────────────────────── */
+/* ── Layout: Co-Create View ─────────────────────────────────────── */
+/* ── Layout: Game View (main area + sidebar) ────────────────────── */
+/* ── Story Area ─────────────────────────────────────────────────── */
+/* ── Choice Panel ───────────────────────────────────────────────── */
+/* ── Sidebar (state vars + outline) ─────────────────────────────── */
+/* ── Adventure Log ──────────────────────────────────────────────── */
+/* ── Save List ──────────────────────────────────────────────────── */
+/* ── Utility Classes ────────────────────────────────────────────── */
