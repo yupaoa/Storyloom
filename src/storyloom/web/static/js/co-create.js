@@ -1,11 +1,11 @@
 /* ═══════════════════════════════════════════════════════════════════
    co-create.js — Co-Creation chat UI module
 
-   Lifecycle (mirrors dev_cli/game_driver.py run_co_create):
+   Lifecycle:
      1. CoCreateView.render(container) — builds DOM, calls /start,
         shows the LLM's opening question.
      2. User chats with LLM — multi-turn Q&A.
-     3. User types /quit OR clicks ← → abort → #menu.
+     3. User clicks ← → abort → #menu.
 
    Phase gating:
      - Back button (←) and Start button only active during "chatting".
@@ -122,7 +122,7 @@ const CoCreateView = (function () {
         Router.navigate("menu");
     }
 
-    /* ── Send message (with /quit slash-command) ──────────────────── */
+    /* ── Send message ─────────────────────────────────────────────── */
 
     async function _handleSend() {
         if (_phase !== "chatting") return;
@@ -130,14 +130,6 @@ const CoCreateView = (function () {
         const input = $("#cc-input");
         const text = input.value.trim();
         if (!text) return;
-
-        // ── /quit slash command (mirrors dev_cli) ──────────────────
-        if (text === "/quit") {
-            input.value = "";
-            _autoResize(input);
-            await _handleBack();
-            return;
-        }
 
         // ── Normal message → send to LLM ──────────────────────────
         _addMessage("user", text);
@@ -212,7 +204,7 @@ const CoCreateView = (function () {
     }
 
     function _hideTyping() {
-        const el = document.getElementById("cc-typing-indicator");
+        const el = $("#cc-typing-indicator");
         if (el) el.remove();
     }
 
@@ -269,11 +261,9 @@ const CoCreateView = (function () {
     function _setInputEnabled(enabled) {
         const input = $("#cc-input");
         const sendBtn = $("#cc-send");
-        const startBtn = $("#cc-start");
         const backBtn = $("#cc-back");
         if (input) input.disabled = !enabled;
         if (sendBtn) sendBtn.disabled = !enabled;
-        if (startBtn) startBtn.disabled = !enabled;
         if (backBtn) backBtn.disabled = !enabled;
     }
 
