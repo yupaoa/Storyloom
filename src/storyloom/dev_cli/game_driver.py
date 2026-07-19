@@ -17,6 +17,7 @@ Ctrl+C raises KeyboardInterrupt naturally (caught by dev_main).
 
 import argparse
 import collections
+import os
 import sys
 import time
 from pathlib import Path
@@ -24,6 +25,7 @@ from pathlib import Path
 from storyloom.core.session import GameSession
 from storyloom.core.co_create import CoCreateError, CoCreationResult
 from storyloom.core.game_loop import GameLoop
+from storyloom.core.save_manager import SaveManager
 from storyloom.i18n import init_i18n
 from storyloom.io.api_client import ApiClient
 from storyloom.user_config import UserConfig
@@ -627,9 +629,8 @@ def dev_main(argv: list[str] | None = None) -> None:
         print("\nStoryloom")
         print("  [1] New Game")
         if games:
-            # Show most recent game label as hint
-            latest = max(games, key=lambda g: g.get("last_played_at", ""))
-            hint = latest.get("label", "?")
+            tracked = SaveManager.read_last_played(session._saves_root)
+            hint = tracked["game_label"] if tracked else games[0].get("label", "?")
             print(f"  [2] Continue ({hint})")
         else:
             print("  [2] Continue")
@@ -661,18 +662,46 @@ def dev_main(argv: list[str] | None = None) -> None:
             if not games:
                 print("  No games found.")
                 continue
-            latest_game = max(games, key=lambda g: g.get("last_played_at", ""))
-            game_id = latest_game["game_id"]
-            saves = session.list_saves(game_id)
-            if not saves:
-                print(f"  No saves in '{latest_game.get('label', game_id)}'.")
-                continue
-            latest_save = max(saves, key=lambda s: s.get("saved_at", ""))
-            try:
-                game_loop = session.load_game(game_id, latest_save["filename"])
-            except Exception as e:
-                _error(f"Load failed: {e}")
-                continue
+            tracked = SaveManager.read_last_played(session._saves_root)
+            if tracked:
+                try:
+                    game_loop = session.load_game(
+                        tracked["game_id"], tracked["save_file"]
+                    )
+                except Exception as e:
+                    _error(f"Load failed: {e}")
+                    continue
+            else:
+                # Fallback: scan for most recent game / save.
+                saves_by_mtime = []
+                for g in games:
+                    for s in session.list_saves(g["game_id"]):
+                        saves_by_mtime.append((g["game_id"], s))
+                if not saves_by_mtime:
+                    print("  No saves found.")
+                    continue
+                # Pick the save from the game whose dir has the newest
+                # file mtime (same heuristic as old list_games()).
+                def _dir_mtime(item):
+                    gid, _ = item
+                    d = os.path.join(session._saves_root, gid)
+                    try:
+                        files = [
+                            os.path.getmtime(os.path.join(d, f))
+                            for f in os.listdir(d)
+                            if f.endswith(".json")
+                        ]
+                        return max(files) if files else 0.0
+                    except OSError:
+                        return 0.0
+                game_id, latest_save = max(saves_by_mtime, key=_dir_mtime)
+                try:
+                    game_loop = session.load_game(
+                        game_id, latest_save["filename"]
+                    )
+                except Exception as e:
+                    _error(f"Load failed: {e}")
+                    continue
             try:
                 run_game(game_loop, ctrl, observer)
             except KeyboardInterrupt:

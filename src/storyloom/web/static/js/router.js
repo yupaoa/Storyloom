@@ -130,9 +130,8 @@
             navigate("co-create");
         });
 
-        // ── Button 2: Continue (auto-resume latest save) ─────────────
-        // Mirrors dev_cli: find latest game → latest save → load → play.
-        // No selection UI — "Load Save" handles manual save browsing.
+        // ── Button 2: Continue (auto-resume last played save) ─────────────
+        // Reads .last_played.json (O(1)) — no selection UI.
 
         document.getElementById("btn-continue").addEventListener("click", async () => {
             const panel = document.getElementById("continue-panel");
@@ -140,30 +139,13 @@
             panel.innerHTML = `<p class="text-muted">${esc(_("Loading..."))}</p>`;
 
             try {
-                // Step 1: Find the most recently played game
-                const games = await API.get("/api/saves/games");
-                if (!games || games.length === 0) {
+                const lp = await API.get("/api/saves/last-played");
+                if (!lp || !lp.game_id || !lp.save_file) {
                     panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
                     return;
                 }
-                const latestGame = games.reduce((a, b) =>
-                    (b.last_played_at || "").localeCompare(a.last_played_at || "") > 0 ? b : a
-                );
-
-                // Step 2: Find the latest save in that game
-                const gameId = latestGame.game_id;
-                const saves = await API.get(`/api/saves/${encodeURIComponent(gameId)}`);
-                if (!saves || saves.length === 0) {
-                    panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
-                    return;
-                }
-                const latestSave = saves.reduce((a, b) =>
-                    (b.saved_at || "").localeCompare(a.saved_at || "") > 0 ? b : a
-                );
-
-                // Step 3: Load → game preview page
                 const res = await API.post(
-                    `/api/saves/${encodeURIComponent(gameId)}/load/${encodeURIComponent(latestSave.filename)}`
+                    `/api/saves/${encodeURIComponent(lp.game_id)}/load/${encodeURIComponent(lp.save_file)}`
                 );
                 GameState.gameId = res.game_id;
                 GameState.roundCount = res.round_count || 0;

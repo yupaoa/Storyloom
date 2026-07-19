@@ -44,6 +44,7 @@ from pydantic import BaseModel
 
 from storyloom.config import SUPPORTED_LANGUAGES
 from storyloom.core.co_create import CoCreateError
+from storyloom.core.save_manager import SaveManager
 from storyloom.core.session import GameSession
 from storyloom.i18n import init_i18n, switch_language
 from storyloom.io.api_client import ApiClient
@@ -313,6 +314,18 @@ async def game_start(game_id: str):
 # ═══════════════════════════════════════════════════════════════════
 # Saves — list, load, delete
 # ═══════════════════════════════════════════════════════════════════
+
+
+@app.get("/api/saves/last-played")
+async def saves_last_played():
+    """Return the last-played game + save (O(1) via ``.last_played.json``).
+
+    Returns ``{game_id, game_label, save_file, played_at}`` or 404.
+    """
+    data = SaveManager.read_last_played(_game_session._saves_root)
+    if data is None:
+        raise HTTPException(404, "No last-played save found.")
+    return data
 
 
 @app.get("/api/saves/games")

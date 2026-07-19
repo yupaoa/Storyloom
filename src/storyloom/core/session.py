@@ -83,6 +83,13 @@ class GameSession:
         gl = GameLoop.from_save_dict(data, self._api_client)
         gl.set_save_manager(sm)
         self._game_loop = gl
+        # Track last played so "Continue" can find this save in O(1).
+        label = data.get("metadata", {}).get(
+            "label", data.get("story_config", {}).get("label", "")
+        )
+        SaveManager.write_last_played(
+            self._saves_root, game_id, label, filename,
+        )
         return gl
 
     def read_save(self, game_id: str, filename: str) -> dict:

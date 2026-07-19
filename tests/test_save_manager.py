@@ -3,6 +3,7 @@ import json
 import os
 import re
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -190,10 +191,7 @@ class TestSaveManagerStatic:
         assert games[0]["game_id"] == game_id
         assert games[0]["label"] == "my_story"
         assert games[0]["save_count"] == 1
-        assert re.match(
-            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
-            games[0]["last_played_at"],
-        )
+        assert "last_played_at" not in games[0]
 
     def test_list_saves_for_game(self, root):
         _, game_id, _ = SaveManager.create_game(root, "test")
@@ -218,3 +216,132 @@ class TestSaveManagerStatic:
 
     def test_delete_game_nonexistent(self, root):
         assert SaveManager.delete_game(root, "nonexistent") is False
+
+
+class TestLastPlayedTracking:
+    """Tests for .last_played.json — write, read, validate, cleanup."""
+
+    @pytest.fixture
+    def root(self):
+        with tempfile.TemporaryDirectory() as d:
+            yield d
+
+    # ── write + read round-trip ──────────────────────────────────
+
+    def test_write_and_read(self, root):
+        os.makedirs(os.path.join(root, "g1"))
+        Path(os.path.join(root, "g1", "save.json")).touch()
+        SaveManager.write_last_played(root, "g1", "My Story", "save.json")
+        data = SaveManager.read_last_played(root)
+        assert data is not None
+        assert data["game_id"] == "g1"
+        assert data["game_label"] == "My Story"
+        assert data["save_file"] == "save.json"
+        assert re.match(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", data["played_at"]
+        )
+
+    def test_write_overwrites(self, root):
+        os.makedirs(os.path.join(root, "g1"))
+        os.makedirs(os.path.join(root, "g2"))
+        Path(os.path.join(root, "g1", "a.json")).touch()
+        Path(os.path.join(root, "g2", "b.json")).touch()
+        SaveManager.write_last_played(root, "g1", "A", "a.json")
+        SaveManager.write_last_played(root, "g2", "B", "b.json")
+        data = SaveManager.read_last_played(root)
+        assert data["game_id"] == "g2"
+
+    # ── read failures → None ─────────────────────────────────────
+
+    def test_read_nonexistent(self, root):
+        assert SaveManager.read_last_played(root) is None
+
+    def test_read_corrupt_json(self, root):
+        path = os.path.join(root, SaveManager.LAST_PLAYED_FILE)
+        with open(path, "w") as f:
+            f.write("not json")
+        assert SaveManager.read_last_played(root) is None
+        assert not os.path.exists(path)  # deleted
+
+    def test_read_stale_game(self, root):
+        SaveManager.write_last_played(root, "gone", "X", "x.json")
+        assert SaveManager.read_last_played(root) is None
+        assert not os.path.exists(
+            os.path.join(root, SaveManager.LAST_PLAYED_FILE)
+        )
+
+    def test_read_stale_save(self, root):
+        os.makedirs(os.path.join(root, "g1"))
+        SaveManager.write_last_played(root, "g1", "X", "gone.json")
+        assert SaveManager.read_last_played(root) is None
+
+    # ── cleanup on delete ────────────────────────────────────────
+
+    def test_delete_game_clears_tracking(self, root):
+        _, game_id, _ = SaveManager.create_game(root, "test")
+        Path(os.path.join(root, game_id, "_init.json")).touch()
+        SaveManager.write_last_played(root, game_id, "test", "_init.json")
+        assert SaveManager.read_last_played(root) is not None
+        SaveManager.delete_game(root, game_id)
+        assert SaveManager.read_last_played(root) is None
+
+    def test_delete_game_other_untouched(self, root):
+        _, g1, _ = SaveManager.create_game(root, "keep")
+        Path(os.path.join(root, g1, "_init.json")).touch()
+        SaveManager.write_last_played(root, g1, "keep", "_init.json")
+        SaveManager.delete_game(root, "unrelated")
+        assert SaveManager.read_last_played(root) is not None
+
+    def test_delete_save_clears_tracking(self, root):
+        _, game_id, _ = SaveManager.create_game(root, "test")
+        sm = SaveManager(os.path.join(root, game_id))
+        sm.save({
+            "version": 1,
+            "metadata": {"label": "test"},
+            "config": {},
+            "story_config": {"label": "test", "variables": []},
+            "state_vars": {},
+            "outline": [],
+            "progress": {"current_node": ""},
+        }, cp_title="cp")
+        saves = sm.list_saves()
+        filename = saves[0]["filename"]
+        SaveManager.write_last_played(root, game_id, "test", filename)
+        assert SaveManager.read_last_played(root) is not None
+        sm.delete(filename)
+        assert SaveManager.read_last_played(root) is None
+
+    def test_delete_save_other_untouched(self, root):
+        _, game_id, _ = SaveManager.create_game(root, "test")
+        sm = SaveManager(os.path.join(root, game_id))
+        sm.save({
+            "version": 1,
+            "metadata": {"label": "test"},
+            "config": {},
+            "story_config": {"label": "test", "variables": []},
+            "state_vars": {},
+            "outline": [],
+            "progress": {"current_node": ""},
+        })
+        SaveManager.write_last_played(root, game_id, "test", "_init.json")
+        sm.delete("other.json")
+        assert SaveManager.read_last_played(root) is not None
+
+    # ── save() writes tracking ───────────────────────────────────
+
+    def test_save_updates_tracking(self, root):
+        _, game_id, _ = SaveManager.create_game(root, "test")
+        sm = SaveManager(os.path.join(root, game_id))
+        sm.save({
+            "version": 1,
+            "metadata": {"label": "test"},
+            "config": {},
+            "story_config": {"label": "test", "variables": []},
+            "state_vars": {},
+            "outline": [],
+            "progress": {"current_node": ""},
+        }, cp_title="开始")
+        data = SaveManager.read_last_played(root)
+        assert data is not None
+        assert data["game_id"] == game_id
+        assert data["save_file"].startswith("开始_")

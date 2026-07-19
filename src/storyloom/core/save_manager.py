@@ -37,6 +37,7 @@ class SaveManager:
     ]
 
     ILLEGAL_CHARS_RE = re.compile(r'[/\\:*?"<>|]')
+    LAST_PLAYED_FILE = ".last_played.json"
 
     # ── Instance — operate on a single game directory ──────────────
 
@@ -93,6 +94,14 @@ class SaveManager:
             json.dump(save_data, f, ensure_ascii=False, indent=2)
 
         os.replace(tmp_path, target_path)
+
+        # Update last-played tracking so "Continue" picks up this save.
+        label = save_data.get("metadata", {}).get(
+            "label", save_data.get("story_config", {}).get("label", "")
+        )
+        SaveManager.write_last_played(
+            str(self._dir.parent), self._dir.name, label, filename,
+        )
         return filename
 
     def load(self, filename: str) -> dict:
@@ -170,11 +179,24 @@ class SaveManager:
             pass
 
     def delete(self, filename: str) -> bool:
-        """Delete a save file. Returns True if deleted, False if not found."""
+        """Delete a save file. Returns True if deleted, False if not found.
+        Clears ``.last_played.json`` if it pointed to this save."""
         path = self._dir / filename
         if not path.exists():
             return False
         path.unlink()
+        # Clear tracking file if it pointed to this save.
+        root = str(self._dir.parent)
+        tracked = SaveManager.read_last_played(root)
+        if (
+            tracked
+            and tracked.get("game_id") == self._dir.name
+            and tracked.get("save_file") == filename
+        ):
+            try:
+                (Path(root) / SaveManager.LAST_PLAYED_FILE).unlink()
+            except OSError:
+                pass
         return True
 
     def list_saves(self) -> list[dict]:
@@ -226,6 +248,65 @@ class SaveManager:
     # ── Static — cross-game operations on saves/ root ─────────────
 
     @staticmethod
+    def write_last_played(
+        root: str, game_id: str, game_label: str, save_file: str
+    ) -> None:
+        """Write ``.last_played.json`` in *root*.  Atomic write.
+
+        Called by ``GameSession.load_game()`` and ``SaveManager.save()``
+        so that "Continue" can find the last-played save in O(1).
+
+        Errors are silently ignored — this file is a cache, not game data.
+        """
+        data = {
+            "game_id": game_id,
+            "game_label": game_label,
+            "save_file": save_file,
+            "played_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        root_path = Path(root)
+        try:
+            root_path.mkdir(parents=True, exist_ok=True)
+            tmp_path = root_path / f"{SaveManager.LAST_PLAYED_FILE}.tmp"
+            target_path = root_path / SaveManager.LAST_PLAYED_FILE
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, target_path)
+        except OSError:
+            pass
+
+    @staticmethod
+    def read_last_played(root: str) -> dict | None:
+        """Read and validate ``.last_played.json``.  Returns ``None`` on
+        any failure (missing, corrupt JSON, stale reference).
+
+        Validation:
+        1. File exists and is valid JSON.
+        2. ``game_id`` directory exists under *root*.
+        3. ``save_file`` exists inside that directory.
+
+        Any failure deletes the tracking file so the next write starts
+        fresh.  Callers fall back to ``list_games()`` when ``None``.
+        """
+        root_path = Path(root)
+        path = root_path / SaveManager.LAST_PLAYED_FILE
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            SaveManager._remove_corrupt(path)
+            return None
+        game_id = data.get("game_id", "")
+        save_file = data.get("save_file", "")
+        game_dir = root_path / game_id
+        if not game_dir.is_dir() or not (game_dir / save_file).exists():
+            SaveManager._remove_corrupt(path)
+            return None
+        return data
+
+    @staticmethod
     def create_game(root: str, label: str) -> tuple[str, str, str]:
         """Create a new game directory under *root*.
 
@@ -256,9 +337,7 @@ class SaveManager:
 
         Returns:
             List of ``{game_id, label, language, genre, tier,
-            created_at, save_count, last_played_at}`` dicts.
-            *last_played_at* is the most recent save file mtime (ISO 8601
-            UTC), or ``""`` if no saves exist.
+            created_at, save_count}`` dicts.
         """
         root_path = Path(root)
         if not root_path.exists():
@@ -279,14 +358,6 @@ class SaveManager:
             sc = data.get("story_config", {})
             save_files = list(game_dir.glob("*.json"))
             save_count = len(save_files)
-            last_mtime = (
-                max(p.stat().st_mtime for p in save_files)
-                if save_files else 0.0
-            )
-            last_played_at = (
-                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last_mtime))
-                if last_mtime else ""
-            )
             result.append({
                 "game_id": game_dir.name,
                 "label": meta.get("label", game_dir.name),
@@ -295,7 +366,6 @@ class SaveManager:
                 "tier": sc.get("tier", ""),
                 "created_at": meta.get("created_at", ""),
                 "save_count": save_count,
-                "last_played_at": last_played_at,
             })
         return result
 
@@ -310,9 +380,17 @@ class SaveManager:
 
     @staticmethod
     def delete_game(root: str, game_id: str) -> bool:
-        """Delete an entire game directory. Returns True if deleted."""
+        """Delete an entire game directory. Returns True if deleted.
+        Clears ``.last_played.json`` if it pointed to the deleted game."""
         game_dir = Path(root) / game_id
         if not game_dir.exists():
             return False
         shutil.rmtree(game_dir)
+        # Clear tracking file if it pointed to this game.
+        tracked = SaveManager.read_last_played(root)
+        if tracked and tracked.get("game_id") == game_id:
+            try:
+                (Path(root) / SaveManager.LAST_PLAYED_FILE).unlink()
+            except OSError:
+                pass
         return True

@@ -80,6 +80,7 @@ game_state.rejected_changes = []
 
 ```
 saves/
+  .last_played.json                      # 最后游玩追踪文件（session 元数据，与游戏数据分离）
   my_story_20260717T120000Z/
     _init.json                           # 共创完成时创建
     初次相遇_20260717T120500Z.json        # checkpoint 存档（追加，不覆盖）
@@ -87,6 +88,7 @@ saves/
     ...
 ```
 
+- **`.last_played.json`**：`saves/` 根下的追踪文件。记录最后加载/存档的 `game_id`、`game_label`、`save_file`、`played_at`。原子写入。文件丢失或过期时 fallback 到扫描目录取最新。
 - **`_init.json`**：元存档。共创阶段完成后立即写入。新游戏和 checkpoint 存档共享完全相同的 JSON 结构，由统一的加载路径读取。
 - **Checkpoint 存档**：每次到达 checkpoint 时追加写入新文件，文件名格式 `{cp_title}_{timestamp}.json`（紧凑 UTC 时间戳），永不覆盖。玩家可回溯到任意历史关键节点。
 - **存档内容结构**：所有存档文件（含 `_init.json`）共享同一 JSON 结构——`version`、`metadata`、`config`、`story_config`（含 `variables`）、`state_vars`、`outline`（含节点状态）、`progress`（含 checkpoint 历史/摘要/快照）。
@@ -119,7 +121,7 @@ saves/
 |------|---------|------|
 | `metadata.label` | 共创结束后首次写入 | 来源于 `story_config.label` |
 | `metadata.created_at` | 首次写入时设定 | 之后不变 |
-| `metadata.updated_at` | 每次写入时更新 | |
+| `metadata.updated_at` | 每次 `save()` 写入时更新 | 存档数据最后修改时间。仅反映存档文件内容变化（checkpoint 或 init），不因读档而变 |
 | `outline` | 每次 checkpoint 时更新 | 每个节点含 id / title / goal / status / summary / routes。status 标记推进状态，summary 在 checkpoint 时写入当前节点 |
 | `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |
 
