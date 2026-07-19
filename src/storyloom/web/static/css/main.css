@@ -447,6 +447,8 @@ button.accent:hover, .btn-accent:hover {
     background: transparent;
     color: var(--text-secondary);
     font-size: 1.6rem;
+    line-height: 1;
+    transform: translateY(-2px);
     cursor: pointer;
     border-radius: 6px;
     transition: color 0.2s, background 0.2s;
