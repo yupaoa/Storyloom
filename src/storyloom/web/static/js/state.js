@@ -99,6 +99,7 @@ const T = {
         "Back to Menu": "返回主菜单",
         "Goodbye": "再见",
         "You may close this tab.": "你可以关闭此标签页。",
+        "Something went wrong": "出了点问题",
     },
     "en": {
         /* English is the source language — identity map */
@@ -242,4 +243,30 @@ function _(msgid) {
     const dict = T[GameState.lang];
     if (dict && dict[msgid] !== undefined) return dict[msgid];
     return msgid;
+}
+
+/**
+ * Show a temporary toast notification that auto-dismisses.
+ *
+ * @param {string} message — already-translated string to display
+ * @param {number} duration — ms before auto-dismiss (default 3000)
+ */
+function showToast(message, duration = 3000) {
+    let container = document.getElementById("toast-container");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "toast-container";
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    toast.textContent = message;
+    container.appendChild(toast);
+    /* trigger reflow for enter animation */
+    void toast.offsetWidth;
+    toast.classList.add("toast--visible");
+    setTimeout(() => {
+        toast.classList.remove("toast--visible");
+        toast.addEventListener("transitionend", () => toast.remove());
+    }, duration);
 }

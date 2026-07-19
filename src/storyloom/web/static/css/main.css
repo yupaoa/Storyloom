@@ -764,3 +764,37 @@ button.accent:hover, .btn-accent:hover {
     opacity: 0.35;
     cursor: not-allowed;
 }
+
+/* ── Toast Notifications ─────────────────────────────────────────── */
+
+#toast-container {
+    position: fixed;
+    top: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+
+.toast {
+    background: var(--surface-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.6rem 1.2rem;
+    font-size: 0.9rem;
+    opacity: 0;
+    transform: translateY(-0.5rem);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: auto;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.toast--visible {
+    opacity: 1;
+    transform: translateY(0);
+}
