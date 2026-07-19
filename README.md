@@ -6,7 +6,7 @@
 
 Storyloom turns a large language model into a game master. You and the AI collaboratively build a story world, define characters and game mechanics, then play through a branching narrative where your choices shape the outcome. The engine handles state management, context window stewardship, and real-time streaming — the LLM focuses on telling a great story.
 
-**Status (2026-07-17):** Phase 1 core engine complete. Playable via dev CLI. Web UI planned.
+**Status (2026-07-19):** Phase 1 core engine complete. Playable via dev CLI or web UI.
 
 ## Highlights
 
@@ -34,8 +34,11 @@ cat > config.json << 'EOF'
 }
 EOF
 
-# Play
+# Play (CLI)
 python -m storyloom.dev_cli
+
+# Play (Web UI)
+python -m storyloom.web          # → http://127.0.0.1:8000
 ```
 
 Any OpenAI-compatible API works — DeepSeek, OpenAI, local llama.cpp, etc. Set `api_base_url` and `api_model` to match your provider.
@@ -61,7 +64,6 @@ Storyloom is a **single Python application** — not a client-server system. The
               ▼                ▼
        ┌──────────┐    ┌──────────────┐
        │ Dev CLI  │    │  Web UI      │
-       │ (current)│    │  (planned)   │
        └──────────┘    └──────────────┘
 ```
 
@@ -164,7 +166,7 @@ gl = session.load_game(game_id, "_init.json")
 - [x] Conversation-based context with sliding window + compression
 - [x] Streaming XML parser with line-by-line output
 - [x] UserConfig — centralized config management
-- [ ] Web UI (FastAPI + SSE)
+- [ ] Web UI (FastAPI + SSE) — main menu, settings, credits; gameplay views in progress
 - [ ] Phase 2 — image mode support (static backgrounds + character sprites), co-creation presets + partial real-time generation
 - [ ] Phase 3 — full image mode support, visual quality on par with mainstream visual novel games
 
