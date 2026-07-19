@@ -22,8 +22,6 @@ const CoCreateView = (function () {
     /* ── Internal state ──────────────────────────────────────────── */
     let _container = null;
     let _phase = "loading";   // loading | chatting | generating | done
-    let _sendRetry = false;   // true → call retry-send instead of send
-    let _genRetry = false;    // true → call retry-generate instead of generate
 
     /* ── DOM helpers ─────────────────────────────────────────────── */
 
@@ -42,8 +40,6 @@ const CoCreateView = (function () {
     async function render(container) {
         _container = container;
         _phase = "loading";
-        _sendRetry = false;
-        _genRetry = false;
 
         _container.innerHTML = `
             <div class="co-create-view">
@@ -118,25 +114,16 @@ const CoCreateView = (function () {
         const text = input.value.trim();
         if (!text) return;
 
-        /* ── First send (not a retry): show user message + call send ── */
-        if (!_sendRetry) {
-            _addMessage("user", text);
-        }
+        _addMessage("user", text);
         input.value = "";
         _autoResize(input);
         _setInputEnabled(false);
         _showTyping();
 
         try {
-            const endpoint = _sendRetry
-                ? "/api/co-create/retry-send"
-                : "/api/co-create/send";
-            const body = _sendRetry ? {} : { text };
-            const data = await API.post(endpoint, body);
-
+            const data = await API.post("/api/co-create/send", { text });
             _hideTyping();
             _addMessage("assistant", data.reply);
-            _sendRetry = false;
             _setInputEnabled(true);
             _updatePlaceholder();
             _focusInput();
@@ -144,10 +131,7 @@ const CoCreateView = (function () {
             _hideTyping();
             // 502 = CoCreateError → retriable (mirrors dev_cli)
             if (err.status === 502) {
-                _addErrorWithRetry(err.message, () => {
-                    _sendRetry = true;
-                    _handleSend();
-                });
+                _addErrorWithRetry(err.message, _retrySend);
             } else {
                 _showFatalError(err.message);
             }
@@ -156,8 +140,31 @@ const CoCreateView = (function () {
         }
     }
 
-    /* ── /go — generate & start game ─────────────────────────────── */
+    /** Self-contained retry — calls retry-send directly, no input dependency. */
+    async function _retrySend() {
+        _setInputEnabled(false);
+        _showTyping();
+        try {
+            const data = await API.post("/api/co-create/retry-send");
+            _hideTyping();
+            _addMessage("assistant", data.reply);
+            _setInputEnabled(true);
+            _focusInput();
+        } catch (err) {
+            _hideTyping();
+            if (err.status === 502) {
+                _addErrorWithRetry(err.message, _retrySend);
+            } else {
+                _showFatalError(err.message);
+            }
+            _setInputEnabled(true);
+            _focusInput();
+        }
+    }
 
+    /* ── Start / generate ────────────────────────────────────────── */
+
+    /** User clicked Start button — confirm, then generate. */
     async function _handleGo() {
         if (_phase !== "chatting") return;
 
@@ -167,6 +174,11 @@ const CoCreateView = (function () {
         );
         if (!confirmed) return;
 
+        _doGenerate(/* retry */ false);
+    }
+
+    /** Core generate → game/new pipeline.  retry=true skips confirm. */
+    async function _doGenerate(retry) {
         _phase = "generating";
         _setInputEnabled(false);
         _addMessage("info", _("Generating story setup..."));
@@ -174,18 +186,14 @@ const CoCreateView = (function () {
 
         // Step 1: Generate (or retry-generate)
         try {
-            const endpoint = _genRetry
+            const endpoint = retry
                 ? "/api/co-create/retry-generate"
                 : "/api/co-create/generate";
             await API.post(endpoint);
-            _genRetry = false;
         } catch (err) {
             // 502 = CoCreateError → retriable (mirrors dev_cli)
             if (err.status === 502) {
-                _addErrorWithRetry(err.message, () => {
-                    _genRetry = true;
-                    _handleGo();
-                });
+                _addErrorWithRetry(err.message, () => _doGenerate(/* retry */ true));
             } else {
                 _showFatalError(err.message);
             }
