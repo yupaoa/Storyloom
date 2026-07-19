@@ -142,6 +142,7 @@ const CoCreateView = (function () {
             GameState.storyConfig = genData.story_config;
 
             // Step 3: Navigate to the game preview (transition) page
+            _phase = "done";
             Router.navigate("game-preview");
         } catch (err) {
             if (err.status === 502) {
@@ -166,6 +167,7 @@ const CoCreateView = (function () {
             GameState.storyConfig = genData.story_config;
 
             // Step 3: Navigate to the game preview (transition) page
+            _phase = "done";
             Router.navigate("game-preview");
         } catch (err) {
             if (err.status === 502) {

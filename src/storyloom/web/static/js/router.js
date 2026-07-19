@@ -83,6 +83,10 @@
         if (typeof SSEClient !== "undefined" && SSEClient.close) {
             SSEClient.close();
         }
+        // Best-effort abort any lingering co-create session —
+        // catches browser-back and manual hash changes that bypass
+        // the per-view back buttons.
+        API.post("/api/co-create/abort").catch(() => {});
 
         app.innerHTML = `
             <div class="menu-view">
