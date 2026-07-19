@@ -81,7 +81,6 @@ class GameState:
 
     VALID_NUMBER_OPS = {"+", "-", "="}
     VALID_STRING_OPS = {"="}
-    VALID_LIST_OPS = {"+", "-"}
     NUMBER_MIN = 0
     NUMBER_MAX = 100
 
@@ -108,8 +107,6 @@ class GameState:
                 self._state_vars[name] = int(initial)
             elif var_type == "string":
                 self._state_vars[name] = initial
-            elif var_type == "list":
-                self._state_vars[name] = list(initial) if initial else []
             else:
                 raise ValueError(f"Unknown variable type: {var_type}")
 
@@ -161,9 +158,8 @@ class GameState:
         1. Verify variable exists.
         2. Verify operation is valid for the variable type.
         3. For numbers: try int conversion, verify range [0, 100].
-        4. For lists: verify the value is not empty.
-        5. Evaluate condition if present.
-        6. Apply the change.
+        4. Evaluate condition if present.
+        5. Apply the change.
 
         Args:
             set_op: The SetOperation from parsed XML.
@@ -198,11 +194,6 @@ class GameState:
                 accepted=False,
                 reason=f"Invalid string operation: {set_op.op} for {var_name}",
             )
-        if var_type == "list" and set_op.op not in self.VALID_LIST_OPS:
-            return SetResult(
-                accepted=False,
-                reason=f"Invalid list operation: {set_op.op} for {var_name}",
-            )
 
         # Step 3: Parse/try value
         if var_type == "number":
@@ -212,13 +203,6 @@ class GameState:
                 return SetResult(
                     accepted=False,
                     reason=f"Cannot parse '{set_op.val}' as integer for {var_name}",
-                )
-        elif var_type == "list":
-            val = set_op.val
-            if not val:
-                return SetResult(
-                    accepted=False,
-                    reason=f"Empty value for list operation on {var_name}",
                 )
         else:
             val = set_op.val
@@ -237,8 +221,6 @@ class GameState:
             return self._apply_number_op(var_name, set_op.op, val)
         elif var_type == "string":
             return self._apply_string_op(var_name, val)
-        elif var_type == "list":
-            return self._apply_list_op(var_name, set_op.op, val)
 
         return SetResult(accepted=False, reason="Unknown variable type")
 
@@ -275,32 +257,6 @@ class GameState:
     def _apply_string_op(self, var_name: str, val: str) -> SetResult:
         """Apply a string assignment."""
         self._state_vars[var_name] = val
-        return SetResult(accepted=True)
-
-    def _apply_list_op(self, var_name: str, op: str, val: str) -> SetResult:
-        """Apply a list add/remove operation.
-
-        Per block-spec.md §5, silent no-ops (duplicate add /
-        non-existent remove) are recorded so the LLM gets feedback
-        in the next round.
-        """
-        current: list = self._state_vars[var_name]
-
-        if op == "+":
-            if val in current:
-                return SetResult(
-                    accepted=True,
-                    reason=f"{var_name}: '{val}' already in list, add skipped",
-                )
-            current.append(val)
-        elif op == "-":
-            if val not in current:
-                return SetResult(
-                    accepted=True,
-                    reason=f"{var_name}: '{val}' not in list, remove skipped",
-                )
-            current.remove(val)
-
         return SetResult(accepted=True)
 
     def evaluate_condition(
@@ -423,7 +379,6 @@ class GameLoop:
     def __init__(
         self,
         story_config: dict,
-        outline_text: str,
         api_client: ApiClient,
         game_state: GameState | None = None,
         current_node: str | None = None,
@@ -436,7 +391,6 @@ class GameLoop:
 
         Args:
             story_config: Story configuration dict.
-            outline_text: Formatted outline text.
             api_client: API client for LLM calls.
             game_state: Optional GameState (created from story_config if omitted).
             current_node: Starting node ID (optional).
@@ -445,13 +399,25 @@ class GameLoop:
                        round completes. Each receives a RoundRecord.
             observer: Deprecated. Single observer (use observers=list instead).
             outline_nodes: Structured outline from co-creation (optional).
+                Each node: {id, title, goal, routes, status?, summary?}.
 
         Observer failures are silently ignored (must not break the game loop).
         """
         self.story_config = story_config
-        self.outline_text = outline_text
-        self._outline_nodes = self._normalize_outline_nodes(outline_nodes or [])
         self.api_client = api_client
+
+        # Normalize outline nodes and bake in initial status + empty summary
+        self._outline_nodes = self._normalize_outline_nodes(outline_nodes or [])
+        if self._outline_nodes:
+            for node in self._outline_nodes:
+                node.setdefault("status", "pending")
+                node.setdefault("summary", "")
+            # Set active node — first node unless current_node points elsewhere
+            active_id = current_node or self._outline_nodes[0]["id"]
+            for node in self._outline_nodes:
+                if node.get("id") == active_id:
+                    node["status"] = "active"
+                    break
 
         # Internal modules
         self._prompter = PromptBuilder()
@@ -465,21 +431,23 @@ class GameLoop:
 
         # State
         self.game_state = game_state or GameState(story_config)
-        self.current_node = current_node
-        self.goal = goal
-        self._node_goals: dict[str, str] = self._parse_outline_goals(outline_text)
-        self._completed_nodes: list[str] = []
+        self.current_node = current_node or (
+            self._outline_nodes[0]["id"] if self._outline_nodes else None
+        )
+        self.goal = goal or (
+            self._outline_nodes[0].get("goal", "")
+            if self._outline_nodes else None
+        )
+        self._node_goals: dict[str, str] = self._build_node_goals()
         self.last_parsed: ParsedOutput | None = None
         self._last_bridge_text: str = ""
         self._rejected_changes: list[str] = []
         self._format_error: str | None = None
         self._game_started: bool = False
-        self._current_branch: str = "main"  # active branch from player's last choice
+        self._current_branch: str = "main"
 
         # Checkpoint and save accumulators
         self._temperature = getattr(api_client, "temperature", None)
-        self._checkpoint_summaries: list[str] = []
-        self._checkpoint_history: list[dict] = []
         self._checkpoint_snapshots: dict[str, dict] = {}
         self.ending_flag: bool = False
         self._save_manager = None
@@ -491,6 +459,7 @@ class GameLoop:
         self._adv_thread: threading.Thread | None = None
         self._adv_result: str | None = None
         self._adv_error: str | None = None
+        self._adv_retry_prompt: str | None = None
 
         # Pending API state — every round's Phase 5 launches the *next*
         # round's API call in a daemon thread and stores the result queue
@@ -516,27 +485,53 @@ class GameLoop:
         return self._context_mgr.round_count
 
     @property
-    def checkpoint_history(self) -> list[dict]:
-        """Return checkpoint history for UI progress display.
+    def outline_text(self) -> str:
+        """Formatted outline derived from _outline_nodes in real time.
 
-        Returns a copy. Each entry: {node, title, summary, round}.
+        Renders node ID, status, title, summary (if completed), and
+        branch routes. Goal is omitted — it appears separately in
+        the prompt's Active Node section.
         """
-        return list(self._checkpoint_history)
+        node_ids = {n.get("id") or n.get("node_id", "") for n in self._outline_nodes}
+        lines = []
+        for node in self._outline_nodes:
+            nid = node.get("id") or node.get("node_id", "")
+            status = node.get("status", "pending")
+            lines.append(f"{nid} [{status}] — {node.get('title', '')}")
+            if status == "completed" and node.get("summary"):
+                lines.append(f"  ↳ {node['summary']}")
+            routes = node.get("routes", [])
+            if routes:
+                for j, route in enumerate(routes):
+                    is_last = (j == len(routes) - 1)
+                    prefix = "  └→" if is_last else "  ├→"
+                    target = route.get("target", "") if isinstance(route, dict) else route
+                    if target in node_ids:
+                        lines.append(f"{prefix} {target} [pending]")
+        return "\n".join(lines)
+
+    @property
+    def checkpoint_history(self) -> list[dict]:
+        """Checkpoint history derived from _outline_nodes (backward compat).
+
+        Each entry: {node, title, goal, summary}.
+        """
+        return [
+            {
+                "node": n.get("id") or n.get("node_id", ""),
+                "title": n.get("title", ""),
+                "goal": n.get("goal", ""),
+                "summary": n.get("summary", ""),
+            }
+            for n in self._outline_nodes
+            if n.get("status") == "completed" and n.get("summary")
+        ]
 
     @property
     def outline_nodes(self) -> list[dict]:
-        """Current outline with computed node statuses.
+        """Current outline with status from node data (backward compat).
 
-        Returns a copy. Each entry: {id, title, goal, status, branches}.
-        Format matches the save file outline structure (data-model.md §3.1).
-
-        Status is computed dynamically: 'active' | 'completed' | 'pending'.
-        branches: list of target node ID strings (conditions excluded).
-
-        Normalizes the two internal formats:
-          - Fresh: {id, routes: [{condition, target}]}
-          - Loaded: {node_id, branches: [str]}
-        into a single consistent public shape.
+        Returns a copy for external consumers (UI, tests).
         """
         result = []
         for node in self._outline_nodes:
@@ -545,11 +540,8 @@ class GameLoop:
                 "id": nid,
                 "title": node.get("title", ""),
                 "goal": node.get("goal", ""),
-                "status": (
-                    "active" if nid == self.current_node
-                    else "completed" if nid in self._completed_nodes
-                    else "pending"
-                ),
+                "status": node.get("status", "pending"),
+                "summary": node.get("summary", ""),
                 "branches": [
                     r.get("target", r) if isinstance(r, dict) else r
                     for r in node.get("routes", node.get("branches", []))
@@ -559,8 +551,12 @@ class GameLoop:
 
     @property
     def completed_nodes(self) -> list[str]:
-        """List of completed node IDs."""
-        return list(self._completed_nodes)
+        """List of completed node IDs (derived from node status)."""
+        return [
+            n.get("id") or n.get("node_id", "")
+            for n in self._outline_nodes
+            if n.get("status") == "completed"
+        ]
 
     @property
     def current_branch(self) -> str:
@@ -595,16 +591,8 @@ class GameLoop:
             outline_text=self.outline_text,
             current_node=self.current_node or "",
             goal=self.goal or "",
+            state_vars=self.game_state.state_vars,
         )
-
-        # If resuming from a save, append bridge_text per
-        # data-model.md §3.5.
-        if self._last_bridge_text:
-            r1_prompt += (
-                "\n\n---\n"
-                "Continue from here:\n"
-                + self._last_bridge_text
-            )
 
         messages = [{"role": "user", "content": r1_prompt}]
         self._launch_api(messages, r1_prompt)
@@ -635,13 +623,12 @@ class GameLoop:
             ``{"type": "state", "vars": dict, "changes": [dict]}``
             ``{"type": "error", "message": str}``
             ``{"type": "ending", ...}``
-            ``{"type": "done", "round": int, "node": str, "state": dict}``
+            ``{"type": "done", "node": str, "state": dict}``
         """
         # ── Guard: ending already triggered ─────────────────────────
         if self.ending_flag:
             yield {
                 "type": "done",
-                "round": self._context_mgr.round_count,
                 "node": "end",
                 "state": self.game_state.state_vars,
             }
@@ -759,10 +746,30 @@ class GameLoop:
 
                     elif etype == EventType.CHOICE_END:
                         if event.choice_data:
+                            # ── Evaluate option conditions (engine
+                            #    responsibility per exec-flow.md §4.6).
+                            #    Uses the same evaluator as <set> and
+                            #    <route>.  choice_dict is {} because no
+                            #    choice has been made yet this round.
+                            cd = event.choice_data
+                            branches = cd.get("branches", [])
+                            conditions = cd.get("conditions", {})
+                            enabled = [
+                                self.game_state.evaluate_condition(
+                                    conditions.get(b), {}
+                                )
+                                for b in branches
+                            ]
+                            # Fallback: all disabled → all enabled
+                            # (prevents game lockup).
+                            if enabled and not any(enabled):
+                                enabled = [True] * len(enabled)
+                            cd["enabled"] = enabled
+
                             # ── Pause: yield options, await UI input ─
                             key = yield {
                                 "type": "options",
-                                "choices": [event.choice_data],
+                                "choices": [cd],
                             }
                             # ── Resume: apply player's choice ───────
                             if key is not None:
@@ -786,22 +793,34 @@ class GameLoop:
                         # Self-closing <checkpoint/>: _in_checkpoint
                         # stays False → process immediately.
                         if not sp._in_checkpoint:
-                            self._handle_checkpoint(
+                            saved_file = self._handle_checkpoint(
                                 sp.routes,
                                 pending_cp["node"] or "",
                                 pending_cp["summary"] or "",
                                 choice_dict,
                             )
+                            if saved_file:
+                                yield {
+                                    "type": "save",
+                                    "filename": saved_file,
+                                    "checkpoint_node": pending_cp["node"],
+                                }
                             pending_cp["node"] = None
 
                     elif etype == EventType.CHECKPOINT_END:
                         if pending_cp["node"]:
-                            self._handle_checkpoint(
+                            saved_file = self._handle_checkpoint(
                                 sp.routes,
                                 pending_cp["node"],
                                 pending_cp["summary"] or "",
                                 choice_dict,
                             )
+                            if saved_file:
+                                yield {
+                                    "type": "save",
+                                    "filename": saved_file,
+                                    "checkpoint_node": pending_cp["node"],
+                                }
                             pending_cp["node"] = None
 
         # ── Flush any remaining partial line ────────────────────────
@@ -901,7 +920,6 @@ class GameLoop:
 
             yield {
                 "type": "done",
-                "round": self._context_mgr.round_count,
                 "node": "end",
                 "state": self.game_state.state_vars,
             }
@@ -910,18 +928,15 @@ class GameLoop:
         # ── Build next-round prompt → launch background API ─────────
         # Per exec-flow.md §4.7: assemble prompt at </story> so the
         # next round's TTFT overlaps with UI displaying bridge_text.
-        compressed_summaries = (
-            self._context_mgr.get_compressed_summaries() or None
-        )
         bridge_text = self._context_mgr.get_last_bridge_text()
 
         rn_context = self._prompter.build_round_n(
+            outline_text=self.outline_text,
             current_node=self.current_node or "",
             goal=self.goal or "",
-            completed_nodes=self._completed_nodes,
             state_vars=self.game_state.state_vars,
+            variables=self.story_config.get("variables", []),
             bridge_text=bridge_text,
-            compressed_summaries=compressed_summaries,
             rejected_changes=(
                 self._rejected_changes if self._rejected_changes else None
             ),
@@ -956,7 +971,6 @@ class GameLoop:
 
         yield {
             "type": "done",
-            "round": self._context_mgr.round_count,
             "node": self.current_node,
             "state": self.game_state.state_vars,
         }
@@ -1014,18 +1028,16 @@ class GameLoop:
 
     def to_save_dict(self) -> dict:
         """Produce complete save dict per data-model.md §3.1 format."""
-        # Convert outline nodes to save format
+        # Convert outline nodes to save format (status + summary baked in)
         outline_for_save = []
         for node in self._outline_nodes:
             nid = node.get("id", "")
-            status = "active" if nid == self.current_node else (
-                "completed" if nid in self._completed_nodes else "pending"
-            )
             outline_for_save.append({
                 "node_id": nid,
                 "title": node.get("title", ""),
                 "goal": node.get("goal", ""),
-                "status": status,
+                "status": node.get("status", "pending"),
+                "summary": node.get("summary", ""),
                 "branches": [
                     {"condition": r.get("condition"), "target": r.get("target", "")}
                     for r in node.get("routes", [])
@@ -1039,19 +1051,12 @@ class GameLoop:
         if self._created_at is None:
             self._created_at = now
 
-        # ContextManager.round_count tracks *completed* rounds.  Auto-save
-        # fires at checkpoint time (Phase 3), before add_round() increments
-        # the counter in Phase 5.  +1 accounts for the current in-progress
-        # round so that the save records the correct round number.
-        current_round = self._context_mgr.round_count + 1
-
         return {
             "version": SAVE_VERSION,
             "metadata": {
                 "label": label,
                 "created_at": self._created_at,
                 "updated_at": now,
-                "round_count": current_round,
             },
             "config": {
                 "temperature": getattr(self, "_temperature", None),
@@ -1061,12 +1066,8 @@ class GameLoop:
             "outline": outline_for_save,
             "progress": {
                 "current_node": self.current_node or "",
-                "round_count": current_round,
-                "checkpoint_history": list(self._checkpoint_history),
-                "checkpoint_summaries": list(self._checkpoint_summaries),
                 "checkpoint_snapshots": copy.deepcopy(self._checkpoint_snapshots),
             },
-            "bridge_text": self._last_bridge_text,
         }
 
     @classmethod
@@ -1075,51 +1076,26 @@ class GameLoop:
         data: dict,
         api_client: "ApiClient",
     ) -> "GameLoop":
-        """Restore GameLoop from save data."""
+        """Restore GameLoop from save data.
+
+        Outline nodes carry status and summary directly — no separate
+        checkpoint_history or outline_text reconstruction needed.
+        Supports old save format where nodes may lack summary field.
+        """
         story_config = data["story_config"]
         state_vars_data = {"state_vars": data["state_vars"]}
-
-        # Reconstruct outline text from nodes, including branch
-        # connection lines (├→ / └→) that the original
-        # CoCreateParser.format_outline() produces.
         outline_nodes = data["outline"]
-        outline_lines = []
-        # Build status lookup for branch targets
-        node_status: dict[str, str] = {}
+
+        # Ensure every node has status + summary (old saves may lack them)
         for node in outline_nodes:
-            nid = node.get("node_id", node.get("id", ""))
-            node_status[nid] = node.get("status", "pending")
+            node.setdefault("status", "pending")
+            node.setdefault("summary", "")
 
-        for node in outline_nodes:
-            nid = node.get("node_id", node.get("id", ""))
-            status = node.get("status", "pending")
-            title = node.get("title", "")
-            goal = node.get("goal", "")
-            outline_lines.append(f"{nid} [{status}] — {title}：{goal}")
-
-            # Branch connection lines
-            branches = node.get("branches", [])
-            if branches:
-                for j, branch in enumerate(branches):
-                    is_last = (j == len(branches) - 1)
-                    prefix = "  └→" if is_last else "  ├→"
-                    if isinstance(branch, dict):
-                        target = branch.get("target", "")
-                    else:
-                        target = branch  # old format: plain target string
-                    target_status = node_status.get(target, "pending")
-                    outline_lines.append(
-                        f"{prefix} {target} [{target_status}]"
-                    )
-        outline_text = "\n".join(outline_lines)
-
-        # Restore GameState
         game_state = GameState.from_dict(state_vars_data, story_config)
-
-        progress = data["progress"]
+        progress = data.get("progress", {})
         current_node = progress.get("current_node", "")
 
-        # Parse goal from outline
+        # Find goal for current node
         goal = ""
         for node in outline_nodes:
             nid = node.get("node_id", node.get("id", ""))
@@ -1129,7 +1105,6 @@ class GameLoop:
 
         gl = cls(
             story_config=story_config,
-            outline_text=outline_text,
             api_client=api_client,
             game_state=game_state,
             current_node=current_node or None,
@@ -1137,19 +1112,7 @@ class GameLoop:
             outline_nodes=outline_nodes,
         )
 
-        # Restore bridge text
-        gl._last_bridge_text = data.get("bridge_text", "")
-
-        # Restore checkpoint accumulations
-        gl._checkpoint_summaries = list(progress.get("checkpoint_summaries", []))
-        gl._checkpoint_history = list(progress.get("checkpoint_history", []))
         gl._checkpoint_snapshots = dict(progress.get("checkpoint_snapshots", {}))
-
-        # Restore completed nodes from outline status
-        for node in outline_nodes:
-            nid = node.get("node_id", node.get("id", ""))
-            if node.get("status") == "completed" and nid not in gl._completed_nodes:
-                gl._completed_nodes.append(nid)
 
         # Restore temperature
         config = data.get("config", {})
@@ -1261,32 +1224,19 @@ class GameLoop:
                 "id": nid,
                 "title": node.get("title", ""),
                 "goal": node.get("goal", ""),
+                "status": node.get("status", "pending"),
+                "summary": node.get("summary", ""),
                 "routes": routes,
             })
         return normalized
 
-    @staticmethod
-    def _parse_outline_goals(outline_text: str) -> dict[str, str]:
-        """Extract {node_id: goal_description} from outline text."""
-        goals: dict[str, str] = {}
-        for line in outline_text.strip().split("\n"):
-            stripped = line.strip()
-            if not stripped or stripped[0] in ("├", "└", "→"):
-                continue
-            # Format: ch1_bar [active] — title：goal
-            node_id = stripped.split()[0] if stripped else ""
-            if not node_id:
-                continue
-            for sep in ("—", "："):
-                if sep in stripped:
-                    goal_text = stripped.split(sep, 1)[1].strip()
-                    # Remove status markers and route hints
-                    goal_text = goal_text.split("（")[0].strip()
-                    goal_text = goal_text.replace("[active]", "").replace("[pending]", "").replace("[completed]", "").strip()
-                    if goal_text:
-                        goals[node_id] = goal_text
-                    break
-        return goals
+    def _build_node_goals(self) -> dict[str, str]:
+        """Build {node_id: goal_description} from _outline_nodes."""
+        return {
+            n["id"]: n.get("goal", "")
+            for n in self._outline_nodes
+            if n.get("goal")
+        }
 
     # ── In-Round Handlers (stream_round helpers) ───────────────────
 
@@ -1338,7 +1288,7 @@ class GameLoop:
         cp_node: str,
         cp_summary: str,
         choice_dict: dict[str, int],
-    ) -> None:
+    ) -> str | None:
         """Process a checkpoint during streaming parse (Phase 3).
 
         Called at ``</checkpoint>`` (or self-closing ``<checkpoint/>``).
@@ -1351,6 +1301,9 @@ class GameLoop:
             cp_node: Node ID from the ``<checkpoint>`` element.
             cp_summary: Summary text from the element.
             choice_dict: Per-round player choice mapping.
+
+        Returns:
+            Auto-save filename if a save occurred, ``None`` otherwise.
         """
         # Validate node exists in outline
         if self._outline_nodes:
@@ -1361,7 +1314,7 @@ class GameLoop:
                 else:
                     self._format_error = ""
                 self._format_error += f"Unknown checkpoint node: {cp_node}"
-                return
+                return None
 
         # ── Ending detection ─────────────────────────────────────
         # Consult the outline definition for this node.  An outline
@@ -1383,48 +1336,51 @@ class GameLoop:
 
         # ── Mark old node completed ──────────────────────────────
         old_node = self.current_node
-        if old_node and old_node not in self._completed_nodes:
-            self._completed_nodes.append(old_node)
+        if old_node:
+            self._set_node_status(old_node, "completed")
 
-        # ── Advance to target node ───────────────────────────────
+        # ── Mark checkpoint node completed, advance to target ────
+        # Track whether the checkpoint was successfully processed —
+        # only accumulate + auto-save when the node actually advanced.
+        node_advanced = False
+
         if self.ending_flag:
-            if cp_node not in self._completed_nodes:
-                self._completed_nodes.append(cp_node)
+            self._set_node_status(cp_node, "completed")
             self.current_node = cp_node
+            node_advanced = True
         elif routes:
-            # LLM output contains <route> children — evaluate.
             target = self._evaluate_routes(choice_dict, routes=routes)
             if target:
-                if cp_node not in self._completed_nodes:
-                    self._completed_nodes.append(cp_node)
+                self._set_node_status(cp_node, "completed")
+                self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
+                node_advanced = True
         elif outline_routes:
-            # LLM output has no <route> children (self-closing
-            # checkpoint), but the outline defines routes for this
-            # node — single-path advancement.  Convert outline
-            # dict routes to RouteTarget for _evaluate_routes.
-            if cp_node not in self._completed_nodes:
-                self._completed_nodes.append(cp_node)
             rt_routes = [
                 RouteTarget(condition=r.get("condition"), target=r.get("target", ""))
                 for r in outline_routes
             ]
             target = self._evaluate_routes(choice_dict, routes=rt_routes)
             if target:
+                self._set_node_status(cp_node, "completed")
+                self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
+                node_advanced = True
         else:
-            # No outline loaded — fall back to sequential advance.
-            if cp_node not in self._completed_nodes:
-                self._completed_nodes.append(cp_node)
             target = self._next_outline_node()
             if target:
+                self._set_node_status(cp_node, "completed")
+                self._set_node_status(target, "active")
                 self.current_node = target
                 self.goal = self._node_goals.get(target, self.goal or "")
+                node_advanced = True
 
         # ── Accumulate checkpoint data + auto-save ───────────────
-        self._accumulate_checkpoint(cp_node, cp_summary)
+        if node_advanced:
+            return self._accumulate_checkpoint(cp_node, cp_summary)
+        return None
 
     # ── Routes ────────────────────────────────────────────────────
 
@@ -1478,6 +1434,14 @@ class GameLoop:
         # Fallback 2: no routes → next node in outline sequence.
         return self._next_outline_node()
 
+    def _set_node_status(self, node_id: str, status: str) -> None:
+        """Set status on a node in _outline_nodes."""
+        for node in self._outline_nodes:
+            nid = node.get("id") or node.get("node_id", "")
+            if nid == node_id:
+                node["status"] = status
+                return
+
     def _next_outline_node(self) -> str | None:
         """Return the next node in outline sequence after current_node.
 
@@ -1491,32 +1455,31 @@ class GameLoop:
                 return self._outline_nodes[i + 1].get("id")
         return None
 
-    def _accumulate_checkpoint(self, cp_node: str, cp_summary: str) -> None:
+    def _accumulate_checkpoint(self, cp_node: str, cp_summary: str) -> str | None:
         """Accumulate checkpoint data and trigger auto-save.
 
         Called by ``_handle_checkpoint`` during streaming parse
         (Phase 3) for every checkpoint — ending or non-ending.
 
-        Side effects on: ``_checkpoint_summaries``,
-        ``_checkpoint_history``, ``_checkpoint_snapshots``,
-        ``_save_manager``.
-        """
-        if cp_summary:
-            self._checkpoint_summaries.append(cp_summary)
+        Side effects on: ``_outline_nodes`` (summary field),
+        ``_checkpoint_snapshots``, ``_save_manager``.
 
+        Returns:
+            The saved filename if auto-save succeeded, ``None`` otherwise
+            (no save manager configured, or save failed).
+        """
         cp_title = cp_node
-        if self._outline_nodes:
+        if cp_summary:
+            for node in self._outline_nodes:
+                if node.get("id") == cp_node:
+                    node["summary"] = cp_summary
+                    cp_title = node.get("title", cp_node)
+                    break
+        else:
             for node in self._outline_nodes:
                 if node.get("id") == cp_node:
                     cp_title = node.get("title", cp_node)
                     break
-
-        self._checkpoint_history.append({
-            "node": cp_node,
-            "title": cp_title,
-            "summary": cp_summary,
-            "round": self._context_mgr.round_count + 1,
-        })
 
         self._checkpoint_snapshots[cp_node] = copy.deepcopy(
             self.game_state.state_vars
@@ -1524,9 +1487,10 @@ class GameLoop:
 
         if self._save_manager is not None:
             try:
-                self._save_manager.save(self.to_save_dict())
+                return self._save_manager.save(self.to_save_dict(), cp_title)
             except Exception:
                 pass
+        return None
 
     # ── Adventure Log ─────────────────────────────────────────────
 
@@ -1535,15 +1499,20 @@ class GameLoop:
 
         Uses non-streaming chat with structured prompt per prompt-design.md §5.2.
 
+        Saves the prompt to ``_adv_retry_prompt`` and clears ``_adv_error``
+        so ``retry_adventure_log()`` can re-launch with the same prompt
+        after a failure.
+
         Returns:
             Adventure log markdown text.
         """
         prompt = PromptBuilder.build_adventure_log_prompt(
             story_config=self.story_config,
             state_vars=self.game_state.state_vars,
-            checkpoint_summaries=self._checkpoint_summaries,
-            checkpoint_history=self._checkpoint_history,
+            outline_text=self.outline_text,
         )
+        self._adv_retry_prompt = prompt
+        self._adv_error = None
         # Per exec-flow.md §5.4: independent LLM call — not part of the
         # narrative loop.  Send only the adventure-log prompt, not the
         # full conversation context (~50K tokens).
@@ -1566,6 +1535,37 @@ class GameLoop:
             return None
         self._adv_thread.join(timeout=timeout)
         return self._adv_result
+
+    def retry_adventure_log(self) -> None:
+        """Re-launch the adventure log daemon thread with the same prompt.
+
+        Call after ``adventure_log_error`` is set and the user has
+        chosen to retry.  Must be followed by another
+        ``get_adventure_log()`` call to retrieve the new result.
+
+        Raises:
+            RuntimeError: If there is no prompt to retry with (i.e.
+                          ``run_adventure_log()`` was never called, or
+                          the last call succeeded without saving a prompt).
+        """
+        if self._adv_retry_prompt is None:
+            raise RuntimeError(
+                "No failed adventure log to retry — run_adventure_log() "
+                "was never called or succeeded without error."
+            )
+        self._adv_error = None
+        self._adv_result = None
+
+        def _fetch() -> None:
+            try:
+                self._adv_result = self.api_client.chat(
+                    [{"role": "user", "content": self._adv_retry_prompt}]
+                )
+            except Exception as exc:
+                self._adv_error = str(exc)
+
+        self._adv_thread = threading.Thread(target=_fetch, daemon=True)
+        self._adv_thread.start()
 
     @property
     def adventure_log_error(self) -> str | None:

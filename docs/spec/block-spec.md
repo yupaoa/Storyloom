@@ -155,7 +155,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 |------|------|------|
 | 玩家选择 | 选中的 `<opt>` 的 `branch` 属性 | 选 `key="1"` 且 `branch="direct"` → `current_branch = "direct"` |
 
-**`choice_dict` 修改来源**：`<choice>` 的 `id` 属性声明 choice 名，玩家选择后 `choice_dict[id] = 选项字母序号`。
+**`choice_dict` 修改来源**：`<choice>` 的 `id` 属性声明 choice 名，玩家选择后 `choice_dict[id] = 选项数字键序号`。
 
 > **条件变量解析优先级**（适用于所有条件求值场景）：`choice_dict > state_vars`。
 
@@ -234,7 +234,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 | 属性 | 必填 | 说明 |
 |------|------|------|
 | `var` | 是 | 变量名（中文） |
-| `op` | 是 | 操作符：`+`（number 加减 / list 追加），`-`（number 减 / list 移除），`=`（赋值） |
+| `op` | 是 | 操作符：`+`（number 加减），`-`（number 减），`=`（赋值） |
 | `val` | 是 | 操作值 |
 | `if` | 否 | 条件表达式。满足才执行。格式 `变量名 运算符 值`，用 `and`/`or` 组合（最多一个） |
 
@@ -244,7 +244,6 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 |------|---------|------|
 | number | `+N`、`-N`、`=N` | `op="-" val="10"`（减10） |
 | string | `=值` | `op="=" val="叛军"` |
-| list | `+元素`、`-元素` | `op="+" val="神秘芯片"` |
 
 > **条件语法规则**：
 > - 变量名引用顺序：`choice_dict`（当前轮选项结果）> `state_vars`
@@ -325,8 +324,6 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 |------|---------|
 | 变量名不存在于 story_config.variables | 静默忽略，记入 rejected_changes |
 | number 操作结果越界 | clamp 到 `[0, 100]`，静默处理 |
-| list `+` 元素已存在 | 静默忽略 |
-| list `-` 元素不存在 | 静默忽略 |
 | 操作符与类型不匹配 | 拒绝，记入 rejected_changes |
 
 **伪代码**：
@@ -356,4 +353,4 @@ for each <set> element:
         result = clamp(result, 0, 100)
 ```
 
-> **静默处理**：list 增删重复/不存在的元素、number 越界取上下限——不中断流程，不展示给用户，但记入 rejected_changes，在下一轮 Prompt 中告知 LLM。
+> **静默处理**：number 越界取上下限——不中断流程，不展示给用户，但记入 rejected_changes，在下一轮 Prompt 中告知 LLM。

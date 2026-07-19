@@ -48,6 +48,9 @@ _STATIC_DIR = _WEB_DIR / "static"
 app = FastAPI(title="Storyloom Web", version="0.1.0")
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+# Single shared instance — all endpoints reuse the same ApiClient + SaveManager
+_game_session = GameSession()
+
 
 # ── Health ─────────────────────────────────────────────────────────
 
@@ -73,8 +76,7 @@ async def index():
 @app.post("/api/co-create/start")
 async def co_create_start():
     """Start a new co-creation session."""
-    session = GameSession()
-    flow = session.new_co_create()
+    flow = _game_session.new_co_create()
     event = flow.start()
 
     session_id = uuid.uuid4().hex[:12]
@@ -199,16 +201,14 @@ async def game_new(req: Request):
         outline_nodes=outline_nodes,
     )
 
-    session = GameSession()
-    gl = session.start_game(result)
+    gl, engine_game_id = _game_session.start_game(result)
     gl.start_game()  # ⚠️ MUST call before stream_round()
 
-    game_id = uuid.uuid4().hex[:12]
-    state = GameSessionState(game_loop=gl, session=session)
-    store_game(game_id, state)
+    state = GameSessionState(game_loop=gl, session=_game_session)
+    store_game(engine_game_id, state)
 
     return {
-        "game_id": game_id,
+        "game_id": engine_game_id,
         "status": "started",
         "round_count": gl.round_count,
         "current_node": gl.current_node,
@@ -403,68 +403,48 @@ async def game_adventure_log(game_id: str):
     return {"text": adv, "pending": False}
 
 
-@app.post("/api/game/{game_id}/save")
-async def game_save(game_id: str):
-    """Save the current game."""
-    try:
-        state = get_game(game_id)
-    except KeyError:
-        raise HTTPException(404, "Game not found")
-
-    save_dict = state.game_loop.to_save_dict()
-    state.session._save_manager.save(save_dict)
-
-    return {
-        "status": "saved",
-        "label": save_dict["metadata"]["label"],
-        "round_count": save_dict["metadata"]["round_count"],
-    }
-
-
 # ═══════════════════════════════════════════════════════════════════
 # Save CRUD API
 # ═══════════════════════════════════════════════════════════════════
 
 @app.get("/api/saves")
-async def list_saves():
-    """List all save files."""
-    session = GameSession()
-    return session.list_saves()
+async def list_games():
+    """List all games under saves/."""
+    return _game_session.list_games()
 
 
-@app.post("/api/saves/{label}/load")
-async def load_game(label: str):
-    """Load a saved game.  Returns a new game_id."""
-    session = GameSession()
+@app.post("/api/saves/{game_id}/load")
+async def load_game(game_id: str, req: Request):
+    """Load a saved game.  Returns the game_id for SSE streaming."""
+    body = await req.json()
+    filename = body.get("filename", "_init.json")
+
     try:
-        gl = session.load_game(label)
+        gl = _game_session.load_game(game_id, filename)
     except Exception as e:
         raise HTTPException(400, f"Load failed: {e}")
 
     gl.start_game()  # ⚠️ MUST call before stream_round()
 
-    game_id = uuid.uuid4().hex[:12]
-    state = GameSessionState(game_loop=gl, session=session)
+    state = GameSessionState(game_loop=gl, session=_game_session)
     store_game(game_id, state)
 
     return {
         "game_id": game_id,
         "status": "loaded",
-        "label": label,
         "round_count": gl.round_count,
         "current_node": gl.current_node,
         "state_vars": gl.game_state.state_vars,
     }
 
 
-@app.delete("/api/saves/{label}")
-async def delete_save(label: str):
-    """Delete a save file."""
-    session = GameSession()
-    ok = session.delete_save(label)
+@app.delete("/api/saves/{game_id}")
+async def delete_game(game_id: str):
+    """Delete an entire game directory."""
+    ok = _game_session.delete_game(game_id)
     if not ok:
-        raise HTTPException(404, f"Save '{label}' not found")
-    return {"status": "deleted", "label": label}
+        raise HTTPException(404, f"Game '{game_id}' not found")
+    return {"status": "deleted", "game_id": game_id}
 
 
 # ── Entry point ────────────────────────────────────────────────────

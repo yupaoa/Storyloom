@@ -84,7 +84,7 @@ const Display = {
             customRow.className = "choice-custom";
             const customInput = document.createElement("input");
             customInput.type = "text";
-            customInput.placeholder = "或输入自定义操作... (Enter 确认)";
+            customInput.placeholder = t("custom_input_placeholder");
             customInput.addEventListener("keydown", (e) => {
                 if (e.key === "Enter" && customInput.value.trim()) {
                     // Send as first option (engine needs a numeric key)
@@ -221,10 +221,10 @@ const Display = {
      * with true (confirmed) or false (cancelled).
      *
      * @param {string} message — prompt text shown to the user
-     * @param {string} confirmLabel — text on the confirm button (default: "是")
-     * @param {string} cancelLabel — text on the cancel button (default: "否")
+     * @param {string} confirmLabel — text on the confirm button
+     * @param {string} cancelLabel — text on the cancel button
      */
-    showConfirm(message, confirmLabel = "是", cancelLabel = "否") {
+    showConfirm(message, confirmLabel, cancelLabel) {
         return new Promise((resolve) => {
             const overlay = document.createElement("div");
             overlay.className = "modal-overlay";

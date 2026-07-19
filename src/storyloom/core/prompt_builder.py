@@ -9,7 +9,7 @@ from storyloom.config import (
 )
 
 
-ROUND1_TEMPLATE = """You are the narrative engine for a text adventure game. Generate the next interactive story segment based on the outline and current state.
+ROUND1_PREFIX = """You are the narrative engine for a text adventure game. Generate the next interactive story segment based on the outline and current state.
 
 # Output Format
 
@@ -95,7 +95,7 @@ Below is a format example (content is a short fictional fantasy story in English
 018|   <opt key="2" branch="decline">Not interested</opt>
 019| </choice>
 020| <set var="reputation" op="+" val="5" if="approach==1"/>
-021| <checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
+021| <checkpoint node="ch2_meeting" summary="A mysterious stranger offered Kael a job at the inn. He accepted and set out for the old pass.">
 022|   <route if="approach==1" target="ch3_job"/>
 023|   <route if="approach==2" target="ch3_alone"/>
 024| </checkpoint>
@@ -138,6 +138,7 @@ Below is a format example (content is a short fictional fantasy story in English
 - Condition syntax: same as Choice above.
 
 **Checkpoint**
+- Trigger the checkpoint as soon as the active node's goal is achieved — don't delay.
 - Copy the `node` attribute verbatim from the outline — exact character-for-character match.
   Outline has `ch2_confrontation` → write `node="ch2_confrontation"`.
 - Copy `<route>` `target` attributes verbatim from outline node IDs.
@@ -172,26 +173,33 @@ Rough guide: ~lines 001-{REF_PRE} before bridge + ~{REF_SINGLE} after (single pa
 **Conflict:** {conflict}
 **Characters:**
 {characters}
+"""
 
-**Outline:**
+ROUND_TEMPLATE = """**Outline:**
 {outline_text}
 
 **Active Node:** {active_node} — {node_goal}
 
 **Current State:**
-{state_vars_text}
-
+{state_vars_text}{error_feedback}
 Output {MIN_LINES}-{MAX_LINES} total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
-The active node indicates the current direction; decide whether to complete it this round.
-
-(This is the start of the whole story.)"""
+The active node shows the story's heading. Advance toward it at a natural pace — whether you reach it this round is your call.
+{bridge_text}"""
 
 
 class PromptBuilder:
     """Build prompt content for conversation-based architecture.
 
-    Round 1: Full format spec + story context + format example.
-    Round N: Lightweight context (progress, state, bridge_text, errors).
+    Round 1 user message = ROUND1_PREFIX + ROUND_TEMPLATE.
+    Round N user message = ROUND_TEMPLATE only.
+
+    ROUND1_PREFIX: role, format spec, example, core rules, story
+    background. Sent once, never compressed.
+
+    ROUND_TEMPLATE: outline progress, current node, state snapshot,
+    error feedback, output constraints, bridge text. Shared by every
+    round — Round 1 has empty bridge_text and no error feedback,
+    later rounds fill them in.
     """
 
     @staticmethod
@@ -200,14 +208,23 @@ class PromptBuilder:
         outline_text: str,
         current_node: str,
         goal: str,
+        state_vars: dict[str, int | str],
     ) -> str:
         """Build Round 1 prompt (permanent anchor).
+
+        Concatenates ROUND1_PREFIX (format + rules + story context)
+        with ROUND_TEMPLATE (outline + state + constraints).
+
+        Round 1 fills bridge_text with a start-of-story placeholder
+        instead of actual post-bridge text.  error_feedback is empty
+        (no previous round to reject changes from).
 
         Args:
             story_config: Story configuration dict.
             outline_text: Formatted outline tree text.
             current_node: Current outline node ID.
             goal: Current node narrative goal.
+            state_vars: Current state variable values (new game or loaded).
 
         Returns:
             Full Round 1 prompt string.
@@ -217,8 +234,8 @@ class PromptBuilder:
         narr_limit = limits["narration"]
         dial_limit = limits["dialogue"]
 
-        state_vars_text = PromptBuilder._format_state_vars(
-            story_config.get("variables", [])
+        state_vars_text = PromptBuilder._format_current_state(
+            state_vars, story_config.get("variables", [])
         )
 
         # Build protagonist line
@@ -242,7 +259,7 @@ class PromptBuilder:
         ref_single = LINES_PER_ROUND_MAX - ref_pre
         ref_half = ref_single // 2
 
-        return ROUND1_TEMPLATE.format(
+        prefix = ROUND1_PREFIX.format(
             MIN_LINES=LINES_PER_ROUND_MIN,
             MAX_LINES=LINES_PER_ROUND_MAX,
             BRIDGE_PCT=bridge_pct,
@@ -258,91 +275,96 @@ class PromptBuilder:
             tone=story_config.get("tone", ""),
             conflict=story_config.get("conflict", ""),
             characters=story_config.get("characters", ""),
+        )
+
+        round_part = ROUND_TEMPLATE.format(
             outline_text=outline_text,
-            state_vars_text=state_vars_text,
             active_node=current_node or "(start)",
             node_goal=goal or "Begin the story from the active node.",
+            state_vars_text=state_vars_text,
+            error_feedback="",
+            MIN_LINES=LINES_PER_ROUND_MIN,
+            MAX_LINES=LINES_PER_ROUND_MAX,
+            bridge_text="(Story begins)",
         )
+
+        return prefix + "\n" + round_part
 
     @staticmethod
     def build_round_n(
+        outline_text: str,
         current_node: str,
         goal: str,
-        completed_nodes: list[str],
         state_vars: dict[str, int | str],
+        variables: list[dict],
         bridge_text: str,
-        compressed_summaries: list[str] | None = None,
         rejected_changes: list[str] | None = None,
         format_error: str | None = None,
     ) -> str:
         """Build Round N context message (N >= 2).
 
+        Uses the shared ROUND_TEMPLATE — same structure as the tail
+        portion of Round 1, with bridge_text and error feedback
+        filled in from the previous round.
+
         Args:
+            outline_text: Full outline tree with status markers.
             current_node: Current outline node ID.
             goal: Current node narrative goal.
-            completed_nodes: List of completed node IDs.
             state_vars: Current state variable values.
+            variables: Variable definitions for type lookup.
             bridge_text: Plain text from last round's bridge tail.
-            compressed_summaries: Checkpoint summaries from compressed rounds.
             rejected_changes: Rejected state change descriptions.
             format_error: Format error hint from last round.
 
         Returns:
             Round N context string for user message.
         """
-        parts = []
+        state_vars_text = PromptBuilder._format_current_state(
+            state_vars, variables
+        )
 
-        # Progress
-        parts.append(f"Current node: {current_node} — {goal}")
-        if completed_nodes:
-            parts.append(f"Completed nodes: {', '.join(completed_nodes)}")
-
-        # Compressed summaries
-        if compressed_summaries:
-            parts.append("\nCompleted chapter summaries:")
-            for s in compressed_summaries:
-                parts.append(f"- {s}")
-
-        # State snapshot
-        parts.append("\nCurrent state:")
-        for name, value in state_vars.items():
-            parts.append(f"  {name}: {value}")
-
-        # Rejected changes feedback
+        error_parts = []
         if rejected_changes:
-            parts.append("\nRejected state changes from last round:")
+            error_parts.append("\nRejected state changes from last round:")
             for rc in rejected_changes:
-                parts.append(f"  - {rc}")
+                error_parts.append(f"  - {rc}")
 
-        # Format error correction
         if format_error:
-            parts.append(
-                f"\nFormat reminder: last round had format issues — {format_error}. "
-                f"Please strictly follow the XML format specification."
+            error_parts.append(
+                f"\nFormat reminder: last round had format issues — "
+                f"{format_error}. Please strictly follow the XML format "
+                f"specification."
             )
 
-        # Bridge text
-        parts.append(f"\nLast round ending:\n{bridge_text}")
+        error_feedback = "\n".join(error_parts) + ("\n" if error_parts else "")
 
-        return "\n".join(parts)
+        return ROUND_TEMPLATE.format(
+            outline_text=outline_text,
+            active_node=current_node,
+            node_goal=goal,
+            state_vars_text=state_vars_text,
+            error_feedback=error_feedback,
+            MIN_LINES=LINES_PER_ROUND_MIN,
+            MAX_LINES=LINES_PER_ROUND_MAX,
+            bridge_text=bridge_text or "",
+        )
 
     @staticmethod
     def build_adventure_log_prompt(
         story_config: dict,
         state_vars: dict,
-        checkpoint_summaries: list[str],
-        checkpoint_history: list[dict],
+        outline_text: str,
     ) -> str:
-        """Build adventure log prompt per prompt-design.md section 5.2.
+        """Build adventure log prompt per prompt-design.md §5.
 
-        This is an independent LLM call -- not part of the narrative loop.
+        This is an independent LLM call — not part of the narrative loop.
 
         Args:
             story_config: Story configuration dict.
             state_vars: Current state variables.
-            checkpoint_summaries: Accumulated checkpoint summary strings.
-            checkpoint_history: Structured checkpoint records
-                                [{node, title, summary, round}].
+            outline_text: Formatted outline tree text with status
+                markers and ↳ summary lines under completed nodes.
 
         Returns:
             Prompt string for adventure log generation.
@@ -350,18 +372,37 @@ class PromptBuilder:
         story_label = story_config.get("label", "Untitled Adventure")
         language = story_config.get("language", "zh-CN")
 
-        # Build chapter sections from history
-        chapter_sections = []
-        for i, cp in enumerate(checkpoint_history, 1):
-            title = cp.get("title", f"Chapter {i}")
-            summary = cp.get("summary", "")
-            chapter_sections.append(
-                f"### Chapter {i}: {title}\n"
-                f"(Expand based on this summary: {summary})"
-            )
-        chapters_text = "\n\n".join(chapter_sections) if chapter_sections else "(No chapter records)"
+        # ── Story Background ──────────────────────────────────────
+        genre = story_config.get("genre", "")
+        setting = story_config.get("setting", "")
+        name = story_config.get("protagonist_name", "")
+        identity = story_config.get("protagonist_identity", "")
+        traits = story_config.get("protagonist_traits", "")
+        tone = story_config.get("tone", "")
+        conflict = story_config.get("conflict", "")
+        characters = story_config.get("characters", "")
 
-        # Format state vars
+        bg_parts = []
+        if genre:
+            bg_parts.append(f"Genre: {genre}")
+        if setting:
+            bg_parts.append(f"Setting: {setting}")
+        if name:
+            protag = name
+            if identity:
+                protag += f" — {identity}"
+            if traits:
+                protag += f" ({traits})"
+            bg_parts.append(f"Protagonist: {protag}")
+        if tone:
+            bg_parts.append(f"Tone: {tone}")
+        if conflict:
+            bg_parts.append(f"Conflict: {conflict}")
+        if characters:
+            bg_parts.append(f"Characters:\n{characters}")
+        background_text = "\n".join(bg_parts) if bg_parts else "(No background)"
+
+        # ── State vars ─────────────────────────────────────────────
         state_lines = []
         for name, value in state_vars.items():
             state_lines.append(f"- {name}: {value}")
@@ -371,16 +412,27 @@ class PromptBuilder:
 
 Use Markdown format. Write in the story's language ({language}).
 
+## Story Background
+{background_text}
+
+## Story Outline
+{outline_text}
+
+(The outline shows the story structure with status markers. [completed] nodes include
+a ↳ summary of what actually happened — use these as the basis for each chapter recap.
+[active] is the final node. [pending] nodes were skipped due to branching.)
+
 ## Adventure Recap: {story_label}
 
-{chapters_text}
+Write a chapter-by-chapter recap based on the outline and summaries above.
 
 ## Ending
-(Write a warm, satisfying conclusion based on the chapter summaries above.)
+(Write a warm, satisfying conclusion. Reference specific events from the summaries
+above — do not fabricate.)
 
 ## Final State
 {state_text}
-(For each variable, write a brief one-sentence reflection, e.g. "Health: 25 — battered and bruised, but still standing.")
+(For each variable, write a brief one-sentence reflection.)
 
 Requirements:
 - Address the player directly ("You chose...", "In the end you...")
@@ -390,14 +442,20 @@ Requirements:
         return prompt
 
     @staticmethod
-    def _format_state_vars(variables: list[dict]) -> str:
-        """Format variable definitions for display in Round 1 prompt."""
+    def _format_current_state(
+        state_vars: dict[str, int | str],
+        variables: list[dict],
+    ) -> str:
+        """Format current state values for prompt display.
+
+        Uses *variables* only for type lookup (number → ``/ 100`` suffix).
+        Values come from *state_vars* — always the actual runtime values.
+        """
+        var_types = {v["name"]: v.get("type", "") for v in variables}
         lines = []
-        for v in variables:
-            name = v["name"]
-            initial = v["initial"]
-            if v["type"] == "number":
-                lines.append(f"{name}: {initial} / 100")
+        for name, value in state_vars.items():
+            if var_types.get(name) == "number":
+                lines.append(f"{name}: {value} / 100")
             else:
-                lines.append(f"{name}: {initial}")
+                lines.append(f"{name}: {value}")
         return "\n".join(lines)

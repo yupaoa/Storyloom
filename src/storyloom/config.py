@@ -27,22 +27,21 @@ MIN_TAIL_LINES = 25           # minimum lines per branch after bridge
 MAX_CONTEXT_TOKENS = 50_000   # target ceiling
 
 # ── Co-creation ──────────────────────────────────────────────────
-MAX_RETRIES = 2
 
 # Variable caps (per 2026-07-05 variable-cap spec)
 VARIABLE_CAP = 3            # max total variables
 VARIABLE_NUMERIC_CAP = 2    # max numeric (number) variables
-VARIABLE_LABEL_CAP = 1      # max label (string/list) variables
+VARIABLE_LABEL_CAP = 1      # max string variables
 
 # Story config label constraints
-STORY_LABEL_MIN_CHARS = 5
+STORY_LABEL_MIN_CHARS = 1
 STORY_LABEL_MAX_CHARS = 15
 
-# Outline node ranges by tier
+# Outline node ranges by tier (prompt reference only — not engine-enforced)
 OUTLINE_NODE_RANGES = {
-    "short":  (3, 5),
-    "medium": (5, 8),
-    "long":   (8, 15),
+    "short":  (5, 10),
+    "medium": (10, 20),
+    "long":   (20, 30),
 }
 
 # ── API defaults ──────────────────────────────────────────────

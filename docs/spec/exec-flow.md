@@ -42,20 +42,18 @@
 | **状态变量 (state_vars)** | 游戏内可变数据，由共创阶段 variables 定义初始化 | [data-model.md](./data-model.md) |
 | **GameState** | 程序内存中维护的完整游戏状态 | [data-model.md](./data-model.md) |
 | **rejected_changes** | 被校验拒绝的 state 变更条目 | [block-spec.md](./block-spec.md) |
-| **checkpoint_summaries** | 累积的 checkpoint 情节摘要列表 | §4.3 |
 | **游戏存档** | `saves/` 下的独立 `.json` 文件 | [data-model.md](./data-model.md) |
 
 ### 1.2 程序生命周期总览
 
 ```
-程序启动（加载 .env）
+启动（验证凭证）
   │
   ▼
-主菜单
-  ├── [1] 新游戏 → 共创 → init GameState → 叙事循环(N轮) → 结局 → 返回主菜单
-  ├── [2] 继续   → 选档 → restore GameState → 叙事循环(N轮) → 结局 → 返回主菜单
-  ├── [3] 管理   → 查看/删除存档 → 返回主菜单
-  └── [4] 退出   → exit(0)
+新游戏 → 共创 → init GameState → 叙事循环(N轮) → 结局 → 返回
+  │
+  ▼
+继续   → 选档 → restore GameState → 叙事循环(N轮) → 结局 → 返回
 ```
 
 ### 1.3 核心原则
@@ -68,104 +66,36 @@
 | **本地数据为唯一真相源** | 一切游戏数据以本地 GameState 为准。LLM 只能*建议*变更 |
 | **bridge 之后无底层数据变更** | bridge 之后不得出现 state / checkpoint / options 区块 |
 | **交互内容前置于 bridge** | 交互和变更区块集中在段前部，bridge 之后为纯叙事缓冲 |
-| **超时截断由 LLM 收束** | 程序超时截断时，通知 LLM 快速收束已有内容 |
+| **API 错误或响应超时由用户决策** | API 失败或流式响应超时视为严重错误，通知 UI 并由用户选择重试或返回 |
 | **用户体验无缝衔接** | bridge 标记触发提前请求，用户体感不感知段边界 |
 | **程序拥有最终控制权** | API 失败、解析错误、内容异常——告知用户并等待决策 |
 | **条件变量解析优先级** | `if` 条件中的变量名优先匹配 choice_dict，其次匹配 state_vars |
 
 ---
 
-## §2 启动与主菜单
+## §2 程序生命周期
 
-### 2.1 启动检查流程
+### 2.1 启动
 
-```
-程序启动
-    │
-    ▼
-┌─────────────────────┐
-│ 1. 加载 .env 文件    │
-└────────┬────────────┘
-         ▼
-    STORYLOOM_API_KEY 存在？
-    ├── 否 → 打印 "未配置 API Key，请检查 .env 文件" → exit(1)
-    └── 是
-         ▼
-┌─────────────────────┐
-│ 2. 进入主菜单        │
-└─────────────────────┘
-```
+程序启动时验证 API 凭证可用（缺失则终止）。不验证凭证有效性（首次 API 调用时暴露），不预先创建存档目录（首次写入时创建）。
 
-**启动时不做的事**：不验证 API Key 有效性（首次调用时暴露）、不创建 `saves/` 目录（首次存档时创建）。
-
-### 2.2 主菜单逻辑
+### 2.2 生命周期阶段
 
 ```
-扫描 saves/*.json → 收集存档摘要列表
-    │
-    ▼
-┌──────────────────────────────────────────────────┐
-│              Storyloom - 文字冒险                  │
-│                                                  │
-│   [1] 新游戏    [2] 继续    [3] 存档管理    [4] 退出  │
-│                                                  │
-│   当前共 {N} 个存档                                │
-└──────────────────────────────────────────────────┘
-    │
-    ▼
-用户按键
-├── 1 → 新游戏
-├── 2 → 继续
-├── 3 → 存档管理
-└── 4 → 退出
+启动（验证凭证）
+  │
+  ▼
+新游戏 → 共创（§3）→ 初始化 GameState → 叙事循环（§4）→ 结局（§5）→ 结束
+  │
+  ▼
+继续   → 选择存档 → 恢复 GameState → 叙事循环（§4）→ 结局（§5）→ 结束
 ```
 
-#### 路径 [1]：新游戏
+- **新游戏**：进入共创阶段，产出 `CoCreationResult` → 初始化 `GameState` → 进入叙事循环。每次新游戏创建独立的存档目录。
+- **继续**：从存档列表中选择游戏和存档文件 → 校验完整性 → 恢复 `GameState` → 进入叙事循环。损坏的存档自动删除并跳过。
+- **存档管理**：浏览/删除存档文件——由 UI 层实现，引擎通过 `GameSession` 提供 `list_games()`、`delete_game()`、`delete_save()` 等 API。
 
-```
-用户按 1 → 直接进入共创阶段（§3）
-（不检查覆盖，每个新游戏生成独立存档文件）
-```
-
-#### 路径 [2]：继续
-
-```
-用户按 2
-    │
-    ▼
-saves/*.json 存在？
-├── 否 → 打印 "没有存档，请开始新游戏" → 返回主菜单
-└── 是
-         ▼
-    逐个读取存档，校验完整性（见 data-model.md 判定标准）
-    ├── 损坏文件 → 跳过，记录警告
-    └── 有效文件 → 收集 { filename, label, round_count, updated_at }
-         ▼
-    有效存档数 = 0？
-    ├── 是 → 打印 "没有有效存档" → 返回主菜单
-    └── 否
-         ▼
-    展示存档列表 → 用户选择 → 加载 → 恢复 GameState → 进入叙事循环（§4）
-```
-
-> **优化**：仅 1 个有效存档时可跳过列表直接加载。实现时自行决定。
-
-#### 路径 [3]：存档管理
-
-```
-用户按 3
-    │
-    ▼
-无有效存档 → 打印 "没有可管理的存档" → 返回主菜单
-有存档 → 展示列表 → 用户选择 → 展示详情 → [1] 删除 [2] 返回列表 [0] 返回
-删除需二次确认："确定删除存档'{label}'？此操作不可恢复。(y/n)"
-```
-
-#### 路径 [4]：退出
-
-```
-用户按 4 → exit(0)
-```
+> UI 层（CLI / Web）负责菜单渲染、用户输入解析和交互流程。引擎通过 `GameSession` 和 `GameLoop` 的公开 API 提供能力，不管理菜单逻辑。
 
 ---
 
@@ -253,26 +183,27 @@ UI 调用 `CoCreateFlow.generate()` → 引擎注入 `CO_CREATE_GENERATION_PROMP
 
 4. 逐 block 解析 + 校验：
    story_config：
-   ├── 解析成功？→ 否：重试（附带缺失字段提示）
+   ├── 解析成功？→ 否：抛 CoCreateError（附带缺失字段提示）
    └── 是 → 继续
 
    variables：
    ├── 解析成功？
-   │   └── 否 → 重试（附带格式提示）
+   │   └── 否 → 抛 CoCreateError（附带格式提示）
    ├── 校验：变量名唯一、类型合法、初始值合规、≤3 个变量
    └── 通过 → 继续
 
    outline：
    ├── 解析成功？
-   │   └── 否 → 重试
+   │   └── 否 → 抛 CoCreateError
    ├── 静态校验：route 目标存在、变量引用存在、最后节点 routes 为空
    └── 通过 → 继续
 
 5. 全部通过 → 返回 CoCreationResult
-   任一重试耗尽 → 抛出 CoCreationAborted（UI 向用户展示错误）
+   API 失败 / 解析失败 → 抛 CoCreateError（含 phase 和错误描述）
+   UI 捕获后向用户展示错误并询问重试 / 退出
 ```
 
-> 三个 section 的格式规范、字段定义和完整示例见 [`prompt-design.md` §3](./prompt-design.md)。引擎内自动重试最多 `MAX_RETRIES` 次后再向用户报告失败。
+> 三个 section 的格式规范、字段定义和完整示例见 [`prompt-design.md` §3](./prompt-design.md)。API 失败或解析失败通过 `CoCreateError` 异常向 UI 报告，由用户决定重试或退出。
 
 ### 3.5 Step 4: 初始化 GameState
 
@@ -327,11 +258,9 @@ Round N 开始
 │ 5. </story> — 解析完成，打包 + 发送（§4.7）             │
 │   • get_result() → ParsedOutput                       │
 │   • add_round() → ContextManager                      │
-│   • 应用无条件 set（block-spec.md §5）                   │
-│   • 节点推进与存档（data-model.md §2）                   │
+│   • 合并格式错误（解析器采集 + checkpoint 校验）         │
 │   • 自动推进 + 非结局：组装下轮 Prompt → 后台 API 调用    │
 │   • 结局：组装冒险日志 Prompt → 后台 LLM 调用（§5）      │
-│   • 触发 STORY_END 事件                                │
 └──────────────────────┬───────────────────────────────┘
                        ▼
 ┌──────────────────────────────────────────────────────┐
@@ -353,46 +282,26 @@ Round N 开始
 
 | 等级 | 范畴 | 处理策略 | UI 行为 | 示例 |
 |------|------|---------|---------|------|
-| **严重** | 影响本轮可用性的致命故障 | 停止当前处理，通知 UI，**由用户决策** | 展示错误信息，等待用户选择（重试 / 继续 / 返回） | API 网络错误、响应完全无法解析、TTFT 超时且内容不足 |
+| **严重** | 影响本轮可用性的致命故障 | 停止当前处理，通知 UI，**由用户决策** | 展示错误信息，等待用户选择（重试 / 返回） | API 网络错误、响应完全无法解析、流式超时 |
 | **普通** | 不影响本轮展示的可恢复问题 | **程序内部处理**，不在当前轮打断用户体验 | 不展示给用户，仅在下一轮 Prompt 中反馈 | 格式错误（post-bridge 违规元素）、状态变更被拒绝、行号偏差 |
 
 **严重错误的用户决策路径**：
 
 ```
-API 错误 / 解析失败
+API 错误 / 解析失败 / 流式超时
     → 通知 UI 具体错误信息
     → 用户选择：
-      ├── 重试：重新发送相同 Prompt
-      ├── 用当前内容继续：取已接收的部分内容展示（仅流式截断场景）
+      ├── 重试：重新发送相同 Prompt（引擎保存原始消息，UI 调用 retry()）
       └── 返回主菜单：放弃本轮，回到主菜单
 ```
 
-> **关键原则**：API 调用失败**不自动重试**——始终由用户决策。程序只提供信息和选项，不做自动恢复。这与 data-model.md §B 约定 #6 一致。
+> **关键原则**：API 调用失败**不自动重试**——始终由用户决策。程序只提供信息和选项，不做自动恢复。这与 data-model.md §B 约定 #5 一致。
 >
 > **实现**：严重错误通过 generator 的 `yield {"type": "error", "message": str}` 传递给 UI 层。普通错误在引擎内部处理——格式错误记入 `_format_error`，状态拒绝记入 `_rejected_changes`——均在下一轮 `build_round_n()` 时注入 Prompt。
 
 ### 4.2 每轮 Prompt 的组成
 
-采用**对话式消息数组架构**，由 `ContextManager` 管理。每轮发送给 LLM 的 requests 格式为 messages 数组：
-
-```
-messages = [
-  {role: "user",      content: Round1_完整Prompt},      // 永久锚定，不压缩不删除
-  {role: "assistant", content: Round1_XML输出},          // 永久锚定，作为格式 few-shot 范例
-  // ── 以下为滑出窗口的轮次 → 压缩为摘要 ──
-  {role: "user",      content: "已发生的主要事件：..."},
-  {role: "assistant", content: "（以上为已发生事件的摘要。当前故事继续推进。）"},
-  // ── 窗口内轮次 → 完整保留 ──
-  {role: "user",      content: Round_N-3_上下文},
-  {role: "assistant", content: Round_N-3_XML输出},
-  {role: "user",      content: Round_N-2_上下文},
-  {role: "assistant", content: Round_N-2_XML输出},
-  {role: "user",      content: Round_N-1_上下文},
-  {role: "assistant", content: Round_N-1_XML输出},
-  // ── 当前轮 ──
-  {role: "user",      content: Round_N_上下文},           // 由 PromptBuilder.build_round_n() 构建
-]
-```
+采用**对话式消息数组架构**，由 `ContextManager` 管理。详见 [`prompt-design.md`](./prompt-design.md) §4.1。
 
 #### Round 1（永久锚定）
 
@@ -406,19 +315,7 @@ messages = [
 
 #### Round N 上下文（N ≥ 2）
 
-由 `PromptBuilder.build_round_n()` 构建，作为自然消息追加在对话末尾。不含角色定义、格式规范、故事上下文：
-
-| 内容 | 来源 |
-|------|------|
-| 当前节点 ID 与目标 | `outline` 进度 |
-| 已完成节点列表 | `progress` |
-| 压缩摘要（滑出窗口轮次） | `ContextManager` 的压缩列表 |
-| 当前状态快照 | `state_vars` |
-| 被拒变更反馈 | `rejected_changes`（仅当非空） |
-| 格式错误纠正 | `format_error`（仅当存在） |
-| 上一轮结尾 | `bridge_text`（从上一轮 assistant XML 输出中提取） |
-
-> 完整的 Prompt 模板与示例见 [`prompt-design.md`](./prompt-design.md) §4.2-4.4。
+由 `PromptBuilder.build_round_n()` 构建，作为自然消息追加在对话末尾。不含角色定义、格式规范、故事上下文。消息内容详见 [`prompt-design.md`](./prompt-design.md) §4.3。
 
 ### 4.3 API 调用与响应接收
 
@@ -432,22 +329,21 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 > **关键**：TTFT 主要受 Prompt 大小（输入 tokens 数）影响，而非输出长度。精简 System Prompt 可显著缩短 TTFT。
 >
-> **实现**：bridge pre-fetch 在 `GameLoop._launch_prefetch()` 中实现 — daemon 线程通过 `queue.Queue` 流式传输 API chunks。仅对无选项轮次触发（choice 轮次无法预计算下一轮的 messages 数组）。详见 `game_loop.py`。
+> **实现**：bridge pre-fetch 在 `GameLoop._launch_api()` 中实现 — daemon 线程通过 `queue.Queue` 流式传输 API chunks。所有轮次统一使用此方法（Round 1 也不例外）。详见 `game_loop.py`。
 
 **流程**：
 
 ```
-1. prompt_builder.assemble() → system_prompt, user_message
-2. api_client.stream_chat(system_prompt, user_message)
+1. context_mgr.get_messages() → messages 数组
+2. prompt_builder.build_round_n(...) → 追加当前轮 user 消息
+3. api_client.stream_chat_iter(messages)
    │
    ├── 正常完成 → 完整 LLM 响应文本
    │
    ├── 流式停顿超时（STREAM_STALL_TIMEOUT_SEC）
-   │   └── 程序截断流 → 取已接收内容
-   │       → 在最后一个完整段落处截断
-   │       → 截取内容 ≥ MIN_NARRATION_CHARS？
-   │           ├── 是 → 继续解析
-   │           └── 否 → 提示用户：重试 / 用当前内容继续 / 返回主菜单
+   │   └── 视为严重错误 → 保存原始消息用于重试
+   │       → yield error 事件通知 UI
+   │       → 用户选择：重试 / 返回主菜单
    │
    └── API 错误（网络 / rate limit / server error）
        └── 告知用户具体错误信息
@@ -513,10 +409,12 @@ UI 展示流（用户阅读 / 自动推进）
 
 **展示模式**：支持自动和手动两种，用户可随时切换。
 
-| 模式 | 行为 | 切换键 |
-|------|------|--------|
-| **自动**（默认） | 每段之间延迟 AUTO_ADVANCE_DELAY_MS 后自动继续 | 按 `M` 切换至手动 |
-| **手动** | 每段展示后等待用户按任意键继续 | 按 `M` 切换回自动 |
+| 模式 | 行为 |
+|------|------|
+| **自动** | 每段之间以固定间隔自动继续 |
+| **手动** | 每段展示后等待用户确认继续 |
+
+> 默认模式由 UI 层决定，用户可随时切换。
 
 **展示流程**：
 
@@ -524,8 +422,8 @@ UI 展示流（用户阅读 / 自动推进）
 1. 从展示队列取匹配 current_branch 的 narrative 正文
 2. 按数字编号分割为展示段（见 block-spec.md §2）
 3. 剥离编号前缀，逐段展示纯文本：
-   ├── 自动模式：打印段文本 → delay(AUTO_ADVANCE_DELAY_MS) → 继续下一段
-   └── 手动模式：打印段文本 → 等待按键 → 继续下一段
+   ├── 自动模式：逐段展示，固定间隔后自动继续
+   └── 手动模式：逐段展示，等待用户确认后继续
 
 4. narrative 展示完毕后：
    ├── 有 <choice>？→ 展示选项面板（§4.6）
@@ -553,28 +451,17 @@ UI 展示流（用户阅读 / 自动推进）
 
 **选项处理**：
 
-```
-展示选项面板 → 等待键盘输入（1-5 或 Q 或 M）
-  ├── 数字键 → 对应选项
-  │   ├── enabled → choice_dict[choice] = N，若选项有 -> branch 则更新 current_branch
-  │   └── disabled → 短暂提示"条件不满足"，重新等待输入
-  ├── Q → 主动结束流程（见 §5.3）
-  └── M → 切换自动/手动展示模式
-```
+UI 展示选项面板后，接收用户输入。引擎期望的输入范围：
 
-**置灰逻辑**：
+| 输入类型 | 说明 | 引擎行为 |
+|---------|------|---------|
+| 选项选择 | 用户选择某个选项（数字键、点击等） | `choice_dict[id] = key`；若选项有 `branch` 则更新 `current_branch` |
+| 主动结束 | 用户请求提前结束游戏 | 触发结局流程（见 §5.3） |
+| 模式切换 | 用户在自动/手动展示模式间切换 | 纯 UI 层行为，引擎不感知 |
 
-```
-对每个选项：
-  有 opt 的 if 属性？
-  ├── 否 → enabled
-  └── 是 → 用本地 state_vars 评估条件
-      ├── 满足 → enabled
-      └── 不满足 → disabled（dim 颜色 + 显示当前值）
+选项可附带条件（`if` 属性）。条件评估由引擎统一完成——与 `<set>`、`<route>` 共用同一套评估规则——结果在 `options` 事件中直接告诉 UI 每个选项是否可选以及不满足条件时的展示文案。UI 只负责根据引擎的结论渲染——不可选的项目置灰，用户误触时本地提示重新选择。
 
-全部 disabled？
-  → 全部以 enabled 样式展示，移除条件标注（兜底防卡死）
-```
+当选项全部不可选时，引擎将全部恢复为可选并标记兜底状态，防止游戏卡死。
 
 **无选项时的自动推进**：`<choice>` 元素缺失 → 正文展示完毕后自动进入下一轮，不等待输入。
 
@@ -627,7 +514,7 @@ UI 展示流（用户阅读 / 自动推进）
 | 路径 | 触发条件 | 说明 |
 |------|---------|------|
 | **自然结局** | checkpoint 的 routes 为空（结局节点） | 大纲终点，最后一轮由 LLM 自然收束 |
-| **主动结束** | 玩家在选项面板按 Q | 随时中断，跳过后续大纲 |
+| **主动结束** | 玩家通过 UI 触发提前结束 | 随时中断，跳过后续大纲 |
 
 两条路径最终汇聚：展示冒险日志 → 返回主菜单。
 
@@ -651,11 +538,10 @@ UI 展示流（用户阅读 / 自动推进）
   1. 正常解析 → 展示 narrative → 处理 state（如有）
   2. 处理 checkpoint：
      a. routes 为空 → 检测为结局节点
-     b. 标记当前节点为 completed
+     b. 标记当前节点 status 为 completed，summary 记录到节点
      c. 设置 ending_flag = true
-     d. 存入 checkpoint_summaries
-     e. 存储 checkpoint_snapshots
-     f. 触发自动存档（与其他 checkpoint 行为一致）
+     d. 存储 checkpoint_snapshots
+     e. 触发自动存档（与其他 checkpoint 行为一致）
   3. 执行到 bridge：
      a. 检测到 ending_flag == true
      b. 不组装正常下一轮 Prompt
@@ -670,35 +556,38 @@ UI 展示流（用户阅读 / 自动推进）
 
 > **关键**：结局节点由 routes 为空判定。bridge 放在 checkpoint 之后、尾部 narrative 之前。程序在 bridge 处检测到 ending_flag，提交冒险日志请求。尾部 narrative 作为缓冲。
 
-### 5.3 Q 键主动结束流程
+### 5.3 主动结束流程
+
+玩家通过 UI 触发提前结束（如快捷键、按钮等）：
 
 ```
-玩家在选项面板按 Q
+UI 触发主动结束
     │
     ▼
-打印 "确定结束游戏？(y/n)"
-├── n → 返回选项面板
-└── y
+确认结束？（UI 负责确认交互）
+├── 取消 → 返回选项面板
+└── 确认
      ▼
-打印 "是否查看冒险日志？(y/n)"
-├── n → 直接返回主菜单
-└── y
+确认是否查看冒险日志？（UI 负责确认交互）
+├── 否 → 直接返回
+└── 是
      ▼
 组装"冒险日志 Prompt"（§5.4）
 → 发送给 LLM → 等待响应
 → 展示 adventure_log 内容
-→ 打印 "按任意键返回主菜单……"
-→ 等待按键 → 返回主菜单
+→ 返回
 ```
+
+> 确认交互（"确定结束？"/"是否查看日志？"）由 UI 层实现。引擎仅提供 `get_adventure_log()` 方法——UI 在确认后调用，获取日志文本并展示。
 
 ### 5.4 冒险日志 Prompt
 
-**触发时机**：checkpoint `end` 轮 bridge 处 / Q 键确认后。
+**触发时机**：结局轮 bridge 处 / 主动结束后。
 
 **程序行为**：
 ```
-prompt = build_adventure_log_prompt(story_config, state_vars, checkpoint_summaries, checkpoint_history)
-response = api_client.call(prompt)   // 非流式，快速生成
+prompt = build_adventure_log_prompt(story_config, state_vars, outline_text)
+response = api_client.chat([{"role": "user", "content": prompt}])   // 非流式，快速生成
 展示 response 正文
 ```
 

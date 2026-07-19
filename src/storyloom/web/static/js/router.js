@@ -151,9 +151,9 @@
         // Generate handler
         async function doGenerate() {
             const confirmed = await Display.showConfirm(
-                "确定要生成故事设定吗？生成后将无法再修改故事想法。",
-                "是，生成设定",
-                "否，继续编辑"
+                t("confirm_generate_story"),
+                t("yes_generate"),
+                t("no_continue_edit")
             );
             if (!confirmed) return;
 
@@ -213,9 +213,9 @@
         document.getElementById("btn-generate").addEventListener("click", doGenerate);
         document.getElementById("btn-quit").addEventListener("click", async () => {
             const confirmed = await Display.showConfirm(
-                "确定要退出吗？当前共创进度将不会保存。",
-                "是，退出",
-                "否，继续编辑"
+                t("confirm_quit_cocreate"),
+                t("yes_quit"),
+                t("no_continue_edit")
             );
             if (!confirmed) return;
 
@@ -298,16 +298,6 @@
 
         // Apply speed preset (set in menu, fixed during game)
         _applySpeedPreset();
-
-        // Save button
-        document.getElementById("btn-save")?.addEventListener("click", async () => {
-            try {
-                const res = await API.post(`/api/game/${gameId}/save`);
-                alert(`Saved: ${res.label} (round ${res.round_count})`);
-            } catch (err) {
-                alert(`Save failed: ${err.message}`);
-            }
-        });
 
         // Back to menu
         document.getElementById("btn-menu")?.addEventListener("click", () => {
@@ -412,7 +402,7 @@
         if (old) old.remove();
         const btn = document.createElement("button");
         btn.className = "manual-continue";
-        btn.textContent = "▶ 继续";
+        btn.textContent = t("continue_text");
         btn.addEventListener("click", () => {
             btn.remove();
             _manualWaiting = false;
@@ -538,21 +528,23 @@
 
         const list = document.getElementById("save-list");
         try {
-            const saves = await API.get("/api/saves");
-            if (!saves || saves.length === 0) {
+            const games = await API.get("/api/saves");
+            if (!games || games.length === 0) {
                 list.innerHTML = `<p class="text-muted">${t("no_saves")}</p>`;
                 return;
             }
 
             let html = "";
-            for (const s of saves) {
+            for (const g of games) {
+                const detail = [g.genre, g.tier, g.language].filter(Boolean).join(" · ");
                 html += `
                     <div class="panel save-item">
-                        <strong>${Display._esc(s.label)}</strong>
-                        <span class="text-muted"> — round ${s.round_count} — ${s.updated_at || ""}</span>
+                        <strong>${Display._esc(g.label)}</strong>
+                        <span class="text-muted">${detail ? " — " + Display._esc(detail) : ""}</span>
+                        <span class="text-muted"> — ${g.save_count || 0} saves — ${g.created_at || ""}</span>
                         <div class="btn-row" style="margin-top:0.5rem;">
-                            <button class="load-btn" data-label="${Display._esc(s.label)}">${t("load")}</button>
-                            <button class="danger delete-btn" data-label="${Display._esc(s.label)}">${t("delete")}</button>
+                            <button class="load-btn" data-game-id="${Display._esc(g.game_id)}">${t("load")}</button>
+                            <button class="danger delete-btn" data-game-id="${Display._esc(g.game_id)}">${t("delete")}</button>
                         </div>
                     </div>`;
             }
@@ -561,9 +553,11 @@
             // Load handlers
             list.querySelectorAll(".load-btn").forEach(btn => {
                 btn.addEventListener("click", async () => {
-                    const label = btn.dataset.label;
+                    const gameId = btn.dataset.gameId;
                     try {
-                        const res = await API.post(`/api/saves/${encodeURIComponent(label)}/load`);
+                        const res = await API.post(`/api/saves/${encodeURIComponent(gameId)}/load`, {
+                            filename: "_init.json",
+                        });
                         GameState.gameId = res.game_id;
                         GameState.roundCount = res.round_count;
                         GameState.currentNode = res.current_node;
@@ -577,10 +571,10 @@
             // Delete handlers
             list.querySelectorAll(".delete-btn").forEach(btn => {
                 btn.addEventListener("click", async () => {
-                    const label = btn.dataset.label;
-                    if (!confirm(`${t("delete")} "${label}"?`)) return;
+                    const gameId = btn.dataset.gameId;
+                    if (!confirm(`${t("delete")} "${gameId}"?`)) return;
                     try {
-                        await API.del(`/api/saves/${encodeURIComponent(label)}`);
+                        await API.del(`/api/saves/${encodeURIComponent(gameId)}`);
                         renderSaveList(); // refresh
                     } catch (err) {
                         alert(`Delete failed: ${err.message}`);

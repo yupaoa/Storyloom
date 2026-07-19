@@ -6,6 +6,304 @@
 
 ---
 
+## 2026-07-18（周六）
+
+### Co-Create 大纲 goal 提示词优化 + 示例数据语言感知
+
+**背景**：大纲各节点的 `goal` 字段偏短、不够详细，影响后续叙事生成的质量参照。根因有二：(1) Prompt 中 goal 的约束表述罗列要素（events, characters, stakes）而非传达功能定位和详细度要求；(2) `CO_CREATE_GENERATION_PROMPT` 的示例数据（变量名、分支条件、goal 占位符）硬编码中文，与语言感知设计不一致，且 goal 占位符为元指令而非具体示例，LLM 无样本可模仿。
+
+**决策**：(1) goal 约束从 "Each node has a clear narrative goal which describes the specific events, characters, and stakes in 2-3 sentences." 改为 "Each node's goal provides a specific overview of the chapter's main content. 2-4 sentences, more is fine."——去掉要素罗列，聚焦于"章的主要内容的详细概览"，`more is fine` 给 LLM 写长的信号；(2) 示例数据从模板硬编码提取到 `_LANG_META` dict，新增 `example_variables`、`example_goal`、`example_branch_var` 三个 key，中英各一套（goal 示例 ~3 句，展示具体事件与张力）；(3) `_build_generation_prompt()` 增加 `_LANG_META.get(lang, _LANG_META[DEFAULT_LANGUAGE])` 兜底未知语言。模板中 `$example_*` 占位符均为单行文本，不引入换行——`parse_outline` 无须改动。
+
+**依据**：`CO_CREATE_GENERATION_PROMPT`（`co_create.py`）；`_LANG_META`（`co_create.py` L406-448）；prompt-design.md §1.2 示例先行原则。
+
+### 存档 bridge_text 移除 + checkpoint 存档 guard
+
+**背景**：审计存档触发机制发现两个问题。其一，`to_save_dict()` 在 Phase 3（流式解析中）被调用，此时 `_last_bridge_text` 仍是上一轮 Phase 5 写入的值——存入的 bridge_text 比当前 checkpoint 滞后两轮。更深层的问题是：checkpoint 存档代表故事节点完成边界，不是 bridge 延续；加载存档后应"从 checkpoint 节点全新开始"，而非携带上一轮的 bridge_text 作为 "Continue from:" 注入首轮 Prompt。其二，`_handle_checkpoint` 中节点推进失败（target 为 None）时仍无条件执行 `_accumulate_checkpoint`，可能产生未推进状态却已存档的"僵尸存档"。
+
+**决策**：(1) 从存档格式（`to_save_dict` / `from_save_dict` / `_build_init_dict`）中移除 `bridge_text` 字段——该字段属于游戏内跨轮循环，不属于持久化边界；(2) `build_round1()` 删除死参数 `checkpoint_history`（从未在函数体中引用）和 `bridge_text`，内部固定填入 `"(Story begins)"` 占位符；(3) `start_game()` 删除 bridge_section 构建死代码；(4) `_handle_checkpoint` 新增 `node_advanced` guard——仅当 checkpoint 成功推进节点后才触发 `_accumulate_checkpoint`；(5) `SAMPLE_XML` 测试 fixture 修复节点 ID（`ch2_meeting`→`ch2_confrontation`，`ch3_lead`→`ch3_ally`），新增 5 个 checkpoint 测试覆盖推进、存档、ending、未知节点拒绝等路径。
+
+**依据**：`docs/spec/data-model.md` §3.1, §3.2, §3.5；`docs/spec/prompt-design.md` §4.3。
+
+### ApiClient 从 urllib 迁移到 httpx——连接池解决代理 400
+
+**背景**：WSL2 环境下 API 请求经 Windows 侧代理 `127.0.0.1:19828`。`urllib` 每次 `urlopen()` 新建 TCP 连接 + CONNECT 隧道，co-create 多轮 Q&A 和 daemon 线程流式连接累积后，代理隧道达到上限，拒绝新请求（HTTP 400）。错误信息不可读（代理返回 HTML，JSON 解析失败后 fallback 为 generic "Bad Request"），重试无效（完全相同的请求过同一拥塞代理）。另一方面，`deepseek-v4-pro` reasoning model 会在输出中产生 `\udcef` 等孤立代理字符（lone surrogates），`json.dumps()` 编码时抛出 `UnicodeEncodeError`，该异常不是 `ApiError` 子类，逃逸到 game_driver 层被当成致命错误而非触发重试。
+
+**决策**：(1) 用 `httpx.Client` 替代 `urllib`——客户端实例持有连接池，复用 TCP 连接和 CONNECT 隧道，代理侧连接数稳定在 2-3 条，不再触及上限；(2) `_handle_http_error` 改为接收 `httpx.Response`，JSON 解析失败时展示原始响应体片段（最多 500 字符）；(3) `_extract_content` 处理 reasoning model 的 `content: null`；(4) `chat()` / `stream_chat_iter()` 增加可选 `max_tokens` 参数（默认 None，向后兼容）；(5) 新增 `except UnicodeError` 捕获，将 JSON 序列化错误转为 `ApiError` 进入正常 retry 流程。公共 API（`chat()`、`stream_chat_iter()`、`stream_chat()`、`ApiResult`、`ApiError`）签名不变，所有调用方零改动。
+
+**依赖变更**：`pyproject.toml` 新增 `httpx>=0.28.0`——项目首个运行时依赖。
+
+**依据**：`docs/spec/exec-flow.md` §4.3, §6.1；`data-model.md` §A.6。
+
+### 大纲数据模型统一——status 与 summary 归于节点
+
+### 大纲数据模型统一——status 与 summary 归于节点
+
+**背景**：四个独立结构维护同一批大纲节点的不同侧面——`_outline_nodes`（纯结构）、`_completed_nodes`（状态列表）、`_checkpoint_history`（summary 列表，含 title/goal 副本）、`outline_text`（格式化快照，仅在构造时设置，永不更新）。这导致：(1) `outline_text` 在 checkpoint 推进后过时，状态标记不再准确；(2) `title`/`goal` 在 `_outline_nodes` 和 `_checkpoint_history` 中重复存储；(3) checkpoint summary 只在压缩消息和冒险日志中可见，不在每轮的 outline 段落中；(4) 读档后 ContextManager 的 `_compressed_summaries` 为空，LLM 看不到历史摘要。
+
+**决策**：单一真相源——`_outline_nodes` 每个节点直接携带 `status`（pending/active/completed）和 `summary`，`outline_text` 改为 `@property` 实时派生。
+
+- `_outline_nodes`: `[{id, title, goal, status, summary, routes}]` — 所有信息在节点上
+- `outline_text` property: 从 `_outline_nodes` 实时生成，完成节点下追加 `↳ {summary}`
+- `checkpoint_history` property: 从完成节点派生（向后兼容）
+- `completed_nodes` property: 从 status 字段派生
+- `_handle_checkpoint`: 直接修改节点的 status/summary，不再维护独立列表
+- `_accumulate_checkpoint`: 直接写 `node["summary"] = cp_summary`
+- 存档格式: outline 节点带 `status` + `summary`，删除 `progress.checkpoint_history`
+- `from_save_dict`: 恢复 outline 节点（含 status/summary），兼容旧存档（`setdefault`）
+- `start_round1`: `bridge_text` 通过参数传入 `build_round1()`，删除手动拼接
+- `build_round1`: 去掉硬编码 `(This is the start of the whole story.)`，bridge_text 通过模板 `{bridge_text}` 槽位自然融入
+- `build_adventure_log_prompt`: 删除 `checkpoint_history` 参数，summary 已在 `outline_text` 的 `↳` 行中
+
+**依据**：`5782725`、`94657dd`、`341d4dd`；`docs/spec/data-model.md` §1-3、`exec-flow.md` §1.1, 5.2, 5.4、`prompt-design.md` §5.1。
+
+### 冗余 checkpoint_summaries 清理
+
+**背景**：`_checkpoint_summaries: list[str]` 与 `_checkpoint_history: list[dict]` 并存，前者是纯文本列表，后者是结构化记录（含 node/title/summary）。`checkpoint_history` 是 `checkpoint_summaries` 的严格超集——每个 summary 都带着 node/title 存在 history 中。代码中 `_checkpoint_summaries` 唯一的消费者是冒险日志——而冒险日志已经改用 `checkpoint_history`。
+
+**决策**：删除 `_checkpoint_summaries`（初始化、写入、读取、追加），`checkpoint_history` 成为唯一的 checkpoint 数据承载结构。同时将 `goal` 字段加入 `checkpoint_history` 条目（在查 `title` 的同一个 outline 遍历中零成本获取）。
+
+**依据**：`5782725`。
+
+### 冒险日志 Prompt 重构
+
+**背景**：`build_adventure_log_prompt` 接收了 `story_config` 但只用了 `label` 和 `language`——genre、setting、protagonist、tone、conflict、characters 全部丢弃。每章只有 title + 一句话 summary，LLM 在无知背景下被迫杜撰情节。
+
+**决策**：注入完整 story_config 字段（Story Background 段）+ 完整 outline_text（Story Outline 段）。冒险日志从"给一句话扩写"变为"据背景和叙事摘要撰写"。同时删除未使用的 `checkpoint_summaries` 参数，改为传入 `outline_text`。
+
+**依据**：`a8144ee`。
+
+### Goal 和 checkpoint summary 示例扩充
+
+**背景**：用户反馈三个痛点——存档继续时上下文冲突、LLM 生成不稳定、冒险日志杜撰。根因是叙事记忆链路太短：outline `goal` 只有一句话，checkpoint `summary` 只有一句话，且 `summary` 读档时未注入上下文。
+
+**决策**（轻量先行）：不改架构，只改 Prompt 示例。
+- `co_create.py`: `Each node has a clear narrative goal` → 加 `which describes the specific events, characters, and stakes in 2-3 sentences`
+- `prompt_builder.py`: checkpoint summary 格式示例从 `"A stranger made contact at the inn."` 扩为 `"A mysterious stranger offered Kael a job at the inn. He accepted and set out for the old pass."`
+
+LLM 通过模仿示例自然产出更丰富的内容，无需额外约束。
+
+**依据**：`95acd26`；`prompt-design.md` §1.2 原则 #1（示例先行）。
+
+**背景**：`ROUND1_TEMPLATE` 是一个整体文本，从角色定义一路写到 bridge_text。`build_round1()` 和 `build_round_n()` 是两个独立的构建路径——前者用模板填充，后者手拼字符串。两者产生的结构不一致（Round 1 叫 "Active Node"，Round N 叫 "Current node"；Round 1 有 `/100` 范围后缀，Round N 没有；Round 1 含行数约束，Round N 不含）。每轮都需要的状态上下文和量化约束分散在两条路径里，迭代时容易顾此失彼。
+
+**决策**：将 Round 1 user 消息拆分为前缀块和回合块两部分：
+
+- **首轮前缀**（`ROUND1_PREFIX`）：角色定义、XML 格式规范、Kael 示例、核心规则、故事背景。只发一次，永久锚定。
+- **回合提示词**（`ROUND_TEMPLATE`）：大纲树、当前节点、状态快照、错误反馈、行数约束、bridge_text。每轮都发，首轮和后继轮共享。
+
+Round 1 user = 前缀 + 回合块（bridge_text 为空，无错误反馈）+ 首轮尾句。
+Round N user = 回合块（按实际填充）。
+
+`build_round_n` 签名简化：去掉 `completed_nodes`（大纲状态标记已体现进度）和 `compressed_summaries`（ContextManager 的压缩消息对独立处理），新增 `outline_text` 和 `variables`（统一用 `_format_current_state` 带类型后缀）。状态变量在首轮和后继轮均采用 `变量名：值 / 100` 格式，消除此前 Round 1 有、Round N 无的差异。
+
+**依据**：commit `68d4028`（spec）+ `90ba48d`（代码）；`docs/spec/prompt-design.md` §4.2–§4.4；268 测试全绿。
+
+---
+
+### 从持久化层移除 round_count 和 round
+
+**背景**：读档后 ContextManager 完全重置（`_round_count = 0`），存档中记录的 `round_count` 与读档后的实际轮数完全断开——存档说第 15 轮，读档后下一轮被当作 Round 1。轮数仅在 ContextManager 内部用于滑动窗口压缩触发（`_maybe_compress()` 中 `total_rounds >= FIRST_COMPRESSION_AT`），不应该暴露给持久化层或 UI。
+
+审计确认：
+- `metadata.round_count` / `progress.round_count`：`from_save_dict()` 不读取
+- `checkpoint_history[N].round`：零消费者（adventure log 用 `enumerate(cp, 1)` 自己编号）
+- `list_saves()` 返回的 `round`：唯一消费者是 dev_cli 的保存列表展示
+- streaming event 的 `done.round` / `ending.round`：UI 不应关注轮数实现细节
+
+**决策**：从持久化层（save dict + checkpoint_history + list_saves）和流式事件（done/ending）中完全移除 `round_count` 和 `round`。保留 ContextManager 内部 `_round_count`（压缩逻辑需要）。
+
+变更范围：
+- `game_loop.py`：`to_save_dict()` 删 `round_count`；`_accumulate_checkpoint()` 删 `round`；3 个 yield event 删 `round`
+- `session.py`：`_build_init_dict()` 删 `round_count`
+- `save_manager.py`：`list_saves()` 删 `round` 字段
+- `game_driver.py`：保存列表删除 round 展示
+- `data-model.md`、`prompt-design.md`：同步删除 `round_count` 引用
+- 现有存档 JSON 同步清理（`saves/` 在 `.gitignore` 中）
+
+**依据**：commit `f8de931`（持久化层 + 文档）+ `dc98498`（dev_cli + 测试）；266 测试全绿。
+
+---
+
+## 2026-07-18（周六）
+
+### 修复 Windows 文件名非法字符：存档目录 + Co-Create Prompt 格式歧义
+
+**背景**：两起 Windows 端崩溃均与文件名/格式解析有关：
+
+1. **存档目录创建失败**：`create_game()` 用 ISO 8601 `2026-07-17T17:10:23Z` 作为目录名一部分，其中 `:` 在 Windows/NTFS 为非法字符 → `OSError: [WinError 123]`。
+2. **Co-Create 生成 parse 失败且重试无效**：`CO_CREATE_GENERATION_PROMPT` 中包含 `## Section 1: story_config` / `## Section 2: variables` / `## Section 3: outline` 标题行，并强调 "Use EXACTLY the format shown"。LLM 忠实输出这些标题行，但 parser 的 `split_blocks()` 只识别 `=== block ===` 分隔符，导致 `## Section 3: outline` 落入 variables block 文本 → `parse_variables()` 严格匹配失败。重试三次结果相同：`retry_generate()` 每次追加的 correction message 一字不差，LLM 在矛盾指令下（prompt 说标题是对的、error 说标题是错的）不会修正。
+
+**决策**：
+
+1. **存档目录名**：`game_id`（目录名）改用已有的 `_compact_ts()` 格式（`20260717T171023Z`，无冒号），与 checkpoint 文件名保持一致。`created_at` 返回值保持 ISO 8601 可读格式（`2026-07-17T17:10:23Z`）仅供 metadata JSON 存储。两类时间戳职责分离：目录名 = 机器友好，metadata = 人类可读。
+
+2. **Co-Create Prompt 重构**：删除所有 `## Section N: name` 标题行——这是歧义根源。改为三段式结构：
+   - **`# Rules`**：集中放置 variables 和 outline 的规则约束（内容不变）
+   - **`# Output Format`**：新增格式指令区，明确 "exactly three blocks separated by `===` markers" + "no markdown headings, no commentary"
+   - **模板区**：只保留 `=== block ===` 分隔符和内容占位符，与 parser 的 `BLOCK_DELIMITER` 精确对应
+   
+   设计参照 `prompt_builder.py` 中 `ROUND1_TEMPLATE` 的成熟模式：规则与模板分区独立。
+
+3. **拒绝修改 parser**：用户明确要求只修提示词，不修改解析器。理由：parser 行为正确——它只认 `=== block ===` 是设计意图；问题是 prompt 给 LLM 发出了矛盾信号。
+
+**依据**：commit `119332a`（存档目录）+ 本 commit（prompt 修复）；`co_create.py:455-538`（`CO_CREATE_GENERATION_PROMPT`）；`save_manager.py:234-239`（`create_game`）；`docs/spec/data-model.md:84-90`（目录结构规范）。
+
+---
+
+## 2026-07-17（周五）
+
+### 选项条件评估收归引擎
+
+**背景**：`<opt if="...">` 的条件评估此前由 UI 层负责——`options` 事件携带原始 `conditions` 字符串，UI 需自行实现与引擎一致的评估逻辑。这与 `<set>`、`<route>` 的条件评估（均由 `GameState.evaluate_condition()` 统一处理）不一致，且违反"本地数据为唯一真相源"原则。
+
+**决策**：
+1. 引擎在 yield `options` 事件前评估每个选项的 `if` 条件，结果写入 `enabled` 列表
+2. 全部不可选时兜底为全部可选（防止游戏卡死）
+3. CLI 适配：读 `enabled` 标注 `(locked)`，disabled 项本地拦截
+4. spec `exec-flow.md` §4.6 同步更新
+
+**依据**：memory `option-condition-engine-evaluation.md`；spec `exec-flow.md` §4.6；`game_loop.py` L718-738；`game_driver.py` L437-474。
+
+---
+
+### UserConfig 模块：集中用户配置管理 + 移除 .env 耦合
+
+**背景**：项目缺少统一的用户配置层。语言硬编码在 `dev_main()` 中；API 凭证通过 `api_client._find_project_root()` 向上搜索 `.git` 目录定位 `.env` 文件——该模式在打包后不可用。存档路径、语言偏好等用户选择无持久化机制。
+
+**决策**：
+
+1. **新增 `UserConfig` 模块**：单类管理 `config.json`（JSON 格式），暴露 `language`/`api_key`/`api_base_url`/`api_model` 四个属性。支持 headless 模式（`app_dir=None`，纯内存）和 disk 模式（读写 `<app_dir>/config.json`）。原子写入（temp + `os.replace`），缺失字段自动回填，损坏 JSON 不删除文件。
+2. **移除 `.env` 依赖**：`ApiClient` 构造器接受 `UserConfig`，不再内部搜索 `.env` 文件。优先级：`os.environ` > `UserConfig` > 默认值。删除 `_find_project_root()`、`_load_dotenv()`、`_load_env()`。
+3. **i18n 运行时切换**：新增 `switch_language(language)`，提取 `_load_translator()` 供 `init_i18n` 和 `switch_language` 共用。`init_i18n` 新增 `locale_dir` 参数供打包场景传入自定义路径（默认 `__file__`-relative fallback 保持兼容）。
+4. **依赖注入**：`GameSession.__init__` 的 `api_client` 变为可选参数，入口点负责 `UserConfig → ApiClient → GameSession` 全链路 wiring。
+5. **应用根目录辅助函数**：`_get_app_dir()` 封装 `sys.frozen` 判断——打包后指向 exe 所在目录，开发时指向项目根。`config.json`、`locale/` 均基于 `app_dir` 解析。
+
+**改动**：10 文件，+474/-267 行。新增 `user_config.py`、`config.example.json`、`test_user_config.py`、`test_i18n.py`。删除 `.env.example`。276 tests passed，零回归。
+
+**依据**：commit `86c9345`..`f5d0917`（连续 9 commits）；spec `docs/superpowers/specs/2026-07-17-user-config-design.md`；plan `docs/superpowers/plans/2026-07-17-user-config-implementation.md`。
+
+---
+
+### 存档系统重构：按游戏分目录 + 追加式 checkpoint 存档
+
+**背景**：当前存档系统每个游戏只有一个 `saves/{label}.json` 文件，每次 checkpoint 覆盖写入。玩家无法回到历史关键节点——存档仅适用于"继续最新进度"，不支持回溯或时间线浏览。需求：每个 checkpoint 独立存档、追加不覆盖、UI 两级选择（先选游戏再选存档）、修改最小化。
+
+**决策**：
+
+1. **Per-game 目录结构**：`saves/{label}_{created_at}/` 下存放所有存档。`_init.json`（`round_count=0`）为共创结束时创建的"元存档"——新游戏入口和 checkpoint 存档共享完全相同的格式（`to_save_dict()` 输出），`from_save_dict()` 统一加载。
+2. **追加模式**：checkpoint 存档文件名为 `{cp_title}_{timestamp}.json`，时间戳保证不重名不覆盖。`SaveManager.save(cp_title=None)` 写 `_init.json`，`cp_title=str` 写 checkpoint 存档。
+3. **`start_game()` 和 `load_game()` 收敛为单一路径**：`start_game(result)` 直接从 `CoCreationResult` 构建 `_init.json` 字典（零 GameLoop 依赖），写入后调用 `load_game()` 加载。新游戏 / 继续 / 回溯三条路径完全一致。
+4. **修复 Round 1 prompt 状态值不一致**：`build_round1()` 原从 `story_config.variables[].initial` 读取变量值——读档时 LLM 看到初始值而非当前实际值。改为必传 `state_vars` 参数，始终显示 `game_state.state_vars` 实际值。删除旧 `_format_state_vars()` 方法。
+5. **SaveManager API 重构**：实例方法操作单个游戏目录（`save`/`load`/`delete`/`list_saves`），跨游戏操作改为静态方法（`create_game`/`list_games`/`delete_game`/`list_saves_for_game`）。
+6. **GameSession API 适配**：`start_game()` 返回 `(GameLoop, game_id)`；`load_game(game_id, filename)` 两级定位；新增 `list_games()`、`delete_game(game_id)`、`delete_save(game_id, filename)`。去除持久 SaveManager 实例。
+
+**改动**：9 文件，+623/-252 行。核心引擎文件零改动：`co_create.py`、`context_manager.py`、`streaming_parser.py`、`api_client.py`、`config.py`、`i18n.py`。251 tests passed。
+
+**依据**：commit `66fa07f`；plan `hidden-jumping-ripple.md`；`docs/spec/data-model.md §3.1-3.4`；`prompt_builder.py:220-222`（旧 `_format_state_vars` 逻辑）。
+
+---
+
+### 删除 `list` 变量类型
+
+**背景**：存档中发现 LLM 为"事件标记"变量使用了 `list` 类型。审查发现虽然 `list` 类型在代码库中完整实现（初始化、`<set>` 操作 `+`/`-`、静默去重），但条件求值不支持 `包含`/`不含` 操作符——LLM 在路线条件中自然使用这些操作符时，引擎正则无法匹配，静默返回 `False`，导致路由永远走兜底逻辑。让 LLM 操作 list 类型带来的复杂度远大于其价值。
+
+**决策**：彻底删除 `list` 变量类型，只保留 `number` 和 `string`。`VARIABLE_LABEL_CAP` 语义从 "string/list" 收紧为 "string"。
+
+**改动**：删除 ~136 行（9 文件）——引擎核心 3 文件、规范文档 3 文件、测试 3 文件。新增 `test_rejects_unknown_variable_type`。
+
+---
+
+## 2026-07-16（周四）
+
+### CLI 模式重构：游玩默认入口 + 两阶段录制
+
+**背景**：CLI 默认进入观察者+instant 模式，对普通玩家不友好。观察者录制逻辑存在 prompt 双重写入（`write_prompt_at_send` 和 `record_round` 都写 `prompts.txt`），缺乏清晰的提交/接收两阶段契约。
+
+**决策**：
+1. 默认入口改为游玩模式（手动 pacing，Tab 切换），零参数。
+2. 观察者通过 `--observer` 进入，默认手动 pacing（与游玩一致），`--instant` 禁用 pacing 和切换。
+3. 录制改为两阶段：Phase 1 提交 prompt 时写 `prompts.txt` + 清空 `responses.txt`；Phase 2 完整接收后 `record_round` 只写 `responses.txt` + `checks.txt`。
+4. 手动 argv 解析替换为 argparse。
+
+**依据**：`src/storyloom/dev_cli/game_driver.py`、`src/storyloom/dev_cli/observer.py`、`src/storyloom/dev_cli/__init__.py`。
+
+### 异常处理统一：移除自动重试，三阶段行为对齐
+
+**背景**：引擎三个阶段的异常处理各自独立设计，行为不一致——共创阶段有自动重试（`MAX_RETRIES`），叙事阶段 yield error 事件 + 手动重试，冒险日志阶段无重试机制。用户期望所有严重异常由 UI 决策，引擎不做自动恢复。
+
+**决策**：
+1. 删除 `MAX_RETRIES` 全局常量——仅共创阶段使用，语义不统一。
+2. 共创阶段：`send()` 和 `generate()` 移除自动重试循环，失败时抛 `CoCreateError(phase, message)`，保存 `_retry_state`；新增 `retry_send()` 和 `retry_generate()` 公开方法，与叙事阶段 `retry()` / `retry_adventure_log()` 模式一致。
+3. 冒险日志阶段：`run_adventure_log()` 保存 prompt 到 `_adv_retry_prompt`；新增 `retry_adventure_log()` 方法。
+4. UI 侧（`game_driver.py`）：三阶段均展示错误并询问重试。
+
+**依据**：`src/storyloom/core/co_create.py`、`src/storyloom/core/game_loop.py`、`docs/spec/data-model.md` §B-5。
+
+### Spec-vs-Code 审计 + 文档同步 —— 9 项修复
+
+**背景**：距离上次审计（07-13）约三天。全面对照 4 份 spec + 全部核心源码 + 接口文档 + CLI 文档/代码，排查规范落实与文档一致性。
+
+**决策**：
+
+| # | 级别 | 文件 | 问题 | 处理 |
+|---|------|------|------|------|
+| 1 | P1 | `docs/api/co-create.md` | `send()` 返回值描述错误（dict vs str） | 重写全文（f7e24e1） |
+| 2 | P1 | `docs/api/co-create.md` | 列出了引擎不做的关键词检测 | 同 1 |
+| 3 | P1 | `docs/api/co-create.md` | 列出了不存在的 `generating` 阶段 | 同 1 |
+| 4 | P1 | `docs/spec/exec-flow.md` | 超时处理流程与代码不一致（复杂截断 vs 严重错误+重试） | 更新规范对齐代码（44867cd） |
+| 5 | P2 | `src/storyloom/core/save_manager.py` | `load()` 校验失败未删除损坏文件 | 新增 `_remove_corrupt()`（44867cd） |
+| 6 | P1 | `docs/cli.md` | 全文描述已删除的旧 CLI（main.py, cli_utils.py, --quick 等） | 删除文件 + 清理索引（9de9aab） |
+| 7 | P2 | `src/storyloom/dev_cli/game_driver.py` | auto 延迟 docstring 0.5s ≠ 代码 1.0s | 提取 `_AUTO_DELAY_SEC`，文档引用常量名（9de9aab, d2261fb） |
+| 8 | P2 | `src/storyloom/dev_cli/game_driver.py` | `_drain_non_options` 未使用的 `mode` 参数 | 删除（9de9aab） |
+| 9 | P2 | `src/storyloom/dev_cli/__init__.py` | docstring 只列 2 种用法，实际 7 种 | 补全（9de9aab） |
+
+**误报**：`CoCreateParser.parse_story_config` 中 `characters` 空值校验——已有 `not result[f].strip()` 检查。
+
+**依据**：commit 44867cd, f7e24e1, 9de9aab, d2261fb。227 测试全绿。
+
+---
+
+## 2026-07-13（周日）
+
+### Spec-vs-Code 审计与精简 —— 16 项修复 + 4 项重叠消除
+
+**背景**：距离上次审计（2026-07-11）约两天，项目继续演进（UiInterface 删除、Web 文件夹初始化、co_create prompt 清理）。重新全面对照 4 份 spec 文档与全部核心源码，发现 16 项不一致（8 P1 + 8 P2），以及 4 处文档间重叠。
+
+**决策**：
+
+**16 项修复**：
+
+| # | 级别 | 文件 | 问题 | 处理 |
+|---|------|------|------|------|
+| 1 | P1 | CLAUDE.md | "StreamingXmlParser deleted" 断言错误（已于 07-11 恢复） | 改为 "restored" + 准确描述 |
+| 2 | P1 | CLAUDE.md | `_launch_prefetch()` 方法名过时 | → `_launch_api()` |
+| 3 | P2 | CLAUDE.md | 测试数 228 → 236 | 更新 |
+| 4 | P1 | CLAUDE.local.md | 引用已删除的 `ui_interface.py` | 移除 |
+| 5 | P1 | exec-flow.md | Phase 5 描述 SET/checkpoint 过时（应在 Phase 3） | 更新 |
+| 6 | P2 | exec-flow.md | STORY_END 事件时机（Phase 5→Phase 3） | 从 Phase 5 移除 |
+| 7 | P1 | exec-flow.md | `_launch_prefetch()` → `_launch_api()` | 更新 + 补充"所有轮次统一使用" |
+| 8 | P1 | exec-flow.md | `prompt_builder.assemble()` 方法不存在 | → 实际调用链 |
+| 9 | P1 | prompt-design.md | Round N 标签中文→英文（与代码对齐） | 更新示例 |
+| 10 | P1 | prompt-design.md + exec-flow.md | 压缩消息/格式错误纠正中文→英文 | 同步两文档 |
+| 11 | P2 | block-spec.md | "选项字母序号"→"选项数字键序号" | 修正 |
+| 12 | P2 | exec-flow.md | `api_client.call()` → `api_client.chat()` | 修正 |
+| 13 | P2 | data-model.md | 缺失 `SUPPORTED_LANGUAGES`、`DEFAULT_LANGUAGE` | 追加到 §A.2 |
+| 14 | P2 | prompt-design.md | outline 状态图例行（代码中无） | 删除 |
+| 15 | P2 | exec-flow.md | 引用废弃 `AUTO_ADVANCE_DELAY_MS` + M 键约束 | 删除，UI 自行管理 |
+| — | P1 | exec-flow.md | `STORYLOOM_API_KEY` → `DEEPSEEK_API_KEY` | ~~跳过~~ → 2026-07-16 统一为 `LLM_API_KEY`（去品牌化） |
+
+**4 项文档精简**：exec-flow.md 删除与 prompt-design.md 重叠的消息数组结构、Round N 内容表、压缩概念描述，净减 ~32 行。各文档职责更清晰：
+- `exec-flow.md` — 执行管线（何时调用、如何流转）
+- `prompt-design.md` — Prompt 内容结构
+- `block-spec.md` — XML 元素语法与校验
+- `data-model.md` — 数据结构与常量
+
+**依据**：
+- 227 tests pass
+- 上次审计：[[2026-07-11-bridge-processing-audit]]
+
+---
+
 ## 2026-07-11（周六）
 
 ### CoCreateFlow API 重构 —— Q&A 与生成分离，i18n 清理
@@ -674,6 +972,25 @@ flow.result                               # CoCreationResult | None（只读）
 **依据**：
 - commit `f283d24` — `docs: sync spec format to NNN| line-number prefix, fix 8 issues`
 - [[2026-07-07-doc-audit-and-format-sync]]
+
+---
+
+## 2026-07-16（周四）
+
+### API 配置去品牌化：DEEPSEEK_* → LLM_*
+
+**背景**：`api_client.py` 和 `.env.example` 中的环境变量名为 `DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`，将配置绑定到了特定提供方。但 `ApiClient` 使用的是 OpenAI 兼容的 `/v1/chat/completions` 接口，DeepSeek、OpenAI、Groq、Ollama、vLLM 等数十个提供方均支持此协议。变量名中的 "DEEPSEEK" 前缀：(1) 误导用户以为仅支持 DeepSeek；(2) 切换到其他兼容提供方时变量名与实际用途不一致。
+
+**决策**：统一重命名为 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`——去品牌化、通用化。不做向后兼容 fallback（`.env` 文件修改变量名即可，无迁移成本）。
+
+**变更范围**：
+- `src/storyloom/io/api_client.py`：env var 读取 + 错误消息
+- `.env.example`：模板变量名 + 添加多提供方说明注释
+- `tests/prompt_lab/run_prompt_test.py`：env var 读取
+- `docs/spec/data-model.md` §A.6：`DEEPSEEK_MODEL` → `LLM_MODEL`
+- `docs/spec/exec-flow.md` §1：`STORYLOOM_API_KEY` → `LLM_API_KEY`
+
+**依据**：用户决策——统一全局变量优于按提供方分变量；OpenAI-compatible API 的行业标准地位意味着单组变量覆盖所有提供方。
 
 ---
 

@@ -23,11 +23,18 @@ class DevObserver:
         self._dir = Path(output_dir)
         self._dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Game round ─────────────────────────────────────────────────
+    # ── Game round (two-phase recording) ─────────────────────────────
+    #
+    # Phase 1 (prompt submit): write_prompt_at_send() writes prompts.txt
+    #   immediately after the engine launches the background API call.
+    # Phase 2 (response complete): record_round() writes responses.txt
+    #   and checks.txt when the full LLM response has been received and
+    #   parsed.  prompts.txt is NOT rewritten here — it was already
+    #   written in Phase 1.
 
     def record_round(self, record: RoundRecord) -> None:
+        """Phase 2 — write response + checks (prompt already in prompts.txt)."""
         ts = record.timestamp or self._now()
-        self._write_messages(record.messages_sent, f"── Round {record.round_number} ── {ts} ──")
         self._write_response(record.raw_response, record, ts)
         self._write_checks(record, ts)
 
@@ -38,7 +45,7 @@ class DevObserver:
     ) -> None:
         """Write prompt at send time — called BEFORE ``flow.send()``."""
         prompt_msgs = list(messages) + [{"role": "user", "content": user_input}]
-        self._write_messages(prompt_msgs, f"══ Co-Create ══ {self._now()}")
+        self._write_prompt(prompt_msgs, f"══ Co-Create ══ {self._now()}")
 
     def record_co_create_response(self, messages: list[dict]) -> None:
         """Write LLM response — called AFTER ``flow.send()``."""
@@ -50,7 +57,7 @@ class DevObserver:
     def record_adventure_log(self, prompt: str, response: str) -> None:
         """Record adventure log prompt + response (separate API call)."""
         ts = self._now()
-        self._write_messages(
+        self._write_prompt(
             [{"role": "user", "content": prompt}],
             f"── Adventure Log ── {ts} ──",
         )
@@ -59,15 +66,25 @@ class DevObserver:
     # ── Prompt-at-send-time (called from game_driver) ──────────────
 
     def write_prompt_at_send(self, messages: list[dict], round_num: int) -> None:
-        """Write prompt immediately after engine sends it.
+        """Phase 1 — write prompt immediately after engine sends it.
 
         Called right after ``start_game()`` and after each
         ``stream_round()`` iteration — engine has stored the next
         round's prompt in ``_pending_messages`` at that point.
+
+        Also clears ``responses.txt`` to a placeholder so stale
+        response data from a previous round is never mistaken for
+        the current round's output.
         """
-        self._write_messages(
+        ts = self._now()
+        self._write_prompt(
             messages,
-            f"── Round {round_num} ── {self._now()} ──",
+            f"── Round {round_num} ── {ts} ──",
+        )
+        # Clear stale response — will be overwritten by record_round()
+        self._write_file(
+            "responses.txt",
+            f"── Round {round_num} ── {ts} [waiting for response...] ──\n",
         )
 
     def record_co_create_result(self, story_config: dict, outline_text: str) -> None:
@@ -85,7 +102,8 @@ class DevObserver:
 
     # ── Private writers ────────────────────────────────────────────
 
-    def _write_messages(self, messages: list[dict], header: str) -> None:
+    def _write_prompt(self, messages: list[dict], header: str) -> None:
+        """Write the messages array (prompt) to prompts.txt."""
         parts = []
         for msg in messages:
             parts.append(f"[{msg.get('role', '?')}]")

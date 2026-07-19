@@ -3,10 +3,9 @@ import re
 from dataclasses import dataclass, field
 from string import Template
 
-from storyloom.io.api_client import ApiClient
+from storyloom.io.api_client import ApiClient, ApiError
 from storyloom.i18n import _, get_current_lang
 from storyloom.config import (
-    MAX_RETRIES,
     STORY_LABEL_MIN_CHARS,
     STORY_LABEL_MAX_CHARS,
     VARIABLE_CAP,
@@ -22,10 +21,6 @@ class CoCreateParser:
     """Stateless helpers for parsing LLM co-creation output."""
 
     BLOCK_DELIMITER = re.compile(r"^=== (story_config|variables|outline) ===\s*$")
-
-    # Some LLMs wrap each block in Markdown code fences (```).
-    # Strip them so the line-by-line parsers don't choke.
-    _FENCE_RE = re.compile(r"^\s*```\s*$")
 
     @staticmethod
     def split_blocks(text: str) -> dict[str, str]:
@@ -43,9 +38,6 @@ class CoCreateParser:
         lines: list[str] = []
 
         for line in text.split("\n"):
-            # Skip markdown code fences within a block
-            if current_block and CoCreateParser._FENCE_RE.match(line):
-                continue
             m = CoCreateParser.BLOCK_DELIMITER.match(line.strip())
             if m:
                 if current_block and current_block in result:
@@ -133,17 +125,15 @@ class CoCreateParser:
 
         return result
 
-    # Two acceptable formats (LLMs vary):
-    #   <name>: <type>, <value>
-    #   <name> | <type> | <value>
-    VAR_LINE_RE_COLON = re.compile(r"^([^:]+):\s*(\S+),\s*(.+)$")
-    VAR_LINE_RE_PIPE = re.compile(r"^([^|]+)\s*\|\s*(\S+)\s*\|\s*(.+)$")
+    VAR_LINE_RE = re.compile(
+        r"^([^:]+):\s*(\S+),\s*(.+)$"
+    )
 
     @staticmethod
     def parse_variables(text: str) -> list[dict]:
         """Parse variables block into list of {name, type, initial} dicts.
 
-        Accepts ``name: type, value`` or ``name | type | value``.
+        Format: ``<name>: <type>, <value>`` (var names in story language).
 
         Args:
             text: Raw text of the variables block.
@@ -163,23 +153,21 @@ class CoCreateParser:
             if not line:
                 continue
 
-            m = (CoCreateParser.VAR_LINE_RE_COLON.match(line)
-                 or CoCreateParser.VAR_LINE_RE_PIPE.match(line))
+            m = CoCreateParser.VAR_LINE_RE.match(line)
             if not m:
                 raise ValueError(
                     f"Cannot parse variable line: '{line}'. "
                     f"Expected format: <name>: <type>, <value>"
-                    f"  or  <name> | <type> | <value>"
                 )
 
             name = m.group(1)
             var_type = m.group(2)
             raw_initial = m.group(3).strip()
 
-            if var_type not in ("number", "string", "list"):
+            if var_type not in ("number", "string"):
                 raise ValueError(
                     f"Unknown type '{var_type}' for variable '{name}'. "
-                    f"Must be number, string, or list."
+                    f"Must be number or string."
                 )
 
             if var_type == "number":
@@ -190,11 +178,6 @@ class CoCreateParser:
                         f"Number variable '{name}' initial value "
                         f"'{raw_initial}' is not an integer."
                     )
-            elif var_type == "list":
-                if raw_initial in ("[]", ""):
-                    initial = []
-                else:
-                    initial = [s.strip() for s in raw_initial.split(",") if s.strip()]
             else:
                 initial = raw_initial
 
@@ -234,16 +217,16 @@ class CoCreateParser:
 
         # g: Type counts
         num_count = sum(1 for v in variables if v["type"] == "number")
-        label_count = sum(1 for v in variables if v["type"] in ("string", "list"))
+        string_count = sum(1 for v in variables if v["type"] == "string")
 
         if num_count > VARIABLE_NUMERIC_CAP:
             errors.append(
                 f"Numeric variables ({num_count}) exceed maximum "
                 f"{VARIABLE_NUMERIC_CAP}"
             )
-        if label_count > VARIABLE_LABEL_CAP:
+        if string_count > VARIABLE_LABEL_CAP:
             errors.append(
-                f"Label variables ({label_count}) exceed maximum "
+                f"String variables ({string_count}) exceed maximum "
                 f"{VARIABLE_LABEL_CAP}"
             )
 
@@ -267,18 +250,6 @@ class CoCreateParser:
                     errors.append(
                         f"'{name}': string initial value must be non-empty"
                     )
-            elif var_type == "list":
-                if not isinstance(initial, list):
-                    errors.append(
-                        f"'{name}': list initial must be a list"
-                    )
-                else:
-                    for i, elem in enumerate(initial):
-                        if not isinstance(elem, str):
-                            errors.append(
-                                f"'{name}': list element [{i}] must be string, "
-                                f"got {type(elem).__name__}"
-                            )
 
         return errors
 
@@ -440,6 +411,18 @@ _LANG_META = {
             "All questions, example answers, and the story title (label) must be in Chinese."
         ),
         "label_hint": "{a short Chinese title, 5-15 characters, used for save files}",
+        "example_variables": (
+            "体力: number, 80\n"
+            "信任度: number, 10\n"
+            "所属势力: string, 自由佣兵"
+        ),
+        "example_branch_var": "信任度",
+        "example_goal": (
+            "在霓虹深渊酒吧，情报贩子向主角透露了一枚神秘芯片的存在。"
+            "通过隐藏终端查询，发现芯片来自企业研发部门的绝密项目，"
+            "多个势力正在逼近。"
+            "主角必须决定是深入调查还是暂避锋芒——时间不多了。"
+        ),
     },
     "en": {
         "instruction": (
@@ -448,42 +431,81 @@ _LANG_META = {
             "All questions, example answers, and the story title (label) must be in English."
         ),
         "label_hint": "{unique story identifier for save files}",
+        "example_variables": (
+            "Stamina: number, 80\n"
+            "Trust: number, 10\n"
+            "Faction: string, Freelancer"
+        ),
+        "example_branch_var": "Trust",
+        "example_goal": (
+            "At the Neon Abyss bar, a fixer tips off the protagonist about a mysterious "
+            "data chip. A search through a hidden terminal reveals the chip is from a "
+            "top-secret corporate R&D project, and multiple factions are already closing "
+            "in. The protagonist must decide whether to dig deeper or lie low — time is "
+            "running out."
+        ),
     },
 }
 
 # ── Prompt Templates ────────────────────────────────────────────────
 
-CO_CREATE_SYSTEM_PROMPT = Template("""You are a warm and perceptive story co-creation partner. Your goal is to help the user discover the story they truly want to experience — by asking thoughtful questions, listening carefully, and guiding gently.
+CO_CREATE_SYSTEM_PROMPT = Template("""You are a warm and perceptive story co-creation partner. Your task is purely information gathering through conversation — NOT story generation. After our conversation, a separate step will use our discussion as source material to generate the story setup.
 
 $language_instruction
 
 # Questioning Phase
 
 Ask one question at a time. Here are some dimensions to explore — use them as a guide, not a checklist. Do NOT reveal specific plot events or spoil story content:
+- Story length — ask whether the user wants $story_length_hint key chapters.
 - World setting (era, location, tech/magic level, society)
 - Protagonist (name, gender, identity, personality traits, background)
 - Story tone (dark/light, epic/personal, serious/humorous)
 - Conflict direction (core tension — describe it as a question the story explores)
-- Story length (short ~10 rounds / medium ~20 rounds / long ~40 rounds)
 
 **After each question, offer 2-3 example answers as numbered suggestions** — these help the user express themselves, but they are free to write their own answer. Format:
-```
 [1] example answer one
 [2] example answer two
 [3] example answer three
 $own_answer_hint
-```
+
+# Important Rules
+
+- Do NOT generate story content, narrative, or outlines during this phase. Your only job is to ask questions and understand the player's preferences.
+- There is no fixed number of questions — continue the conversation naturally. The player decides when to move to generation.
+- Do NOT summarize or conclude the conversation on your own. Keep asking until the player signals they are ready.
 
 Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.""")
 
 
 CO_CREATE_GENERATION_PROMPT = Template("""Based on our conversation above, generate the complete story setup.
 
-Output ALL THREE sections below in order. Use EXACTLY the format shown.
+# Rules
 
-## Section 1: story_config
+## Variables
+- ≤3 variables total. ≤2 numeric (number), ≤1 string.
+- Numeric: range [0, 100]. Use for health, trust, sanity, etc.
+- String: for status markers, faction affiliation, etc.
+- Fewer is better. Only create variables that will drive branching or gate choices.
 
-```
+Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
+  Romance → affection
+  Mystery → clues_progress
+  Cyberpunk → implant_integrity
+  Wuxia → inner_power
+  Horror → sanity
+
+## Outline
+- Node count by tier: $node_count_hint. Your outline must match your declared tier.
+- Each node's goal provides a specific overview of the chapter's main content. 2-4 sentences, more is fine.
+- Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
+- Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
+- node_id format: ch{number}_{english_abbreviation}
+
+# Output Format
+
+Your response must contain exactly three blocks separated by `===` markers.
+Output ONLY the blocks — no markdown headings, no commentary before or after.
+
 === story_config ===
 genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
 tier: {short / medium / long}
@@ -498,46 +520,15 @@ conflict: {one sentence, core tension}
 characters:
   {name} | {role} | {relationship to protagonist}
   (at least 1)
-```
 
-## Section 2: variables
-
-Design state variables for this story. Rules:
-- ≤3 variables total. ≤2 numeric (number), ≤1 label (string/list).
-- Numeric: range [0, 100]. Use for health, trust, sanity, etc.
-- String: for status markers, faction affiliation, etc.
-- List: elements are strings. For inventory, clues, skills, etc.
-- Fewer is better. Only create variables that will drive branching or gate choices.
-
-Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
-  Romance → affection
-  Mystery → clues_progress
-  Cyberpunk → implant_integrity
-  Wuxia → inner_power
-  Horror → sanity
-
-```
 === variables ===
-体力: number, 80
-信任度: number, 10
-所属势力: string, 自由佣兵
-```
+$example_variables
 
-## Section 3: outline
-
-Design a directed graph of key story nodes. Rules:
-- Node count by tier: short 3-5 / medium 5-8 / long 8-15
-- Each node has a clear narrative goal
-- Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
-- Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
-- node_id format: ch{number}_{english_abbreviation}
-
-```
 === outline ===
 [node]
 id: ch1_intro
 title: {node title}
-goal: {narrative goal of this node}
+goal: $example_goal
 routes: → ch2_next
 
 [node]
@@ -545,8 +536,8 @@ id: ch2_next
 title: {node title}
 goal: {narrative goal}
 routes:
-  if 信任度 >= 30 → ch3_path_a
-  if 信任度 < 30 → ch3_path_b
+  if $example_branch_var >= 30 → ch3_path_a
+  if $example_branch_var < 30 → ch3_path_b
 
 [node]
 id: ch3_path_a
@@ -565,16 +556,23 @@ id: ch4_ending
 title: {node title}
 goal: {narrative goal}
 routes:
-```
-
-Output all three sections in a single response. Do not add commentary before or after.""")
+""")
 
 
 # ── Exceptions ──────────────────────────────────────────────────────
 
-class CoCreationAborted(Exception):
-    """Raised when user chooses to abort co-creation and return to menu."""
-    pass
+@dataclass
+class CoCreateError(Exception):
+    """Serious error during co-creation — UI can retry or quit.
+
+    Mirrors the narrative phase's ``{"type": "error"}`` event pattern.
+    ``phase`` tells the UI which retry method to call:
+    ``"send"`` → ``CoCreateFlow.retry_send()``
+    ``"generate_api"`` → ``CoCreateFlow.retry_generate()``
+    ``"generate_parse"`` → ``CoCreateFlow.retry_generate()`` (adds correction)
+    """
+    phase: str
+    message: str
 
 
 # ── Result ───────────────────────────────────────────────────────────
@@ -605,9 +603,17 @@ class CoCreateFlow:
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
         meta = _LANG_META[lang]
+        node_count_hint = " / ".join(
+            f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
+        )
+        story_length_hint = " / ".join(
+            f"{tier} ~{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
+        )
         return CO_CREATE_SYSTEM_PROMPT.substitute(
             language_instruction=meta["instruction"],
             own_answer_hint=_("(or write your own answer)"),
+            node_count_hint=node_count_hint,
+            story_length_hint=story_length_hint,
         )
 
     @staticmethod
@@ -616,10 +622,17 @@ class CoCreateFlow:
         lang = get_current_lang()
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
-        meta = _LANG_META[lang]
+        meta = _LANG_META.get(lang, _LANG_META[DEFAULT_LANGUAGE])
+        node_count_hint = " / ".join(
+            f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
+        )
         return CO_CREATE_GENERATION_PROMPT.substitute(
             label_hint=meta["label_hint"],
             language=lang,
+            node_count_hint=node_count_hint,
+            example_variables=meta["example_variables"],
+            example_goal=meta["example_goal"],
+            example_branch_var=meta["example_branch_var"],
         )
 
     def __init__(self, api_client: ApiClient):
@@ -629,6 +642,8 @@ class CoCreateFlow:
         ]
         self._phase: str = "init"
         self._result: CoCreationResult | None = None
+        self._retry_state: tuple[str, str] | None = None
+        # ("send", user_input) | ("generate_api", "") | ("generate_parse", error_desc)
 
     @property
     def messages(self) -> list[dict]:
@@ -672,12 +687,16 @@ class CoCreateFlow:
     def abort(self) -> None:
         """Abort co-creation immediately."""
         self._phase = "aborted"
+        self._retry_state = None
 
     def send(self, user_input: str) -> str:
         """Send user input to LLM, return reply text.
 
         Pure message forward — no keyword detection, no phase
         transitions.  The UI decides when to call generate() or abort().
+
+        On API failure, raises ``CoCreateError`` (phase="send") and
+        saves ``_retry_state`` so the UI can call ``retry_send()``.
 
         Args:
             user_input: The user's message text.  Must be non-empty.
@@ -688,6 +707,7 @@ class CoCreateFlow:
         Raises:
             RuntimeError: If called before start() or after abort.
             ValueError: If user_input is empty.
+            CoCreateError: On API failure (UI can retry with retry_send()).
         """
         if self._phase == "init":
             raise RuntimeError("call start() first before send()")
@@ -700,37 +720,66 @@ class CoCreateFlow:
 
         self._messages.append({"role": "user", "content": stripped})
 
-        # API call with silent retry (up to 3 attempts)
-        for attempt in range(3):
-            try:
-                response = self._api.chat(self._messages)
-                break
-            except Exception:
-                if attempt == 2:
-                    self._messages.pop()
-                    raise RuntimeError(
-                        f"API call failed after 3 retries"
-                    )
-                continue
+        try:
+            response = self._api.chat(self._messages)
+        except ApiError as e:
+            # Save retry state — user message stays in _messages for retry
+            self._retry_state = ("send", stripped)
+            raise CoCreateError(
+                phase="send",
+                message=f"API call failed: {e}",
+            ) from e
 
         self._messages.append({"role": "assistant", "content": response})
         self._phase = "awaiting_answer"
         return response
 
+    def retry_send(self) -> str:
+        """Re-attempt the last failed ``send()`` API call.
+
+        The user message is still in ``_messages`` (not popped on failure),
+        so we just re-call the API with the same messages array.
+
+        Returns:
+            LLM reply text.
+
+        Raises:
+            RuntimeError: If no failed send to retry.
+            CoCreateError: If the API call fails again (keeps
+                           ``_retry_state`` for another attempt).
+        """
+        if self._retry_state is None or self._retry_state[0] != "send":
+            raise RuntimeError(
+                "No failed send to retry — the last send() completed "
+                "successfully or retry_send() was already called successfully."
+            )
+        try:
+            response = self._api.chat(self._messages)
+        except ApiError as e:
+            raise CoCreateError(
+                phase="send",
+                message=f"API call failed: {e}",
+            ) from e
+
+        self._messages.append({"role": "assistant", "content": response})
+        self._phase = "awaiting_answer"
+        self._retry_state = None
+        return response
+
     def generate(self) -> CoCreationResult:
         """Inject generation prompt, call LLM, parse and validate.
 
-        Appends CO_CREATE_GENERATION_PROMPT as a user message, calls the
-        API, then parses the response into story_config + variables +
-        outline.  Auto-retries on API failure (3 attempts) and on
-        parse/validation failure (MAX_RETRIES attempts).
+        Appends ``CO_CREATE_GENERATION_PROMPT`` as a user message, calls
+        the API once, then parses the response.  On API failure or
+        parse/validation failure, raises ``CoCreateError`` and saves
+        ``_retry_state`` so the UI can call ``retry_generate()``.
 
         Returns:
             CoCreationResult with story_config, outline_text, outline_nodes.
 
         Raises:
             RuntimeError: If not in awaiting_answer phase.
-            CoCreationAborted: If API or validation fails after all retries.
+            CoCreateError: On API or validation failure (UI can retry).
         """
         if self._phase != "awaiting_answer":
             raise RuntimeError(
@@ -741,108 +790,160 @@ class CoCreateFlow:
         gen_prompt = self._build_generation_prompt()
         self._messages.append({"role": "user", "content": gen_prompt})
 
-        # API call with silent retry (up to 3 attempts)
-        response = None
-        for attempt in range(3):
-            try:
-                response = self._api.chat(self._messages)
-                break
-            except Exception:
-                if attempt == 2:
-                    raise CoCreationAborted()
-                continue
-
-        self._messages.append({"role": "assistant", "content": response})
-
-        # Parse with auto-retry on validation failure
-        for parse_attempt in range(MAX_RETRIES + 1):
-            blocks = CoCreateParser.split_blocks(response)
-
-            # story_config
-            try:
-                story_config = CoCreateParser.parse_story_config(
-                    blocks["story_config"]
-                )
-            except ValueError as e:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Previous story_config had errors: {e}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            # variables
-            variables = CoCreateParser.parse_variables(blocks["variables"])
-            var_errors = CoCreateParser.validate_variables(variables)
-            if var_errors:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Previous variables had errors: "
-                        f"{'; '.join(var_errors)}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            # outline
-            try:
-                outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
-            except ValueError as e:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Previous outline had errors: {e}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            var_names_list = [v["name"] for v in variables]
-            outline_errors = CoCreateParser.validate_outline(
-                outline_nodes, var_names_list
-            )
-            if outline_errors:
-                if parse_attempt < MAX_RETRIES:
-                    response = self._retry_generation(
-                        f"Outline has errors: "
-                        f"{'; '.join(outline_errors)}"
-                    )
-                    continue
-                raise CoCreationAborted()
-
-            # All validations passed
-            story_config["variables"] = variables
-            outline_text = CoCreateParser.format_outline(outline_nodes)
-
-            self._phase = "complete"
-            self._result = CoCreationResult(
-                story_config=story_config,
-                outline_text=outline_text,
-                outline_nodes=outline_nodes,
-            )
-            return self._result
-
-        raise CoCreationAborted()
-
-    def _retry_generation(self, error_desc: str) -> str:
-        """Append a correction prompt and call the LLM again.
-
-        Args:
-            error_desc: Human-readable description of what was wrong.
-
-        Returns:
-            New LLM response string.
-
-        Raises:
-            CoCreationAborted: If the API call fails.
-        """
-        self._messages.append({
-            "role": "user",
-            "content": (
-                f"{error_desc}\n"
-                f"Please fix and regenerate all three sections."
-            ),
-        })
+        # API call (single attempt — no auto-retry)
         try:
             response = self._api.chat(self._messages)
-        except Exception:
-            raise CoCreationAborted()
+        except ApiError as e:
+            self._retry_state = ("generate_api", "")
+            raise CoCreateError(
+                phase="generate_api",
+                message=f"Generation API call failed: {e}",
+            ) from e
+
         self._messages.append({"role": "assistant", "content": response})
-        return response
+
+        # Parse once — on failure, save retry state for user to retry
+        try:
+            return self._parse_generation(response)
+        except CoCreateError:
+            raise  # re-raise (retry state already set by _parse_generation)
+        except Exception as e:
+            # Unexpected error during parsing — treat as parse failure
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Parse failed: {e}",
+            ) from e
+
+    def _parse_generation(self, response: str) -> CoCreationResult:
+        """Parse and validate a generation response.
+
+        When validation fails, sets ``_retry_state`` and raises
+        ``CoCreateError`` so the UI can call ``retry_generate()``.
+
+        Returns:
+            CoCreationResult on success.
+
+        Raises:
+            CoCreateError: On any parse or validation failure.
+        """
+        blocks = CoCreateParser.split_blocks(response)
+
+        # story_config
+        try:
+            story_config = CoCreateParser.parse_story_config(
+                blocks["story_config"]
+            )
+        except ValueError as e:
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"story_config error: {e}",
+            ) from e
+
+        # variables
+        variables = CoCreateParser.parse_variables(blocks["variables"])
+        var_errors = CoCreateParser.validate_variables(variables)
+        if var_errors:
+            err_text = "; ".join(var_errors)
+            self._retry_state = ("generate_parse", err_text)
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Variables error: {err_text}",
+            )
+
+        # outline
+        try:
+            outline_nodes = CoCreateParser.parse_outline(blocks["outline"])
+        except ValueError as e:
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Outline parse error: {e}",
+            ) from e
+
+        var_names_list = [v["name"] for v in variables]
+        outline_errors = CoCreateParser.validate_outline(
+            outline_nodes, var_names_list
+        )
+        if outline_errors:
+            err_text = "; ".join(outline_errors)
+            self._retry_state = ("generate_parse", err_text)
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Outline validation error: {err_text}",
+            )
+
+        # All validations passed
+        story_config["variables"] = variables
+        outline_text = CoCreateParser.format_outline(outline_nodes)
+
+        self._phase = "complete"
+        self._retry_state = None
+        self._result = CoCreationResult(
+            story_config=story_config,
+            outline_text=outline_text,
+            outline_nodes=outline_nodes,
+        )
+        return self._result
+
+    def retry_generate(self) -> CoCreationResult:
+        """Re-attempt the last failed ``generate()``.
+
+        For API failures (phase="generate_api"), re-sends the same
+        messages array.  For parse/validation failures
+        (phase="generate_parse"), appends a correction prompt before
+        calling the API.
+
+        Returns:
+            CoCreationResult on success.
+
+        Raises:
+            RuntimeError: If no failed generation to retry.
+            CoCreateError: If the API or parse fails again (keeps
+                           ``_retry_state`` for another attempt).
+        """
+        if self._retry_state is None or self._retry_state[0] not in (
+            "generate_api", "generate_parse"
+        ):
+            raise RuntimeError(
+                "No failed generate to retry — the last generate() "
+                "completed successfully, or retry_generate() was already "
+                "called successfully."
+            )
+
+        phase, error_desc = self._retry_state
+
+        # For parse failures, append correction prompt
+        if phase == "generate_parse" and error_desc:
+            self._messages.append({
+                "role": "user",
+                "content": (
+                    f"Previous generation had errors: {error_desc}\n"
+                    f"Please fix and regenerate all three sections."
+                ),
+            })
+
+        # API call (single attempt)
+        try:
+            response = self._api.chat(self._messages)
+        except ApiError as e:
+            self._retry_state = ("generate_api", "")
+            raise CoCreateError(
+                phase="generate_api",
+                message=f"Generation API call failed: {e}",
+            ) from e
+
+        self._messages.append({"role": "assistant", "content": response})
+
+        # Parse — on failure, retry state is re-set by _parse_generation
+        try:
+            return self._parse_generation(response)
+        except CoCreateError:
+            raise
+        except Exception as e:
+            self._retry_state = ("generate_parse", str(e))
+            raise CoCreateError(
+                phase="generate_parse",
+                message=f"Parse failed: {e}",
+            ) from e

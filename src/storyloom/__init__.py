@@ -7,6 +7,7 @@ from storyloom.core.game_loop import GameLoop, GameState, RoundResult, RoundReco
 from storyloom.core.prompt_builder import PromptBuilder
 from storyloom.core.save_manager import SaveManager
 from storyloom.core.session import GameSession
+from storyloom.user_config import UserConfig
 
 from storyloom.parser import ParsedOutput, ParseError, Segment
 
@@ -26,6 +27,7 @@ __all__ = [
     "RoundResult",
     "SaveManager",
     "Segment",
+    "UserConfig",
 
     "WINDOW_SIZE",
 ]

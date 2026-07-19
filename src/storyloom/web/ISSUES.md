@@ -80,21 +80,21 @@
 
 ## Issue #9: CoCreateParser 不接受 Markdown 代码围栏
 
-**状态**：✅ 已修复（引擎侧）
+**状态**：⏳ 待引擎侧修复（已撤销 UI 分支中的引擎修改）
 
 **现象**：LLM 输出 `=== variables ===` 区块时包裹 Markdown 围栏 ` ``` `，`CoCreateParser.parse_variables()` 无法解析。三次测试三次必现。
 
-**修复**：`co_create.py:split_blocks()` 添加 `_FENCE_RE`，跳过 ` ``` ` 行。
+**计划**：应作为独立引擎 PR 提交，由引擎开发者审查后合并。
 
 ---
 
 ## Issue #10: CoCreateParser 不接受 `|` 分隔符
 
-**状态**：✅ 已修复（引擎侧）
+**状态**：⏳ 待引擎侧修复（已撤销 UI 分支中的引擎修改）
 
 **现象**：LLM 输出 `好感度 | number | 30`（用 `|` 分隔），parser 只接受 `好感度: number, 30`（用 `:` 和 `,` 分隔）。
 
-**修复**：`co_create.py:parse_variables()` 增加 `VAR_LINE_RE_PIPE` 正则兼容 `|` 格式。
+**计划**：应作为独立引擎 PR 提交，由引擎开发者审查后合并。
 
 ---
 

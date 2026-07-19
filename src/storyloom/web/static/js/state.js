@@ -71,6 +71,13 @@ const T = {
         "outline": "大纲",
         "nodes": "个节点",
         "start_adventure": "开始冒险",
+        "confirm_generate_story": "确定要生成故事设定吗？生成后将无法再修改故事想法。",
+        "yes_generate": "是，生成设定",
+        "confirm_quit_cocreate": "确定要退出吗？当前共创进度将不会保存。",
+        "yes_quit": "是，退出",
+        "no_continue_edit": "否，继续编辑",
+        "custom_input_placeholder": "或输入自定义操作... (Enter 确认)",
+        "continue_text": "▶ 继续",
     },
     "en": {
         "new_game": "New Game",
@@ -113,6 +120,13 @@ const T = {
         "outline": "Outline",
         "nodes": "nodes",
         "start_adventure": "Start Adventure",
+        "confirm_generate_story": "Generate the story setup? You won't be able to modify your ideas after this.",
+        "yes_generate": "Yes, Generate",
+        "confirm_quit_cocreate": "Quit co-creation? All progress will be lost.",
+        "yes_quit": "Yes, Quit",
+        "no_continue_edit": "No, Continue Editing",
+        "custom_input_placeholder": "Or type a custom action... (Enter to confirm)",
+        "continue_text": "▶ Continue",
     },
 };
 

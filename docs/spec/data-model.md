@@ -17,15 +17,11 @@
 game_state = GameState()
 game_state.story_config   = story_config           // CoCreationResult.story_config（含 variables）
 game_state.state_vars     = init_from_variables(story_config.variables)  // 初始值深拷贝
-game_state.outline        = outline                // CoCreationResult.outline_nodes（含 outline_text）
-  → 第一个节点 status = "active"，其余 = "pending"
-game_state.progress = {
-    current_node:         outline[0].node_id,
-    round_count:          0,
-    checkpoint_history:   [],
-    checkpoint_summaries: [],
-    checkpoint_snapshots: {}
-}
+game_state.outline        = outline                // CoCreationResult.outline_nodes
+  → 每个节点含 id / title / goal / routes / status / summary
+  → 第一个节点 status = "active"，其余 = "pending"，summary 初始为空
+game_state.current_node   = outline[0].node_id     // 当前活跃节点
+game_state.checkpoint_snapshots = {}               // 节点状态快照（为回档预留）
 game_state.bridge_text    = ""                     // 首轮为空
 game_state.rejected_changes = []
 
@@ -51,11 +47,12 @@ game_state.rejected_changes = []
    ├── 否 → 记日志，忽略该 checkpoint，继续
    └── 是
 
-3. 标记旧 current_node 为 "completed"
+3. 将旧 current_node 的 status 标记为 "completed"，同时将本轮 checkpoint
+   的 summary 记录到该节点的 summary 字段
 
 4. 若有 if 条件行：
    逐条评估（按物理顺序，取首个命中）。
-   条件中的变量名按优先级解析（choice_dict > state_vars，见 block-spec.md §2）：
+   条件中的变量名按优先级解析（choice_dict > state_vars，见 block-spec.md §3）：
      if 条件 -> route <target_node_id>
      ├── 条件命中 → 目标节点 = target_node_id
      ├── 条件中引用的变量不存在 → 条件求值为 False，进入 fallback 链
@@ -64,13 +61,11 @@ game_state.rejected_changes = []
 
    若无分支 → 目标节点 = outline 中下一个节点
 
-5. 标记目标节点为 "active"，更新 progress.current_node
+5. 标记目标节点的 status 为 "active"，更新 current_node
 
-6. 存入 checkpoint_summaries（summary 字段）
+6. 存储 checkpoint_snapshots[current_node] = deep_copy(state_vars)
 
-7. 存储 checkpoint_snapshots[current_node] = deep_copy(state_vars)
-
-8. 触发自动存档 → 覆盖 saves/{label}.json（原子写入，见 §3.3）
+7. 触发自动存档（见 §3.3）
 ```
 
 **兜底策略说明**：分支条件全部不命中 → 取 LLM 列出的第一个分支。这要求 LLM 按优先级排列分支条件。
@@ -79,90 +74,54 @@ game_state.rejected_changes = []
 
 ## §3 存档系统
 
-### 3.1 存档文件结构
+### 3.1 目录结构
 
-`saves/` 目录下每个 `.json` 文件代表一次完整游玩。文件名来源于 `story_config.label`（重名追加 `_2`、`_3`）。
+`saves/` 下每个游戏拥有独立的子目录，目录名格式为 `{label}_{compact_ts}`（`compact_ts` 为紧凑 UTC 时间戳，不含文件系统非法字符，确保唯一性与跨平台兼容）。每个游戏目录内可包含多个存档文件：
 
-核心结构：
 ```
-{
-  version: 1,
-  metadata: { label, created_at, updated_at, round_count },
-  config: { temperature, ... },          // 不存储模型标识，模型以 .env 为准
-  story_config: { ..., variables: [...] },
-  state_vars: { ... },
-  outline: [{ node_id, title, goal, status, branches[] }],
-  progress: {
-    current_node, round_count,
-    checkpoint_history[], checkpoint_summaries[], checkpoint_snapshots{}
-  },
-  bridge_text: "..."
-}
+saves/
+  my_story_20260717T120000Z/
+    _init.json                           # 共创完成时创建
+    初次相遇_20260717T120500Z.json        # checkpoint 存档（追加，不覆盖）
+    关键抉择_20260717T121530Z.json
+    ...
 ```
 
-> **概念区分**：「游戏存档」是 `saves/` 下的文件；「checkpoint 快照」是存档内部的 `checkpoint_snapshots`。
+- **`_init.json`**：元存档。共创阶段完成后立即写入。新游戏和 checkpoint 存档共享完全相同的 JSON 结构，由统一的加载路径读取。
+- **Checkpoint 存档**：每次到达 checkpoint 时追加写入新文件，文件名格式 `{cp_title}_{timestamp}.json`（紧凑 UTC 时间戳），永不覆盖。玩家可回溯到任意历史关键节点。
+- **存档内容结构**：所有存档文件（含 `_init.json`）共享同一 JSON 结构——`version`、`metadata`、`config`、`story_config`（含 `variables`）、`state_vars`、`outline`（含节点状态）、`progress`（含 checkpoint 历史/摘要/快照）。
 
-**存档命名**：文件名来源于 `story_config.label`。非法字符（`/` `\` `:` `*` `?` `"` `<` `>` `|`）替换为 `_`。重名时追加 `_2`、`_3`（取最小未占用编号）。统一存放在 `SAVE_DIR` 下。
+> **概念区分**：「游戏存档」是游戏目录下的 JSON 文件；「checkpoint 快照」是存档内部的 `checkpoint_snapshots`（为 Phase 2 回档预留，Phase 1 仅存储不读取）。
 
-### 3.2 自动存档时机
+### 3.2 存档时机
 
 **仅在 checkpoint 到达时触发**（§2 步骤 8）。不设手动存档、不在每轮结束时存档。
 
 | 触发条件 | 行为 |
 |----------|------|
-| `<checkpoint>` 的 `node` 属性被成功处理 | 覆盖 `saves/{label}.json` |
+| `<checkpoint>` 的 `node` 属性被成功处理 | 追加写入新存档文件（不覆盖已有文件） |
+| 共创阶段完成 | 写入 `_init.json`（元存档） |
 | 其他时机 | 不存档 |
 
 ### 3.3 原子写入
 
-```
-1. 序列化 GameState → JSON 字符串（indent=2，确保可读）
-2. 确保 SAVE_DIR 存在（不存在则 os.makedirs）
-3. 写入临时文件：saves/{label}.tmp
-4. os.replace(tmp, saves/{label}.json)   // 原子 rename，跨平台安全
-```
+所有存档文件通过临时文件 + `os.replace` 实现原子写入——先写 `{filename}.tmp`，再原子 rename 到目标文件。整个过程不涉及 LLM，仅本地文件操作。
 
-> 整个过程不涉及 LLM，仅本地文件操作。
+### 3.4 加载与校验
 
-### 3.4 存档加载流程
+加载时校验：version 匹配 → 顶层必需字段存在 → `story_config` 含 `variables` → `current_node` 在 `outline` 中存在。任一校验失败判定为存档损坏——删除损坏文件并向上报告。
 
-```
-load_save(filepath):
-  1. 读取 + JSON 解析
-     ├── 解析失败 → 存档损坏（JSON 不合法）
-
-  2. 校验 version 字段存在且 == 1
-     ├── 不匹配 → 存档损坏（版本不支持）
-
-  3. 校验关键字段存在：
-     story_config (含 variables), state_vars, outline, progress
-     ├── 任一缺失 → 存档损坏（结构不完整）
-
-  4. 校验 progress.current_node 指向的 node_id 在 outline 中存在
-     ├── 不存在 → 存档损坏（数据不一致）
-
-  5. 校验通过 → 构建 GameState：
-     ├── 状态变量值以存档为准（story_config.variables 提供类型定义用于运行时校验）
-     ├── outline 节点状态以存档为准
-     └── config（temperature 等）以存档为准，模型以 .env 为准
-
-  6. 返回 GameState → 进入叙事循环（见 exec-flow.md §4）
-
-  以上任一校验失败 → 存档损坏（致命），永久失效，提示用户后删除文件并返回主菜单。
-```
-
-> **变量自包含**：存档自包含——一次游戏创建后，其变量定义（`story_config.variables`）、大纲结构均以存档为准。运行时校验 state 变更的类型合法性时，以存档内的 `story_config.variables` 为类型定义来源。
+存档自包含——变量定义（`story_config.variables`）、大纲结构均以存档文件为准。运行时校验 state 变更的类型合法性时，以存档内的 `story_config.variables` 为类型定义来源。模型配置以当前应用设置为准。
 
 ### 3.5 存档字段说明
 
 | 字段 | 存储时机 | 说明 |
 |------|---------|------|
-| `metadata.label` | 共创结束后首次存档时写入 | 来源于 `story_config.label` |
-| `metadata.created_at` | 首次存档时写入 | 之后不变 |
-| `metadata.updated_at` | 每次覆盖存档时更新 | |
-| `metadata.round_count` | 每次覆盖存档时更新 | = 当前 `progress.round_count` |
+| `metadata.label` | 共创结束后首次写入 | 来源于 `story_config.label` |
+| `metadata.created_at` | 首次写入时设定 | 之后不变 |
+| `metadata.updated_at` | 每次写入时更新 | |
+| `outline` | 每次 checkpoint 时更新 | 每个节点含 id / title / goal / status / summary / routes。status 标记推进状态，summary 在 checkpoint 时写入当前节点 |
 | `progress.checkpoint_snapshots` | 每次 checkpoint 时追加 | 为 Phase 2 回档预留，Phase 1 仅存储不读取 |
-| `bridge_text` | 每次覆盖存档时更新 | 加载后作为首轮 User Message |
 
 ---
 
@@ -181,12 +140,13 @@ load_save(filepath):
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `MAX_RETRIES` | 2 | 格式解析/校验失败后的最大重试次数（所有 LLM 调用共用） |
-| `STORY_LABEL_MIN_CHARS` | 5 | 故事标签最短字符数 |
+| `STORY_LABEL_MIN_CHARS` | 1 | 故事标签最短字符数 |
 | `STORY_LABEL_MAX_CHARS` | 15 | 故事标签最长字符数 |
 | `VARIABLE_CAP` | 3 | 变量总数上限（per 2026-07-05 variable-cap spec） |
 | `VARIABLE_NUMERIC_CAP` | 2 | number 型变量上限 |
-| `VARIABLE_LABEL_CAP` | 1 | string/list 型变量上限 |
+| `VARIABLE_LABEL_CAP` | 1 | string 型变量上限 |
+| `SUPPORTED_LANGUAGES` | `{"zh-CN", "en"}` | 支持的语言集合 |
+| `DEFAULT_LANGUAGE` | `"zh-CN"` | 默认语言（语言未指定或不受支持时的 fallback） |
 
 ### A.3 故事规模档位
 
@@ -225,7 +185,7 @@ load_save(filepath):
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `DEFAULT_MODEL` | `"deepseek-v4-pro"` | 默认模型标识。可通过 `.env` 的 `DEEPSEEK_MODEL` 覆盖 |
+| `DEFAULT_MODEL` | `"deepseek-v4-pro"` | 默认模型标识。可通过 `.env` 的 `LLM_MODEL` 覆盖 |
 | `STREAM_STALL_TIMEOUT_SEC` | 180 | 流式输出停顿超时秒数。当前 context ~50K tokens 时 TTFT 通常 10-30s，180s 提供充足 margin |
 | `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏。定义于 `config.py` |
 
@@ -253,10 +213,10 @@ load_save(filepath):
 | 2 | **XML 元素名** | 全部英文（`<seg>`、`<checkpoint>` 等） |
 | 3 | **变量命名** | 状态变量名、choice 名使用中文 |
 | 4 | **XML 转义** | narrative 正文中的 `<` `>` `&` 必须转义为 `&lt;` `&gt;` `&amp;` |
-| 5 | **重试策略** | 共创 `send()` 与 `generate()` 内 API 失败自动重试 3 次后抛出异常；格式/校验错误最多 `MAX_RETRIES` 次附带纠正提示重试 |
+| 5 | **重试策略** | 所有阶段 API 调用失败均不自动重试——由引擎向 UI 报告错误，用户手动决定重试或退出 |
 | 6 | **用户决策** | 重试耗尽等异常——告知用户具体信息，由用户选择（重试 / 继续 / 返回主菜单） |
 | 7 | **错误隔离** | state 逐条校验、options 逐行解析——单条失败不影响同轮其余有效条目 |
-| 8 | **静默错误** | 微小校验错误（list 增删不存在元素、number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
+| 8 | **静默错误** | 微小校验错误（number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
 | 9 | **常量引用** | 统一使用 §A 中定义的常量名，禁止在业务代码中硬编码数值 |
 | 10 | **编号宽容** | 叙事段编号偏差（跳号、重复、起始非 1）不触发重试——内容质量优先于编号准确性 |
 | 11 | **存档原子写入** | 先写 `{label}.tmp`，再 `os.replace` 到目标文件 |

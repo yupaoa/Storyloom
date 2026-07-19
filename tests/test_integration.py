@@ -21,14 +21,14 @@ SAMPLE_STORY = {
     ],
 }
 
-SAMPLE_OUTLINE = """ch1_bar [completed] — 霓虹深渊：在酒吧获取情报
-  → ch2_confrontation [active]
-ch2_confrontation [active] — 地下交易：与耗子会面
+SAMPLE_OUTLINE = """ch1_bar [active] — 霓虹深渊
+  → ch2_confrontation [pending]
+ch2_confrontation [pending] — 地下交易
   ├→ ch3_ally [pending]
   └→ ch3_betrayal [pending]
-ch3_ally [pending] — 盟友之路：通过地下网络逃离
-ch3_betrayal [pending] — 背叛之路：杀出重围
-ch4_safehouse [pending] — 安全屋：揭开芯片秘密（结局）"""
+ch3_ally [pending] — 盟友之路
+ch3_betrayal [pending] — 背叛之路
+ch4_safehouse [pending] — 安全屋"""
 
 ROUND1_OUTPUT = """<story>
 <seg>霓虹灯在潮湿的巷道地面上投下破碎的倒影。</seg>
@@ -87,7 +87,8 @@ class TestIntegration:
 
         # Round 1
         r1_prompt = pb.build_round1(
-            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易"
+            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易",
+            {"体力": 80, "信任度": 10},
         )
         sp1 = StreamingXmlParser()
         for line in ROUND1_OUTPUT.split("\n"):
@@ -103,10 +104,11 @@ class TestIntegration:
         bridge1 = cm.get_last_bridge_text()
         assert len(bridge1) > 0
         r2_prompt = pb.build_round_n(
+            outline_text=SAMPLE_OUTLINE,
             current_node="ch3_ally",
             goal="与耗子前往安全屋",
-            completed_nodes=["ch1_bar", "ch2_confrontation"],
             state_vars={"体力": 80, "信任度": 15},
+            variables=SAMPLE_STORY["variables"],
             bridge_text=bridge1,
         )
         sp2 = StreamingXmlParser()
@@ -154,7 +156,8 @@ class TestIntegration:
         cm = ContextManager()
 
         r1 = pb.build_round1(
-            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子交易"
+            SAMPLE_STORY, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子交易",
+            {"体力": 80, "信任度": 10},
         )
         cm.set_round1(r1, ROUND1_OUTPUT)
 
@@ -177,14 +180,20 @@ class TestIntegration:
         for line in ROUND1_OUTPUT.split("\n"):
             sp.feed_line(line)
         cm.set_round1(
-            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易"),
+            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易", {"体力": 80, "信任度": 10}),
             ROUND1_OUTPUT,
             bridge_text=sp.get_bridge_text(),
         )
 
         bridge1 = cm.get_last_bridge_text()
-        r2 = pb.build_round_n("ch3", "前往安全屋", ["ch1", "ch2"],
-                              {"体力": 80, "信任度": 15}, bridge1)
+        r2 = pb.build_round_n(
+            outline_text=SAMPLE_OUTLINE,
+            current_node="ch3",
+            goal="前往安全屋",
+            state_vars={"体力": 80, "信任度": 15},
+            variables=SAMPLE_STORY["variables"],
+            bridge_text=bridge1,
+        )
         assert "信用棒" in r2 or "耗子" in r2
 
     def test_compression_format(self):
@@ -198,7 +207,7 @@ class TestIntegration:
         for line in ROUND1_OUTPUT.split("\n"):
             sp.feed_line(line)
         cm.set_round1(
-            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易"),
+            pb.build_round1(SAMPLE_STORY, SAMPLE_OUTLINE, "ch2", "交易", {"体力": 80, "信任度": 10}),
             ROUND1_OUTPUT,
             bridge_text=sp.get_bridge_text(),
         )

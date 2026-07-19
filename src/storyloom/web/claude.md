@@ -92,13 +92,6 @@ src/storyloom/web/
 
 引擎输出为 `{branch_name: condition_string | null}` 的 **dict**。前端 `showChoices()` 用 `conds[branch]` 取值，**不能**当数组用 `.every()`。
 
-### 引擎侧修改
-
-经用户同意，修改了 `core/co_create.py` 两处：
-
-1. `split_blocks()` — 跳过 Markdown 代码围栏 ` ``` ` 行（LLM 稳定输出此格式）
-2. `parse_variables()` — 兼容 `|` 分隔符（LLM 输出 `好感度 | number | 30`）
-
 ### SSE close() 安全
 
 `SSEClient.close()` 手动调用 `_resolve("closed")`，不依赖 `onerror` 触发（关闭时间早于 onerror 触发时间，导致 Promise 永不 resolve）。

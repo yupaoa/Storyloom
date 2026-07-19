@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "storyloom"
+version = "0.1.0"
+description = "AI-powered interactive text fiction game engine"
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.28.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "--ignore=tests/prompt_lab"
