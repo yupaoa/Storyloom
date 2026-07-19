@@ -501,6 +501,11 @@ button.accent:hover, .btn-accent:hover {
     flex-direction: column;
     gap: 0.8rem;
     background: var(--bg-primary);
+    scrollbar-width: none;          /* Firefox */
+    -ms-overflow-style: none;       /* IE / old Edge */
+}
+.cc-messages::-webkit-scrollbar {
+    display: none;                  /* Chrome / Safari */
 }
 
 .cc-message {
@@ -641,75 +646,3 @@ button.accent:hover, .btn-accent:hover {
     box-shadow: none;
 }
 
-/* ── Confirm dialog ──────────────────────────────────────────── */
-
-.cc-confirm-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 200;
-    animation: fadeIn 0.15s ease;
-}
-
-.cc-confirm-box {
-    background: var(--bg-panel);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 2rem 2.2rem;
-    min-width: 360px;
-    max-width: 440px;
-    text-align: center;
-}
-
-.cc-confirm-box h3 {
-    font-family: var(--font-mono);
-    color: var(--text-accent);
-    font-size: 1.1rem;
-    margin-bottom: 0.6rem;
-}
-
-.cc-confirm-box p {
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-    margin-bottom: 1.5rem;
-    line-height: 1.5;
-}
-
-.cc-confirm-buttons {
-    display: flex;
-    gap: 0.8rem;
-    justify-content: center;
-}
-
-.cc-confirm-yes {
-    padding: 0.5rem 1.6rem;
-    border: 1px solid var(--text-accent);
-    border-radius: 6px;
-    background: var(--text-accent);
-    color: var(--bg-primary);
-    font-family: var(--font-mono);
-    font-size: 0.9rem;
-    cursor: pointer;
-}
-
-.cc-confirm-yes:hover {
-    box-shadow: 0 0 10px rgba(78, 204, 163, 0.4);
-}
-
-.cc-confirm-no {
-    padding: 0.5rem 1.6rem;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--button-bg);
-    color: var(--text-primary);
-    font-family: var(--font-mono);
-    font-size: 0.9rem;
-    cursor: pointer;
-}
-
-.cc-confirm-no:hover {
-    border-color: var(--text-secondary);
-}
