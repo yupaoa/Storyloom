@@ -34,6 +34,7 @@
         "menu": renderMenu,
         "co-create": renderCoCreate,
         "game": renderGame,
+        "game-init": renderGameInit,
         "saves": renderSaveList,
     };
 
@@ -401,6 +402,14 @@
 
     function renderCoCreate() {
         CoCreateView.render(app);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       View: Game Init (#game-init/{id}) — TEMPORARY (will be removed)
+       ═══════════════════════════════════════════════════════════════ */
+
+    function renderGameInit() {
+        app.innerHTML = `<div class="placeholder-view"></div>`;
     }
 
     /* ═══════════════════════════════════════════════════════════════

@@ -111,7 +111,7 @@ const CoCreateView = (function () {
         });
 
         $("#cc-back").addEventListener("click", _handleBack);
-        $("#cc-start").addEventListener("click", () => {});
+        $("#cc-start").addEventListener("click", _handleStart);
     }
 
     /* ── Back button — follows same gating as Start (via _setInputEnabled) ── */
@@ -123,6 +123,107 @@ const CoCreateView = (function () {
         try { await API.post("/api/co-create/abort"); } catch (_) { /* ok */ }
         _phase = "done";
         Router.navigate("menu");
+    }
+
+    /* ── Start button — Phase 1: generate story setup ────────────── */
+
+    async function _handleStart() {
+        if (_phase !== "chatting") return;
+
+        _phase = "generating";
+        _setInputEnabled(false);
+        _renderTransition();
+
+        try {
+            // Step 1: Generate story setup (co_create.py generate)
+            await API.post("/api/co-create/generate");
+
+            // Step 2: Create game + write _init.json save (GameSession.start_game)
+            const gameData = await API.post("/api/game/new");
+            GameState.gameId = gameData.game_id;
+            GameState.roundCount = gameData.round_count || 0;
+            GameState.currentNode = gameData.current_node || null;
+            Router.navigate(`game-init/${gameData.game_id}`);
+        } catch (err) {
+            _phase = "generating";
+            if (err.status === 502) {
+                // CoCreateError — retriable (generate or generate_parse failure)
+                _renderTransitionError(err.message, _retryGenerate);
+            } else {
+                _renderTransitionFatal(err.message);
+            }
+        }
+    }
+
+    /** Retry generation after a CoCreateError. */
+    async function _retryGenerate() {
+        _renderTransition();
+
+        try {
+            // Step 1: Retry generate
+            await API.post("/api/co-create/retry-generate");
+
+            // Step 2: Create game (GameSession.start_game)
+            const gameData = await API.post("/api/game/new");
+            GameState.gameId = gameData.game_id;
+            GameState.roundCount = gameData.round_count || 0;
+            GameState.currentNode = gameData.current_node || null;
+            Router.navigate(`game-init/${gameData.game_id}`);
+        } catch (err) {
+            if (err.status === 502) {
+                _renderTransitionError(err.message, _retryGenerate);
+            } else {
+                _renderTransitionFatal(err.message);
+            }
+        }
+    }
+
+    /* ── Transition phase rendering ────────────────────────────────── */
+
+    /** Render the centered transition screen with animated dots.
+     *  Reuses the existing cc-dots / cc-bounce animation design. */
+    function _renderTransition() {
+        _container.innerHTML = `
+            <div class="cc-transition">
+                <div class="cc-transition-text">
+                    <span>${esc(_("Generating settings"))}</span>
+                    <span class="cc-dots">
+                        <span>.</span><span>.</span><span>.</span>
+                    </span>
+                </div>
+            </div>
+        `;
+    }
+
+    /** Transition screen with error + Retry button. */
+    function _renderTransitionError(message, retryHandler) {
+        _container.innerHTML = `
+            <div class="cc-transition">
+                <div class="cc-transition-text" style="font-size:1.4rem; color:var(--text-error); margin-bottom:1.5rem;">
+                    ${esc(message)}
+                </div>
+                <button class="menu-btn" id="cc-transition-retry">${esc(_("Retry"))}</button>
+            </div>
+        `;
+        document.getElementById("cc-transition-retry").addEventListener("click", () => {
+            retryHandler();
+        });
+    }
+
+    /** Transition screen with fatal error + Back to Menu button. */
+    function _renderTransitionFatal(message) {
+        _phase = "done";
+        _container.innerHTML = `
+            <div class="cc-transition">
+                <div class="cc-transition-text" style="font-size:1.4rem; color:var(--text-error); margin-bottom:1.5rem;">
+                    ${esc(message)}
+                </div>
+                <button class="menu-btn" id="cc-transition-back">${esc(_("Back to Menu"))}</button>
+            </div>
+        `;
+        document.getElementById("cc-transition-back").addEventListener("click", () => {
+            Router.navigate("menu");
+        });
     }
 
     /* ── Send message ─────────────────────────────────────────────── */
@@ -266,9 +367,11 @@ const CoCreateView = (function () {
         const input = $("#cc-input");
         const sendBtn = $("#cc-send");
         const backBtn = $("#cc-back");
+        const startBtn = $("#cc-start");
         if (input) input.disabled = !enabled;
         if (sendBtn) sendBtn.disabled = !enabled;
         if (backBtn) backBtn.disabled = !enabled;
+        if (startBtn) startBtn.disabled = !enabled;
     }
 
     function _focusInput() {

@@ -665,3 +665,45 @@ button.accent:hover, .btn-accent:hover {
     box-shadow: none;
 }
 
+/* ── Transition Phase Screen ────────────────────────────────────── */
+/* Shown after clicking "Start" — centered large text with animated dots.
+   Reuses the existing cc-dots / cc-bounce animation from the typing
+   indicator, scaled up for the transition state.                      */
+
+.cc-transition {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: calc(100vh - 4rem);
+    max-width: 800px;
+    margin: 0 auto;
+    text-align: center;
+    animation: fadeIn 0.3s ease;
+}
+
+.cc-transition-text {
+    font-family: var(--font-sans);
+    font-size: 2.2rem;
+    color: var(--text-accent);
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+/* Scale up the existing cc-dots for the transition screen */
+.cc-transition .cc-dots {
+    font-size: 2.2rem;
+}
+
+.cc-transition .cc-dots span {
+    display: inline-block;
+    animation: cc-bounce 1.4s infinite ease-in-out both;
+    font-weight: bold;
+}
+
+.cc-transition .cc-dots span:nth-child(1) { animation-delay: 0s; }
+.cc-transition .cc-dots span:nth-child(2) { animation-delay: 0.2s; }
+.cc-transition .cc-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+

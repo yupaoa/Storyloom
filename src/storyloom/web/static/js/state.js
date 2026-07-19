@@ -81,6 +81,7 @@ const T = {
         "Type your answer...": "输入你的回答...",
         "Retry": "重试",
         "Thinking": "正在思考",
+        "Generating settings": "正在生成设定",
         /* Shared */
         "Loading...": "加载中...",
         "Save": "存档",
