@@ -195,16 +195,13 @@ const CoCreateView = (function () {
         _scrollToBottom();
     }
 
-    /** Show typing indicator with animated bouncing dots.  Idempotent — safe to call repeatedly. */
+    /** Show typing indicator with animated bouncing dots. */
     function _showTyping() {
-        _hideTyping();  // guard against duplicate indicators
         const msgs = $("#cc-messages");
         if (!msgs) return;
         const el = document.createElement("div");
         el.className = "cc-typing";
         el.id = "cc-typing-indicator";
-        el.setAttribute("role", "status");
-        el.setAttribute("aria-label", _("Thinking"));
         el.innerHTML = `<span>${esc(_("Thinking"))}</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
         msgs.appendChild(el);
         _scrollToBottom();
