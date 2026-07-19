@@ -6,6 +6,110 @@
 
 ---
 
+## 2026-07-19（周日）
+
+### Continue 功能完整实现 —— `.last_played.json` 追踪 + 自动恢复 + 存档 API
+
+**背景**：Web UI 主菜单的 Continue 按钮此前靠 `list_games()` 扫描 `saves/` 下所有目录的 `mtime` 来确定"最近玩过"的游戏——O(N) 扫描，且存在致命缺陷：`load_game()` 是只读操作（不产生新文件），加载存档后目录 mtime 不变 → Continue 无法识别刚加载的游戏为"最近玩过"。
+
+**决策**：引入 `saves/.last_played.json` 单一追踪文件，实现 O(1) Continue。
+
+1. **`SaveManager.write_last_played(game_id, filename)`**：每次 `save()` 和 `load_game()` 时写入追踪记录。文件格式 `{"game_id": "...", "filename": "...", "updated_at": "..."}`，原子写入（temp + `os.replace`）。
+2. **`SaveManager.read_last_played()`**：读取追踪文件 → 校验 `game_id` 目录和 `filename` 存档文件是否存在 → 自动清理过期引用（目录/文件已删除 → 删除追踪文件 → 返回 None）。
+3. **`GameSession.load_game()` 写入追踪**：加载成功后调用 `SaveManager.write_last_played()`——修复"加载的游戏不被识别为最近玩过"的核心 bug。
+4. **CLI 适配**：`game_driver.py` 的 Continue 路径优先读 `.last_played.json`（O(1)），追踪文件不可用时回退到目录 mtime 扫描。
+5. **Web API**：新增 `GET /api/saves/last-played` 单一端点替代原来的两次 API 调用（先 list games 再确定最近）。
+6. **存档文件自动清理**：`delete_game()` / `delete()` 时检查并清理过期追踪引用。
+
+**Continue 自动恢复流程**（commit `ec2c5c5`）：
+- 前端 Continue 点击 → `GET /api/saves/last-played` → 获取 `game_id` + `filename`
+- 后端 `GameSession.load_game(game_id, filename)` → 恢复 GameLoop → 静默预览模式
+- 前端 `#game-preview` 页面展示存档信息，用户点击"开始冒险"→ `POST /api/game/{id}/start` → 进入游戏
+
+**配套端点**（commits `8386e48`, `6c1a046`）：
+- `POST /api/co-create/generate`：生成后立即调用 `GameSession.start_game()` 创建 `_init.json`，返回 `game_id`
+- `POST /api/game/{game_id}/start`：调用 `gl.start_game()` 启动 Round 1 流式 Prompt
+- `POST /api/saves/{game_id}/load/{filename}`：通过 `SaveManager` 读取存档数据供预览
+- `6c1a046` 重构：前端存档读取统一走 `GameSession.read_save()` 而非直接调 `SaveManager`——保持 `GameSession` 作为 UI 层唯一入口
+
+**无存档 Toast**（commits `033a46a`, `143b913`）：Continue 时若无存档（`read_last_played()` 返回 None），前端显示 toast 提示，i18n 双语（中/英），3 秒自动消失。Toast 增加 `transitionend` 兜底——`animationend` 在某些浏览器不触发时用 `transitionend` 做二次清理，并增加 `console.error` 日志辅助调试。
+
+**依据**：commits `adf33fe`, `ec2c5c5`, `6c1a046`, `8386e48`, `033a46a`, `143b913`；`docs/spec/data-model.md` §3.1 目录结构。
+
+### Web UI 全面搭建 —— 主菜单、共创聊天、过渡页面
+
+**背景**：Web UI 此前仅为 comment-only skeleton（commit `6a2d97f`）。需在一天内搭建完整的端到端用户流程：主菜单 → 共创 → 过渡 → 游戏预览 → 游玩。
+
+**决策**：单页应用（SPA）架构——`index.html` 单页面，hash router 驱动视图切换，FastAPI 后端提供 REST API + SSE 流式端点。
+
+**架构**：
+```
+src/storyloom/web/
+├── server.py              # FastAPI app + 全部 API 端点
+├── sessions.py            # 内存 session 管理（game_id → GameLoop）
+├── static/
+│   ├── index.html         # SPA 壳
+│   ├── css/main.css       # 暗色终端美学（CSS 变量体系）
+│   └── js/
+│       ├── state.js       # 全局状态 + i18n T 字典 + config 持久化
+│       ├── router.js      # hash router + 视图渲染
+│       ├── api.js         # API 调用封装
+│       ├── co-create.js   # 共创聊天界面逻辑
+│       ├── display.js     # 游戏画面渲染
+│       ├── credits.js     # 制作人员数据
+│       └── sse-client.js  # SSE 流式客户端
+```
+
+**主菜单**（commit `1a99f1c`，+1299 行）：
+- 6 按钮（New Game / Continue / Load Save / Settings / Credits / Exit），CSS hover-grow 动画
+- Settings 面板：语言切换、API 配置（base URL / key / model）——展示模式 + 铅笔编辑切换，API key 掩码显示
+- `GET /api/config` 返回配置时**不**返回明文 API key（安全）；`POST /api/config` 校验语言白名单
+- Credits 叠加层——从 `credits.js` 数据文件渲染
+- 前端 i18n：`_()` 函数镜像 gettext 约定，`storyloom.po` 同步更新全部菜单/设置/credits 翻译
+- 语言切换后重新获取 DOM overlay（修复切换后 settings 面板丢失 bug）
+- 暗色终端美学：CSS 变量体系（`--bg`, `--fg`, `--accent` 等），统一视觉语言
+
+**Menu 功能合并**（commits `2628e76`, `af67899`）：
+- Continue 一键直达：直接加载最近存档并进入游戏预览
+- Load Save 合并 load/delete 为统一界面——先选游戏再选存档
+- Credits 独立屏幕
+
+**共创聊天界面**（commits `f922feb` + `15ab2eb`，+1327/-244 行）：
+- 聊天式 UI：用户输入 → 气泡显示 → LLM 回复流式展示
+- Q&A 端点：`POST /api/co-create/send` → SSE 流式返回 LLM 回复
+- 生成端点：`POST /api/co-create/generate` → 触发完整生成管线
+- 重试端点：`POST /api/co-create/retry-generate` → 生成失败后重试
+- 打字指示器动画（commit `d91910a`）：弹跳圆点（bouncing dots），纯 CSS 动画
+- 多次 CSS 迭代微调（`f8ab943` → `2541f0c` revert → `d4b9b82` → `0dfa5f6` revert → `a70be94`）：typing indicator 加固和返回箭头居中对齐经两次尝试和 revert，最终用 `transform: translateY(-2px)` 微调
+
+**过渡页面**（commits `77a5385` + `dac2e0c`）：
+- **#game-init**（Start 后）：居中"正在生成设定…" + 弹跳圆点 → 自动调 generate → 跳转预览
+- **#game-preview**（Generate 后）：展示故事 label + setting，返回按钮可中止回菜单，"开始冒险"按钮启动 Round 1
+- 阶段状态清理（commits `9fc83c0`, `02d3dc3`）：移除冗余 CSS，`CoCreateView` 退出时 reset 阶段状态，菜单级 session 清理防止状态泄漏
+
+**API 修复**（commit `88d1301`）：流式响应路径缺少空 choices 检查——某些 OpenAI 兼容代理返回 `choices: []` 时触发 `IndexError`。在 `stream_chat_iter()` 中增加 `if not choices: continue` guard，与 `_extract_content()` 已有逻辑对齐。
+
+**依据**：commits `6a2d97f`, `1a99f1c`, `f922feb`, `15ab2eb`, `d91910a`, `f8ab943`, `2541f0c`, `d4b9b82`, `0dfa5f6`, `a70be94`, `77a5385`, `9fc83c0`, `dac2e0c`, `02d3dc3`, `88d1301`, `d19a323`；2646 行 Web UI 代码（14 文件），引擎核心 +120 行（5 文件）。
+
+### 配置调整：STORY_LABEL_MAX_CHARS 15 → 30
+
+**背景**：用户反馈中文故事标签经常超过 15 字符限制——中文字符信息密度高，15 字符仅约 7-8 个中文字，不足以表达有意义的故事名称。
+
+**决策**：`STORY_LABEL_MAX_CHARS` 从 15 提升至 30。同步更新 `co_create.py` 中的 Prompt 约束和 `data-model.md` §A.2 常量表。
+
+**依据**：commit `808f74a`。
+
+### 其余 Prompt 修复（07-18 尾，补充记录）
+
+**背景**：两项 Prompt 微调在 07-18 晚间完成，未写入当日日志。
+
+1. **活跃节点措辞优化**（commit `371664b`）：原 Prompt 中 "Active Node" 行暗示"你需要在这一轮推进进度"——LLM 倾向于在每轮强行触发 checkpoint。改为中性表述 "Current chapter: {title}"，去除进度压力暗示。
+2. **Goal 定位拓宽**（commit `1d1dffb`）：共创 Prompt 中 goal 约束原为聚焦单场景——改为覆盖章弧（chapter arc），goal 从"单场景任务描述"升级为"全章剧情概览"。
+
+**依据**：commits `371664b`, `1d1dffb`；与 07-18 "Co-Create 大纲 goal 提示词优化"条目互补。
+
+---
+
 ## 2026-07-18（周六）
 
 ### Co-Create 大纲 goal 提示词优化 + 示例数据语言感知
