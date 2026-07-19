@@ -34,7 +34,6 @@
         "menu": renderMenu,
         "co-create": renderCoCreate,
         "game": renderGame,
-        "game-init": renderGameInit,
         "game-preview": renderGamePreview,
         "saves": renderSaveList,
     };
@@ -131,68 +130,47 @@
             navigate("co-create");
         });
 
-        // ── Button 2: Continue ──────────────────────────────────────
+        // ── Button 2: Continue (auto-resume latest save) ─────────────
+        // Mirrors dev_cli: find latest game → latest save → load → play.
+        // No selection UI — "Load Save" handles manual save browsing.
 
         document.getElementById("btn-continue").addEventListener("click", async () => {
             const panel = document.getElementById("continue-panel");
-
-            // Toggle off if already visible
-            if (!panel.classList.contains("hidden")) {
-                panel.classList.add("hidden");
-                return;
-            }
-
             panel.classList.remove("hidden");
             panel.innerHTML = `<p class="text-muted">${esc(_("Loading..."))}</p>`;
 
             try {
+                // Step 1: Find the most recently played game
                 const games = await API.get("/api/saves/games");
-
                 if (!games || games.length === 0) {
                     panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
                     return;
                 }
+                const latestGame = games.reduce((a, b) =>
+                    (b.last_played_at || "").localeCompare(a.last_played_at || "") > 0 ? b : a
+                );
 
-                // Sort by created_at descending, show top 3
-                const recent = games
-                    .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))
-                    .slice(0, 3);
+                // Step 2: Find the latest save in that game
+                const gameId = latestGame.game_id;
+                const saves = await API.get(`/api/saves/${encodeURIComponent(gameId)}`);
+                if (!saves || saves.length === 0) {
+                    panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
+                    return;
+                }
+                const latestSave = saves.reduce((a, b) =>
+                    (b.saved_at || "").localeCompare(a.saved_at || "") > 0 ? b : a
+                );
 
-                panel.innerHTML = recent.map(g => `
-                    <div class="continue-item" data-game-id="${esc(g.game_id)}">
-                        <span class="ci-label">${esc(g.label)}</span>
-                        <span class="ci-meta">
-                            ${esc(g.genre || "?")} · ${esc(g.tier || "?")} · ${esc(_("Save"))}: ${g.save_count}
-                        </span>
-                    </div>
-                `).join("");
-
-                // Click handler: load latest save for the selected game
-                panel.querySelectorAll(".continue-item").forEach(item => {
-                    item.addEventListener("click", async () => {
-                        const gameId = item.dataset.gameId;
-                        try {
-                            const saves = await API.get(
-                                `/api/saves/${encodeURIComponent(gameId)}`
-                            );
-                            if (!saves || saves.length === 0) {
-                                panel.innerHTML = `<p class="no-saves-msg">${esc(_("No saves found"))}</p>`;
-                                return;
-                            }
-                            const latestSave = saves[saves.length - 1];
-                            const filename = latestSave.filename;
-                            const res = await API.post(
-                                `/api/saves/${encodeURIComponent(gameId)}/load/${encodeURIComponent(filename)}`
-                            );
-                            GameState.gameId = res.game_id;
-                            GameState.roundCount = res.round_count || 0;
-                            GameState.currentNode = res.current_node || null;
-                            navigate(`game/${res.game_id}`);
-                        } catch (err) {
-                            panel.innerHTML = `<p class="text-error">${esc(err.message)}</p>`;
-                        }
-                    });
-                });
+                // Step 3: Load → game preview page
+                const res = await API.post(
+                    `/api/saves/${encodeURIComponent(gameId)}/load/${encodeURIComponent(latestSave.filename)}`
+                );
+                GameState.gameId = res.game_id;
+                GameState.roundCount = res.round_count || 0;
+                GameState.currentNode = res.current_node || null;
+                GameState.storyConfig = res.story_config || {};
+                panel.classList.add("hidden");
+                navigate("game-preview");
             } catch (err) {
                 panel.innerHTML = `<p class="text-error">${esc(err.message)}</p>`;
             }
@@ -410,14 +388,6 @@
     }
 
     /* ═══════════════════════════════════════════════════════════════
-       View: Game Init (#game-init/{id}) — TEMPORARY (will be removed)
-       ═══════════════════════════════════════════════════════════════ */
-
-    function renderGameInit() {
-        app.innerHTML = `<div class="placeholder-view"></div>`;
-    }
-
-    /* ═══════════════════════════════════════════════════════════════
        View: Game Preview (#game-preview)
        ──────────────────────────────────────────────────────────────
        Transition page between co-creation generate and game start.
@@ -486,8 +456,8 @@
             });
     }
 
-    /** Render the preview content with story label, setting, and the
-     *  enabled Begin Adventure button.  Called once save data is loaded. */
+    /** Render the preview content with story label, setting, and a
+     *  silent (disabled) Begin Adventure button. */
     function _renderPreviewContent(config) {
         app.innerHTML = `
             <div class="gp-view">
@@ -500,7 +470,7 @@
                     <h1 class="gp-label">${esc(config.label)}</h1>
                     <p class="gp-setting">${esc(config.setting || "")}</p>
 
-                    <button class="gp-start-btn" id="gp-start">
+                    <button class="gp-start-btn" id="gp-start" disabled>
                         ${esc(_("Begin Adventure"))}
                     </button>
                 </div>
@@ -510,28 +480,6 @@
         document.getElementById("gp-back").addEventListener("click", () => {
             GameState.reset();
             navigate("menu");
-        });
-
-        document.getElementById("gp-start").addEventListener("click", async () => {
-            const btn = document.getElementById("gp-start");
-            btn.disabled = true;
-            btn.textContent = esc(_("Loading..."));
-
-            try {
-                await API.post(`/api/game/${encodeURIComponent(GameState.gameId)}/start`);
-                navigate(`game/${GameState.gameId}`);
-            } catch (err) {
-                btn.disabled = false;
-                btn.textContent = esc(_("Begin Adventure"));
-                const content = document.querySelector(".gp-content");
-                if (content) {
-                    const errEl = document.createElement("p");
-                    errEl.className = "text-error";
-                    errEl.style.marginTop = "1rem";
-                    errEl.textContent = err.message;
-                    content.appendChild(errEl);
-                }
-            }
         });
     }
 

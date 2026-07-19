@@ -761,17 +761,6 @@ button.accent:hover, .btn-accent:hover {
     color: var(--text-accent);
     font-family: var(--font-sans);
     font-size: 1.05rem;
-    cursor: pointer;
-    transition: background 0.2s, box-shadow 0.2s;
-}
-
-.gp-start-btn:hover:not(:disabled) {
-    background: rgba(78, 204, 163, 0.1);
-    box-shadow: 0 0 12px rgba(78, 204, 163, 0.25);
-}
-
-.gp-start-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
-    box-shadow: none;
 }
