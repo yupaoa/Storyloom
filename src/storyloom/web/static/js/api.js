@@ -11,7 +11,9 @@
    ═══════════════════════════════════════════════════════════════════ */
 
 const API = {
-    /** POST JSON, return parsed response body.  Throws on non-2xx. */
+    /** POST JSON, return parsed response body.
+     *  Throws an Error with `status` and `detail` properties on non-2xx,
+     *  so callers can distinguish 502 (retriable) from 400 (fatal). */
     async post(url, body = {}) {
         const res = await fetch(url, {
             method: "POST",
@@ -21,7 +23,9 @@ const API = {
         const data = await res.json().catch(() => null);
         if (!res.ok) {
             const detail = data?.detail || `HTTP ${res.status}`;
-            throw new Error(detail);
+            const err = new Error(detail);
+            err.status = res.status;
+            throw err;
         }
         return data;
     },

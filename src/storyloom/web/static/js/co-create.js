@@ -142,10 +142,15 @@ const CoCreateView = (function () {
             _focusInput();
         } catch (err) {
             _hideTyping();
-            _addErrorWithRetry(err.message, () => {
-                _sendRetry = true;
-                _handleSend();
-            });
+            // 502 = CoCreateError → retriable (mirrors dev_cli)
+            if (err.status === 502) {
+                _addErrorWithRetry(err.message, () => {
+                    _sendRetry = true;
+                    _handleSend();
+                });
+            } else {
+                _showFatalError(err.message);
+            }
             _setInputEnabled(true);
             _focusInput();
         }
@@ -175,10 +180,15 @@ const CoCreateView = (function () {
             await API.post(endpoint);
             _genRetry = false;
         } catch (err) {
-            _addErrorWithRetry(err.message, () => {
-                _genRetry = true;
-                _handleGo();
-            });
+            // 502 = CoCreateError → retriable (mirrors dev_cli)
+            if (err.status === 502) {
+                _addErrorWithRetry(err.message, () => {
+                    _genRetry = true;
+                    _handleGo();
+                });
+            } else {
+                _showFatalError(err.message);
+            }
             _phase = "chatting";
             _setInputEnabled(true);
             return;
