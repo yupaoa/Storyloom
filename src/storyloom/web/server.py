@@ -45,6 +45,7 @@ from pydantic import BaseModel
 from storyloom.config import SUPPORTED_LANGUAGES
 from storyloom.core.co_create import CoCreateError
 from storyloom.core.session import GameSession
+from storyloom.i18n import init_i18n, switch_language
 from storyloom.io.api_client import ApiClient
 from storyloom.user_config import UserConfig
 from storyloom.web import sessions
@@ -60,6 +61,10 @@ _APP_DIR = os.environ.get("STORYLOOM_APP_DIR", str(_PROJECT_ROOT))
 
 app = FastAPI(title="Storyloom", docs_url=None, redoc_url=None)
 cfg = UserConfig(_APP_DIR)
+
+# ── i18n (mirrors dev_cli/dev_main.py init order) ─────────────────
+_locale_dir = os.path.join(_APP_DIR, "locale")
+init_i18n(cfg.language, locale_dir=_locale_dir)
 
 # ── Engine wiring (mirrors dev_cli/dev_main.py) ──────────────────
 # One ApiClient + one GameSession for the lifetime of the server.
@@ -122,6 +127,7 @@ async def update_config(body: ConfigUpdate):
                 f"Supported: {', '.join(sorted(SUPPORTED_LANGUAGES))}",
             )
         cfg.language = body.language
+        switch_language(body.language)
     if body.api_key is not None:
         cfg.api_key = body.api_key
     if body.api_base_url is not None:

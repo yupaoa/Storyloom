@@ -79,13 +79,6 @@ const T = {
         "Send": "发送",
         "Type your story idea...": "输入你的故事想法...",
         "Type your answer...": "输入你的回答...",
-        "Generating story setup...": "正在生成故事设定...",
-        "Start the game?": "确定开始游戏？",
-        "This will generate the story setup based on our conversation and begin the adventure.": "这将根据我们的对话生成故事设定并开始冒险。",
-        "Quit co-creation?": "确定退出共创？",
-        "Your conversation will be lost. Are you sure?": "对话内容将会丢失，确定退出吗？",
-        "Yes": "是",
-        "No": "否",
         "Retry": "重试",
         /* Shared */
         "Loading...": "加载中...",

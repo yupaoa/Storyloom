@@ -92,27 +92,6 @@ msgstr "输入你的故事想法..."
 msgid "Type your answer..."
 msgstr "输入你的回答..."
 
-msgid "Generating story setup..."
-msgstr "正在生成故事设定..."
-
-msgid "Start the game?"
-msgstr "确定开始游戏？"
-
-msgid "This will generate the story setup based on our conversation and begin the adventure."
-msgstr "这将根据我们的对话生成故事设定并开始冒险。"
-
-msgid "Quit co-creation?"
-msgstr "确定退出共创？"
-
-msgid "Your conversation will be lost. Are you sure?"
-msgstr "对话内容将会丢失，确定退出吗？"
-
-msgid "Yes"
-msgstr "是"
-
-msgid "No"
-msgstr "否"
-
 msgid "Retry"
 msgstr "重试"
 
