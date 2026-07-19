@@ -12,10 +12,11 @@
      Deque-buffered: receiver pushes segments, display drains at pace.
      All segments drained before showing choices.
 
-   Exports:
+   Exports (on window):
      Router.navigate(hash)  — switch view
      Router.dispatch()      — re-render current route
-     startGame(result)      — create game from co-create result (shared path)
+     startGame(result)      — create game from co-create result
+                               (exposed via window.startGame for co-create view)
    ═══════════════════════════════════════════════════════════════════ */
 
 (function () {
@@ -32,6 +33,6 @@
     //   - Error handling: showError with retry/quit callbacks
     //   - Adventure log fetch on ending
     // ── View: Save List ──
-    // ── Shared: startGame(result) ──
+    // ── Shared: startGame(result) — exposed as window.startGame ──
     // ── Kick off ──
 })();
