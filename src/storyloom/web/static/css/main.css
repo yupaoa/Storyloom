@@ -852,13 +852,13 @@ button.accent:hover, .btn-accent:hover {
     transform: translateX(4px);
 }
 
-.sv-card:hover .sv-card-meta span {
+.sv-list--checkpoints .sv-card:hover .sv-card-meta span {
     overflow: visible;
     white-space: normal;
     text-overflow: clip;
 }
 
-.sv-card:hover .sv-card-time {
+.sv-list--checkpoints .sv-card:hover .sv-card-time {
     display: none;
 }
 

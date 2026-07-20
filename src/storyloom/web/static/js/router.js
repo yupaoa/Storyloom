@@ -602,7 +602,7 @@
                     <span class="sv-title" id="sv-cp-title">${esc(_("Loading..."))}</span>
                     <button class="sv-restart-btn" id="sv-restart">${esc(_("Restart"))}</button>
                 </div>
-                <div class="sv-list" id="sv-cp-list">
+                <div class="sv-list sv-list--checkpoints" id="sv-cp-list">
                     <p class="sv-card-empty">${esc(_("Loading..."))}</p>
                 </div>
             </div>
