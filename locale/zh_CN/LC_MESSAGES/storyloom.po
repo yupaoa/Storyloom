@@ -164,9 +164,6 @@ msgstr "游戏已删除。"
 msgid "Save deleted."
 msgstr "存档已删除。"
 
-msgid "Last played:"
-msgstr "上次游玩："
-
 msgid "saves"
 msgstr "个存档"
 

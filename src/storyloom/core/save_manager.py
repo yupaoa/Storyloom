@@ -204,7 +204,7 @@ class SaveManager:
 
         Returns:
             List of ``{filename, checkpoint_title, checkpoint_node,
-            round, saved_at, current_node}`` dicts.
+            checkpoint_summary, saved_at, current_node}`` dicts.
         """
         self._ensure_dir()
         result = []
@@ -222,12 +222,14 @@ class SaveManager:
             # Falls back to legacy checkpoint_history for old saves.
             cp_title = ""
             cp_node = ""
+            cp_summary = ""
             outline_nodes = data.get("outline", [])
             for node in reversed(outline_nodes):
                 if node.get("status") == "completed" and node.get("summary"):
                     nid = node.get("node_id", node.get("id", ""))
                     cp_title = node.get("title", "")
                     cp_node = nid
+                    cp_summary = node.get("summary", "")
                     break
             if not cp_node:
                 cp_history = progress.get("checkpoint_history", [])
@@ -240,6 +242,7 @@ class SaveManager:
                 "filename": path.name,
                 "checkpoint_title": cp_title,
                 "checkpoint_node": cp_node,
+                "checkpoint_summary": cp_summary,
                 "saved_at": meta.get("updated_at", ""),
                 "current_node": progress.get("current_node", ""),
             })

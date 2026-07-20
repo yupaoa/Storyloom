@@ -547,9 +547,9 @@
                         <div class="sv-card-meta">
                             <span>${esc(g.genre || "?")} · ${esc(g.tier || "?")}</span>
                             <span>${g.save_count} ${esc(_("saves"))}</span>
-                            ${g.last_played_at ? `<span>${esc(_("Last played:"))} ${formatDate(g.last_played_at)}</span>` : ""}
                         </div>
                     </div>
+                    ${g.last_played_at ? `<span class="sv-card-time">${formatDate(g.last_played_at)}</span>` : ""}
                     <button class="sv-card-trash" title="${esc(_("Delete"))}">${TRASH_ICON}</button>
                 </div>
             `).join("");
@@ -652,15 +652,14 @@
 
             list.innerHTML = checkpoints.map(s => {
                 const label = s.checkpoint_title || s.filename;
+                const summary = s.checkpoint_summary || "";
                 return `
                     <div class="sv-card" data-filename="${esc(s.filename)}">
                         <div class="sv-card-main">
                             <span class="sv-card-label">${esc(label)}</span>
-                            <div class="sv-card-meta">
-                                <span>${esc(s.saved_at ? formatDate(s.saved_at) : "")}</span>
-                                <span>${esc(s.current_node || "")}</span>
-                            </div>
+                            ${summary ? `<div class="sv-card-meta"><span>${esc(summary)}</span></div>` : ""}
                         </div>
+                        ${s.saved_at ? `<span class="sv-card-time">${formatDate(s.saved_at)}</span>` : ""}
                         <button class="sv-card-trash" title="${esc(_("Delete"))}">${TRASH_ICON}</button>
                     </div>
                 `;

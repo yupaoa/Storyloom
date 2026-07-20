@@ -114,7 +114,6 @@ const T = {
         "No saves in this game.": "此游戏暂无存档。",
         "Game deleted.": "游戏已删除。",
         "Save deleted.": "存档已删除。",
-        "Last played:": "上次游玩：",
         "saves": "个存档",
         "Restart": "重新开始",
     },

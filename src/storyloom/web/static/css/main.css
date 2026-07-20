@@ -871,6 +871,15 @@ button.accent:hover, .btn-accent:hover {
     color: var(--text-secondary);
 }
 
+.sv-card-time {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+    margin-right: 0.8rem;
+}
+
 .sv-card-trash {
     display: none;
     flex-shrink: 0;
