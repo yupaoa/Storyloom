@@ -19,7 +19,8 @@
      closeModal()                  — remove any open modal
      showSettings(getSpeed, onSpeed, getFont, onFont, getLine, onLine) — settings
      closeSettings()               — remove settings overlay
-     scrollToBottom()              — scroll story area to latest content
+
+   Internal: _scrollToCenter(el) — scroll so new element is vertically centred.
 
    Authority:
      exec-flow.md §4.1 (event types), §4.5 (display pacing)
@@ -46,7 +47,7 @@ const Display = (function () {
         p.className = "game-segment";
         p.textContent = text;
         story.appendChild(p);
-        scrollToBottom();
+        _scrollToCenter(p);
     }
 
     /** Append selected choice text — green highlight, same font/size. */
@@ -57,7 +58,7 @@ const Display = (function () {
         p.className = "game-choice-text";
         p.textContent = text;
         story.appendChild(p);
-        scrollToBottom();
+        _scrollToCenter(p);
     }
 
     /* ── Loading indicator ─────────────────────────────────────────── */
@@ -73,7 +74,7 @@ const Display = (function () {
         el.id = "game-loading-indicator";
         el.innerHTML = `<span>${_("Loading")}</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
         story.appendChild(el);
-        scrollToBottom();
+        _scrollToCenter(el);
     }
 
     /** Remove the loading indicator. */
@@ -147,7 +148,7 @@ const Display = (function () {
             story.parentNode.insertBefore(panel, story.nextSibling);
         }
 
-        scrollToBottom();
+        _scrollToCenter(panel);
 
         return new Promise((resolve) => {
             _choiceResolve = resolve;
@@ -367,13 +368,19 @@ const Display = (function () {
 
     /* ── Helpers ───────────────────────────────────────────────────── */
 
-    function scrollToBottom() {
+    /** Scroll so that *el* is vertically centered in the story area.
+     *  Called after appending a new segment / choice-text / choices
+     *  panel / loading indicator.  The newest content always appears
+     *  at the viewport centre; older content scrolls up naturally. */
+    function _scrollToCenter(el) {
         const story = $("#game-story");
-        if (story) {
-            requestAnimationFrame(() => {
-                story.scrollTop = story.scrollHeight;
-            });
-        }
+        if (!story) return;
+        const sTop = story.getBoundingClientRect().top;
+        const eTop = el.getBoundingClientRect().top;
+        const eH = el.offsetHeight;
+        const elCenter = eTop - sTop + story.scrollTop + eH / 2;
+        const target = elCenter - story.clientHeight / 2;
+        story.scrollTop = Math.max(0, target);
     }
 
     /** HTML entity escape. */
@@ -398,6 +405,5 @@ const Display = (function () {
         closeModal,
         showSettings,
         closeSettings,
-        scrollToBottom,
     };
 })();

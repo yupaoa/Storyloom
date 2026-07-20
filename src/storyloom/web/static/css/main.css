@@ -1214,6 +1214,7 @@ button.accent:hover, .btn-accent:hover {
     font-size: 1.05rem;             /* Default: medium */
     line-height: 1.6;               /* Default: 1.0 × 1.6 */
     color: var(--text-primary);
+    text-align: center;
     animation: fadeIn 0.3s ease;
     white-space: pre-wrap;
     word-break: break-word;
@@ -1251,6 +1252,7 @@ button.accent:hover, .btn-accent:hover {
     font-size: inherit;
     line-height: inherit;
     color: var(--text-accent);
+    text-align: center;
     animation: fadeIn 0.3s ease;
     white-space: pre-wrap;
     word-break: break-word;
