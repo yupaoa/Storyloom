@@ -1200,11 +1200,13 @@ button.accent:hover, .btn-accent:hover {
                                        can scroll to viewport centre */
     display: flex;
     flex-direction: column;
-    gap: 1.8rem;                    /* ≈ one line-height → ~6 segments
-                                       fill half the viewport */
+    gap: 1.2rem;
     /* No border — seamless with background */
     scrollbar-width: none;          /* Firefox */
     -ms-overflow-style: none;       /* IE / old Edge */
+    /* Top fade — older text near the top edge fades out */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 8%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 8%);
 }
 
 .game-story::-webkit-scrollbar {
