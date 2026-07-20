@@ -1270,8 +1270,8 @@ button.accent:hover, .btn-accent:hover {
     scrollbar-width: none;          /* Firefox */
     -ms-overflow-style: none;       /* IE / old Edge */
     /* Top fade — older text near the top edge fades out */
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 8%);
-    mask-image: linear-gradient(to bottom, transparent 0%, black 8%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 10%);
 }
 
 .game-story::-webkit-scrollbar {
@@ -1368,7 +1368,7 @@ button.accent:hover, .btn-accent:hover {
     animation: fadeInOpacity var(--trans-slow);
     z-index: 50;
     /* Gradient mask — fades story text out behind the button area */
-    background: linear-gradient(to top, var(--bg-primary) 60%, transparent 100%);
+    background: linear-gradient(to top, var(--bg-primary) 72%, transparent 100%);
 }
 
 .game-choice-btn {
@@ -1635,8 +1635,8 @@ button.accent:hover, .btn-accent:hover {
     scrollbar-width: none;          /* Firefox */
     -ms-overflow-style: none;       /* IE / old Edge */
     /* Top fade — older text near the top edge fades out */
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 6%);
-    mask-image: linear-gradient(to bottom, transparent 0%, black 6%);
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 10%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 10%);
 }
 
 .al-content::-webkit-scrollbar {
