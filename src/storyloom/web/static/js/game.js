@@ -34,10 +34,11 @@ const GameView = (function () {
     const SPEED_DELAY = { 1: 2000, 2: 1000, 4: 500 };
 
     /* Queue buffer for paced display (exec-flow.md §4.5).
-       Receiver (SSE) pushes; display loop drains one event per tick.
-       Pacing mode controls the inter-segment delay.  When options arrive
-       the display loop accelerates drain and shows choices when the
-       queue is empty — no synchronous _flushQueue() burst. */
+       Receiver (SSE handlers) pushes; display loop (_displayTick)
+       drains one event per tick at the user's chosen pace.  When
+       options arrive (_optionsPending set), the display loop shows
+       choices naturally when the queue empties — no acceleration,
+       no synchronous flush. */
     let _eventQueue = [];
     let _drainTimer = null;
     let _advanceResolve = null;  // resolve when user clicks / Space / Enter
@@ -160,9 +161,9 @@ const GameView = (function () {
                 _wakeDisplay();
             },
             options: (data) => {
-                /* ── Defer: let display loop drain queue naturally,
-                   then show choices.  Accelerated 200 ms drain so the
-                   player sees context before deciding. ── */
+                /* Defer to display loop — when the queue is naturally
+                   empty (all pre-choice segments displayed at normal
+                   pace), _displayTick will show the choices. */
                 _optionsPending = data;
                 _wakeDisplay();
             },
@@ -266,10 +267,7 @@ const GameView = (function () {
 
         /* ── Pacing (after segment display, per dev_cli pattern) ─── */
         if (_mode === "auto") {
-            /* Options-pending: accelerated 200 ms drain so context
-               appears before choices.  Normal auto: full delay. */
-            const delay = _optionsPending ? 200 : (SPEED_DELAY[_speed] || 2000);
-            _drainTimer = setTimeout(_displayTick, delay);
+            _drainTimer = setTimeout(_displayTick, SPEED_DELAY[_speed] || 2000);
         } else {
             /* Manual mode — wait for click / Space / Enter.
                _optionsPending does NOT override this: the user chose
