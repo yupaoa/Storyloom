@@ -11,7 +11,7 @@ msgstr ""
 msgid ""
 "Describe the story you'd like to play.\n"
 "e.g. 'A cyberpunk love story' or 'A wuxia adventure'"
-msgstr ""
+msgstr "描述你想体验的故事。\n例如：「一个赛博朋克爱情故事」或「一部武侠冒险」"
 "请描述你想玩的故事。\n"
 "例如：'赛博朋克背景下的爱情故事'、'古代仙侠世界的冒险'"
 
