@@ -13,6 +13,29 @@ Architecture (per exec-flow.md §4.5 "UI queue buffer")::
 Display pacing (auto / manual) is the pause mechanism — toggling auto→manual
 naturally pauses display.  ``instant`` is a CLI-only mode with no pacing.
 Ctrl+C raises KeyboardInterrupt naturally (caught by dev_main).
+
+.. note::
+
+   **Queue depth in practice.**  Although ``event_queue`` is declared as a
+   ``collections.deque`` buffer, the synchronous ``while event_queue:`` loop
+   drains it completely before the next ``next(gen)`` call, so the deque
+   holds 0–1 events at any time — it is an instantaneous transit point,
+   not a true buffer.
+
+   The *actual* buffering that enables the bridge pre-fetch (exec-flow.md
+   §4.3) happens at the **engine level**: a daemon thread streams API
+   chunks into ``queue.Queue``; ``stream_round()``'s internal
+   ``result_queue.get()`` blocks until data is available.  This means the
+   engine can launch the next round's API call while the UI is still
+   displaying bridge_text — but the UI's ``_sleep()`` and ``_wait_enter()``
+   indirectly stall ``next(gen)``, so the spec's "non-blocking receiver"
+   recommendation (§4.5) is only partially realised here.
+
+   Web UI (``src/storyloom/web/static/js/game.js``) implements full
+   receiver–display decoupling: SSE handlers push non-blocking into
+   ``_eventQueue`` while ``_displayTick`` drains at the user's chosen
+   pace.  That queue genuinely accumulates segments between ticks,
+   which is the intended behaviour.
 """
 
 import argparse
