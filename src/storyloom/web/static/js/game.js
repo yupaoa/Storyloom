@@ -44,9 +44,6 @@ const GameView = (function () {
     let _loadingTimer = null;    // delayed loading indicator (500 ms debounce)
     let _optionsPending = null;  // options event data awaiting display
 
-    /* SSE event handlers — bound once per render */
-    let _handlers = null;
-
     /* Ending flag — set when ending event received */
     let _ending = false;
     /* Track whether we've shown the end modal to avoid double-show */
@@ -150,7 +147,7 @@ const GameView = (function () {
        ═══════════════════════════════════════════════════════════════ */
 
     function _connectSSE() {
-        _handlers = {
+        const handlers = {
             story_begin: () => { /* silent */ },
             story_end: () => { /* silent */ },
             token: () => { /* silent — reserved for typewriter effect */ },
@@ -189,7 +186,7 @@ const GameView = (function () {
         /* ── Start the independent display loop ── */
         _startDisplayLoop();
 
-        SSEClient.connect(_gameId, _handlers).then(() => {
+        SSEClient.connect(_gameId, handlers).then(() => {
             _stopDisplayLoop();
             if (_ending && !_endModalShown) {
                 _showEndModal();
@@ -316,7 +313,10 @@ const GameView = (function () {
     async function _handleOptions(data) {
         const choices = data.choices || [];
 
-        /* Show choice buttons and wait for selection */
+        /* Show choice buttons and wait for selection.
+           The display loop has stopped (returned from _displayTick's
+           _optionsPending branch).  We restart it after the choice
+           is sent so post-choice content is displayed. */
         Display.showChoices(choices).then(async (key) => {
             /* Find the selected option label for green display */
             const flat = Display.flattenChoices(choices);
@@ -340,9 +340,12 @@ const GameView = (function () {
                 return;
             }
 
-            /* More SSE events will arrive via the same connection.
-               Show loading indicator for post-choice content. */
+            /* Show loading then restart the display loop.
+               If post-choice segments have already arrived they will
+               be processed immediately; otherwise the polling state
+               (_isPolling) wakes on arrival. */
             Display.showLoading();
+            _displayTick();
         });
     }
 
