@@ -75,6 +75,11 @@ const GameView = (function () {
         _contentStarted = false;
         _eventQueue = [];
         _optionsPending = null;
+        /* Ensure display loop starts fresh — previous session may have
+           left _displayRunning = true if the EventSource was still
+           CONNECTING when close() was called (browsers don't fire
+           onerror in that state). */
+        _stopDisplayLoop();
 
         _buildDOM();
 
@@ -404,6 +409,11 @@ const GameView = (function () {
     function _handleExit() {
         if (!_contentStarted) {
             // Loading state — no content yet.  Stop and exit immediately.
+            // Must call _stopDisplayLoop() explicitly — the EventSource
+            // may still be in CONNECTING state, in which case close()
+            // does NOT fire onerror and the Promise _stopDisplayLoop
+            // callback never runs, leaving _displayRunning = true.
+            _stopDisplayLoop();
             if (_gameId) {
                 API.post(`/api/game/${encodeURIComponent(_gameId)}/stop`).catch(() => {});
             }
