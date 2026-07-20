@@ -333,17 +333,21 @@ const CoCreateView = (function () {
         if (msgs) msgs.innerHTML = "";
     }
 
-    /** Error message + Retry button in a single bubble. */
+    /** Error message + Retry button — text and button stacked vertically. */
     function _addErrorWithRetry(message, retryHandler) {
         const msgs = $("#cc-messages");
         if (!msgs) return;
         const div = document.createElement("div");
         div.className = "cc-message error";
-        div.textContent = message;
+
+        const msgEl = document.createElement("div");
+        msgEl.textContent = message;
+        div.appendChild(msgEl);
 
         const btn = document.createElement("button");
         btn.className = "menu-btn";
-        btn.style.marginTop = "0.5rem";
+        btn.style.display = "block";
+        btn.style.margin = "0.7rem auto 0";
         btn.textContent = _("Retry");
         btn.addEventListener("click", () => {
             div.remove();
@@ -354,7 +358,7 @@ const CoCreateView = (function () {
         _scrollToBottom();
     }
 
-    /** Fatal error — show message with Back to Menu button. */
+    /** Fatal error — show message with Back to Menu button below. */
     function _showFatalError(message) {
         _phase = "done";
         _setInputEnabled(false);
@@ -362,11 +366,15 @@ const CoCreateView = (function () {
         if (!msgs) return;
         const div = document.createElement("div");
         div.className = "cc-message error";
-        div.textContent = message;
+
+        const msgEl = document.createElement("div");
+        msgEl.textContent = message;
+        div.appendChild(msgEl);
 
         const btn = document.createElement("button");
         btn.className = "menu-btn";
-        btn.style.marginTop = "0.5rem";
+        btn.style.display = "block";
+        btn.style.margin = "0.7rem auto 0";
         btn.textContent = _("Back to Menu");
         btn.addEventListener("click", () => {
             Router.navigate("menu");
