@@ -354,7 +354,18 @@ async def game_stream(game_id: str):
                         try:
                             gen.send(key)
                         except StopIteration:
-                            pass
+                            # Generator exhausted prematurely —
+                            # Phase 5 (add_round + _launch_api) was
+                            # not executed.  This is an abnormal state;
+                            # report to client and stop.
+                            q.put({
+                                "type": "error",
+                                "message": (
+                                    "Generator exhausted after choice — "
+                                    "round state may be lost."
+                                ),
+                            })
+                            return
                         # Continue receiving post-choice events from
                         # the generator (bridge_text, etc.)
                     elif event["type"] == "error":
@@ -387,9 +398,10 @@ async def game_stream(game_id: str):
                 # No event ready — check if stream is still alive
                 if sessions.get_game_stream(game_id) is None:
                     break
-                # Yield keepalive to prevent proxy timeout
+                # Yield keepalive to prevent proxy timeout.
+                # 15 s is well under the typical 60 s proxy timeout.
                 yield ": keepalive\n\n"
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(15)
                 continue
 
             etype = event.get("type", "")

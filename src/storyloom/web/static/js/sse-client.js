@@ -28,6 +28,12 @@ const SSEClient = {
      *      error, ending, done, story_begin, story_end, token }
      *  @returns {Promise} resolves when stream closes normally or on error */
     connect(gameId, handlers) {
+        /* Close any existing connection before opening a new one.
+           Prevents duplicate EventSource instances when retrying
+           after an error — the old EventSource may still be
+           auto-reconnecting (readyState === CONNECTING). */
+        this.close();
+
         this._gameId = gameId;
         this._handlers = handlers;
 

@@ -11,7 +11,7 @@
      appendChoiceText(text)        — add selected choice (green) to story
      showChoices(choices) → Promise<key> — render choice buttons, resolve on click
      clearChoices()                — remove choice panel
-     showLoading()                 — show "加载中..." indicator
+     showLoading()                 — show loading indicator with bouncing dots
      hideLoading()                 — remove loading indicator
      showErrorModal(msg, onRetry, onQuit) — error modal with Retry/Exit
      showEndModal(msg, onPrimary, onQuit, primaryLabel, quitLabel) — end modal
@@ -61,7 +61,7 @@ const Display = (function () {
 
     /* ── Loading indicator ─────────────────────────────────────────── */
 
-    /** Show "加载中..." with animated bouncing dots below story text. */
+    /** Show loading indicator with animated bouncing dots below story text. */
     function showLoading() {
         /* Remove existing indicator if any */
         hideLoading();
@@ -70,7 +70,7 @@ const Display = (function () {
         const el = document.createElement("div");
         el.className = "game-loading";
         el.id = "game-loading-indicator";
-        el.innerHTML = `<span>加载中</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
+        el.innerHTML = `<span>${_("Loading")}</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
         story.appendChild(el);
         scrollToBottom();
     }
@@ -83,7 +83,7 @@ const Display = (function () {
 
     /* ── Manual-mode continue hint ──────────────────────────────────── */
 
-    /** Show "点击或按空格继续" hint at the bottom of the story area. */
+    /** Show continue hint at the bottom of the story area. */
     function showContinueHint() {
         hideContinueHint();
         const story = $("#game-story");
@@ -91,7 +91,7 @@ const Display = (function () {
         const el = document.createElement("div");
         el.className = "game-continue-hint";
         el.id = "game-continue-hint";
-        el.innerHTML = `<span>点击或按空格继续</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
+        el.innerHTML = `<span>${_("Click or press Space to continue")}</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
         story.appendChild(el);
         scrollToBottom();
     }
@@ -106,10 +106,35 @@ const Display = (function () {
 
     let _choiceResolve = null;
 
-    /** Render choice buttons below the story area.
+    /** Flatten engine-evaluated choices into 1-indexed options.
+     *  Shared by showChoices() (rendering) and game.js (label lookup).
+     *  Matches dev_cli game_driver.py _show_choices() flat-indexing.
+     *
      *  @param {Array} choices — engine-evaluated choice objects:
-     *    [{ id, branches: ["branch_name"], labels: ["选项文本"],
+     *    [{ id, branches: ["branch_name"], labels: ["option text"],
      *       conditions: ["condition_str"], enabled: [true, false] }]
+     *  @returns {Array} flat options with { key, label, enabled, branch } */
+    function flattenChoices(choices) {
+        const result = [];
+        let idx = 0;
+        for (const c of choices) {
+            const labels = c.labels || [];
+            const enabled = c.enabled || labels.map(() => true);
+            for (let i = 0; i < labels.length; i++) {
+                idx++;
+                result.push({
+                    key: String(idx),
+                    label: labels[i],
+                    enabled: i < enabled.length ? enabled[i] : true,
+                    branch: (c.branches && c.branches[i]) || null,
+                });
+            }
+        }
+        return result;
+    }
+
+    /** Render choice buttons below the story area.
+     *  @param {Array} choices — engine-evaluated choice objects
      *  @returns {Promise<string>} resolves with the selected key (1-indexed string) */
     function showChoices(choices) {
         clearChoices();
@@ -118,22 +143,7 @@ const Display = (function () {
         panel.className = "game-choices";
         panel.id = "game-choices-panel";
 
-        /* Flatten choices into indexed options (matches game_driver.py _show_choices) */
-        let optIndex = 0;
-        const flatOpts = [];
-        for (const choice of choices) {
-            const labels = choice.labels || [];
-            const enabled = choice.enabled || labels.map(() => true);
-            for (let i = 0; i < labels.length; i++) {
-                optIndex++;
-                flatOpts.push({
-                    key: String(optIndex),
-                    label: labels[i],
-                    enabled: i < enabled.length ? enabled[i] : true,
-                    branch: (choice.branches && choice.branches[i]) || null,
-                });
-            }
-        }
+        const flatOpts = flattenChoices(choices);
 
         /* Build buttons */
         for (const opt of flatOpts) {
@@ -142,7 +152,7 @@ const Display = (function () {
             btn.textContent = `[${opt.key}] ${opt.label}`;
             if (!opt.enabled) {
                 btn.disabled = true;
-                btn.textContent += " (不可用)";
+                btn.textContent += " " + _("(unavailable)");
             }
             btn.addEventListener("click", () => {
                 if (!opt.enabled) return;
@@ -175,8 +185,8 @@ const Display = (function () {
 
     /** Show an error modal with Retry and Exit buttons.
      *  @param {string} message — error message text
-     *  @param {Function} onRetry — called when user clicks "重试"
-     *  @param {Function} onQuit — called when user clicks "退出" */
+     *  @param {Function} onRetry — called when user clicks Retry
+     *  @param {Function} onQuit — called when user clicks Quit */
     function showErrorModal(message, onRetry, onQuit) {
         closeModal();
 
@@ -189,10 +199,10 @@ const Display = (function () {
                 <p class="game-modal-text">${escHtml(message)}</p>
                 <div class="game-modal-actions">
                     <button class="game-modal-btn accent" id="game-modal-primary">
-                        重试
+                        ${_("Retry")}
                     </button>
                     <button class="game-modal-btn" id="game-modal-secondary">
-                        退出
+                        ${_("Quit")}
                     </button>
                 </div>
             </div>
@@ -221,8 +231,8 @@ const Display = (function () {
      *  @param {string} message
      *  @param {Function} onPrimary — primary action callback
      *  @param {Function} onQuit — secondary (quit) action callback
-     *  @param {string} primaryLabel — label for primary button (e.g. "开始查看")
-     *  @param {string} quitLabel — label for quit button (e.g. "退出") */
+     *  @param {string} primaryLabel — label for primary button
+     *  @param {string} quitLabel — label for quit button */
     function showEndModal(message, onPrimary, onQuit, primaryLabel, quitLabel) {
         closeModal();
 
@@ -235,10 +245,10 @@ const Display = (function () {
                 <p class="game-modal-text">${escHtml(message)}</p>
                 <div class="game-modal-actions">
                     <button class="game-modal-btn accent" id="game-modal-primary">
-                        ${escHtml(primaryLabel || "确定")}
+                        ${escHtml(primaryLabel || _("OK"))}
                     </button>
                     <button class="game-modal-btn" id="game-modal-secondary">
-                        ${escHtml(quitLabel || "退出")}
+                        ${escHtml(quitLabel || _("Quit"))}
                     </button>
                 </div>
             </div>
@@ -288,9 +298,9 @@ const Display = (function () {
             { val: 4, label: "4x" },
         ];
         const fontOpts = [
-            { val: "small", label: "小" },
-            { val: "medium", label: "中" },
-            { val: "large", label: "大" },
+            { val: "small", label: _("Small") },
+            { val: "medium", label: _("Medium") },
+            { val: "large", label: _("Large") },
         ];
         const lineOpts = [
             { val: 0.75, label: "0.75" },
@@ -307,27 +317,27 @@ const Display = (function () {
 
         overlay.innerHTML = `
             <div class="game-settings-panel">
-                <h2>设置</h2>
+                <h2>${_("Settings")}</h2>
                 <div class="game-setting-row">
-                    <span class="game-setting-label">生成速度</span>
+                    <span class="game-setting-label">${_("Speed")}</span>
                     <div class="game-setting-options" id="setting-speed">
                         ${renderOpts(speedOpts, getSpeed(), onSpeed)}
                     </div>
                 </div>
                 <div class="game-setting-row">
-                    <span class="game-setting-label">字体大小</span>
+                    <span class="game-setting-label">${_("Font Size")}</span>
                     <div class="game-setting-options" id="setting-font">
                         ${renderOpts(fontOpts, getFont(), onFont)}
                     </div>
                 </div>
                 <div class="game-setting-row">
-                    <span class="game-setting-label">行间距</span>
+                    <span class="game-setting-label">${_("Line Spacing")}</span>
                     <div class="game-setting-options" id="setting-line">
                         ${renderOpts(lineOpts, getLine(), onLine)}
                     </div>
                 </div>
                 <button class="menu-btn game-settings-close" id="btn-game-settings-close">
-                    关闭
+                    ${_("Close")}
                 </button>
             </div>
         `;
@@ -399,6 +409,7 @@ const Display = (function () {
         appendSegment,
         appendChoiceText,
         showChoices,
+        flattenChoices,
         clearChoices,
         showLoading,
         hideLoading,

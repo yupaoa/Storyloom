@@ -1150,7 +1150,7 @@ button.accent:hover, .btn-accent:hover {
 .game-mode-btn.auto .mode-arc {
     opacity: 1;
     animation: mode-spin 1.5s linear infinite;
-    transform-origin: center;
+    transform-origin: 12px 12px;
 }
 
 .game-mode-btn.auto {

@@ -35,9 +35,11 @@ const GameView = (function () {
 
     /* Queue buffer for paced display (exec-flow.md §4.5) */
     let _eventQueue = [];
-    let _draining = false;
     let _drainTimer = null;
     let _advanceResolve = null;  // resolve when user clicks/keypresses in manual mode
+    let _pendingPoll = false;    // true when display loop is waiting for queue data
+                                 // (empty queue → 150ms poll).  SSE receiver
+                                 // calls _wakeDisplay() to break the poll early.
 
     /* SSE event handlers — bound once per render */
     let _handlers = null;
@@ -94,15 +96,15 @@ const GameView = (function () {
                 <!-- Top bar -->
                 <div class="game-topbar">
                     <button class="game-exit-btn" id="game-exit"
-                            title="退出">←</button>
+                            title="${_("Quit")}">←</button>
                     <span class="game-label" id="game-label"></span>
                     <div class="game-topright">
                         <button class="game-mode-btn" id="game-mode-btn"
-                                title="切换模式">
+                                title="${_("Toggle Mode")}">
                             ${_modeSVG("manual")}
                         </button>
                         <button class="game-settings-btn" id="game-settings-btn"
-                                title="设置">
+                                title="${_("Settings")}">
                             ${_gearSVG()}
                         </button>
                     </div>
@@ -152,11 +154,13 @@ const GameView = (function () {
             story_end: () => { /* silent */ },
             token: () => { /* silent — reserved for typewriter effect */ },
             segment: (data) => {
-                /* ── Receiver: push only, never trigger display ── */
+                /* ── Receiver: push then wake display if polling ── */
                 _eventQueue.push({ type: "segment", text: data.text });
+                _wakeDisplay();
             },
             bridge: () => {
                 _eventQueue.push({ type: "bridge" });
+                _wakeDisplay();
             },
             options: (data) => {
                 /* ── Inline: flush queue then handle options ── */
@@ -200,7 +204,7 @@ const GameView = (function () {
     /* ── Independent display loop ──────────────────────────────────
        Receiver (SSE) pushes to _eventQueue only — never triggers display.
        Display loop runs on setTimeout, polls queue, paces output.
-       Queue empty → "加载中…"; queue has data → pop one, display, wait. */
+       Queue empty → show loading indicator; queue has data → pop one, display, wait. */
 
     let _displayRunning = false;
 
@@ -212,6 +216,7 @@ const GameView = (function () {
 
     function _stopDisplayLoop() {
         _displayRunning = false;
+        _pendingPoll = false;
         Display.hideLoading();
         Display.hideContinueHint();
         if (_advanceResolve) { _advanceResolve(); _advanceResolve = null; }
@@ -223,10 +228,12 @@ const GameView = (function () {
 
         if (_eventQueue.length === 0) {
             Display.showLoading();
+            _pendingPoll = true;
             _drainTimer = setTimeout(_displayTick, 150);
             return;
         }
 
+        _pendingPoll = false;
         Display.hideLoading();
         const event = _eventQueue.shift();
 
@@ -257,6 +264,18 @@ const GameView = (function () {
         if (_advanceResolve) { _advanceResolve(); _advanceResolve = null; }
     }
 
+    /** Wake the display loop when new data arrives while polling.
+     *  Called by SSE receiver handlers after pushing to _eventQueue.
+     *  Only interrupts a pending poll — does not disturb auto-mode
+     *  pacing or manual-mode waits. */
+    function _wakeDisplay() {
+        if (_pendingPoll && _displayRunning) {
+            _pendingPoll = false;
+            if (_drainTimer) { clearTimeout(_drainTimer); _drainTimer = null; }
+            _displayTick();
+        }
+    }
+
     function _flushQueue() {
         Display.hideLoading();
         Display.hideContinueHint();
@@ -277,23 +296,10 @@ const GameView = (function () {
         /* Show choice buttons and wait for selection */
         Display.showChoices(choices).then(async (key) => {
             /* Find the selected option label for green display */
-            let selectedLabel = "";
-            let optIdx = 0;
-            for (const choice of choices) {
-                const labels = choice.labels || [];
-                for (let i = 0; i < labels.length; i++) {
-                    optIdx++;
-                    if (String(optIdx) === key) {
-                        selectedLabel = labels[i];
-                        break;
-                    }
-                }
-                if (selectedLabel) break;
-            }
-
-            /* Append selected choice text in green */
-            if (selectedLabel) {
-                Display.appendChoiceText(selectedLabel);
+            const flat = Display.flattenChoices(choices);
+            const selected = flat.find(o => o.key === key);
+            if (selected) {
+                Display.appendChoiceText(selected.label);
             }
 
             /* Clear choice buttons */
@@ -304,7 +310,7 @@ const GameView = (function () {
                 await SSEClient.sendChoice(_gameId, key);
             } catch (err) {
                 Display.showErrorModal(
-                    "选项发送失败: " + err.message,
+                    _("Choice send failed: ") + err.message,
                     () => _handleOptions(data),  /* retry same options */
                     () => Router.navigate("menu")
                 );
@@ -322,7 +328,7 @@ const GameView = (function () {
        ═══════════════════════════════════════════════════════════════ */
 
     function _handleError(data) {
-        const message = data.message || "未知错误";
+        const message = data.message || _("Unknown error");
 
         Display.showErrorModal(
             message,
@@ -333,7 +339,7 @@ const GameView = (function () {
                     await SSEClient.retry(_gameId);
                 } catch (err) {
                     Display.showErrorModal(
-                        "重试失败: " + err.message,
+                        _("Retry failed: ") + err.message,
                         () => _handleError(data),
                         () => Router.navigate("menu")
                     );
@@ -356,22 +362,21 @@ const GameView = (function () {
     /** User clicked exit button — show confirmation modal. */
     function _handleExit() {
         Display.showEndModal(
-            "是否生成冒险日志？",
-            /* Primary: view adventure log (disabled for now) */
+            _("Generate adventure log?"),
+            /* Primary: view adventure log (stub — disabled below) */
             () => {
-                /* Future: navigate to adventure log view */
-                Router.navigate("menu");
+                /* TODO: navigate to adventure log view when implemented */
             },
             /* Secondary: quit */
             () => {
                 SSEClient.close();
                 Router.navigate("menu");
             },
-            "开始查看",
-            "退出"
+            _("View Log"),
+            _("Quit")
         );
 
-        /* Disable the primary button (冒险日志页面尚未实现) */
+        /* Disable the primary button (adventure log view not yet implemented) */
         const primaryBtn = document.getElementById("game-modal-primary");
         if (primaryBtn) {
             primaryBtn.disabled = true;
@@ -386,22 +391,21 @@ const GameView = (function () {
         _endModalShown = true;
 
         Display.showEndModal(
-            "故事已结束。是否生成冒险日志？",
-            /* Primary: view adventure log (disabled for now) */
+            _("Story has ended. Generate adventure log?"),
+            /* Primary: view adventure log (stub — disabled below) */
             () => {
-                /* Future: navigate to adventure log view */
-                Router.navigate("menu");
+                /* TODO: navigate to adventure log view when implemented */
             },
             /* Secondary: quit */
             () => {
                 SSEClient.close();
                 Router.navigate("menu");
             },
-            "开始查看",
-            "退出"
+            _("View Log"),
+            _("Quit")
         );
 
-        /* Disable the primary button (冒险日志页面尚未实现) */
+        /* Disable the primary button (adventure log view not yet implemented) */
         const primaryBtn = document.getElementById("game-modal-primary");
         if (primaryBtn) {
             primaryBtn.disabled = true;
@@ -412,7 +416,7 @@ const GameView = (function () {
 
     function _showFatalError(message) {
         Display.showErrorModal(
-            "游戏启动失败: " + message,
+            _("Game start failed: ") + message,
             /* Retry: re-render */
             () => {
                 render(_container, _gameId, _label);
@@ -451,10 +455,10 @@ const GameView = (function () {
 
         if (_mode === "auto") {
             btn.classList.add("auto");
-            btn.title = "切换至手动模式";
+            btn.title = _("Switch to Manual");
         } else {
             btn.classList.remove("auto");
-            btn.title = "切换至自动模式";
+            btn.title = _("Switch to Auto");
         }
         btn.innerHTML = _modeSVG(_mode);
     }
