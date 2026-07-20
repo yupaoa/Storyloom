@@ -424,6 +424,16 @@ async def game_stream(game_id: str):
 
     # ── Async SSE generator ───────────────────────────────────────
     async def event_generator():
+        # Track last keepalive time so we can poll the queue at short
+        # intervals while still sending keepalive comments every 15 s
+        # to prevent proxy idle timeout (typically 60 s).
+        import time as _time
+        _last_keepalive = _time.monotonic()
+        _KEEPALIVE_INTERVAL = 15.0   # well under typical 60 s proxy timeout
+        _POLL_INTERVAL = 0.1         # 100 ms — tight enough to avoid
+                                     # perceptible loading delays while
+                                     # keeping CPU overhead negligible
+
         try:
             while True:
                 # Non-blocking poll of the queue
@@ -433,10 +443,16 @@ async def game_stream(game_id: str):
                     # No event ready — check if stream is still alive
                     if sessions.get_game_stream(game_id) is None:
                         break
-                    # Yield keepalive to prevent proxy timeout.
-                    # 15 s is well under the typical 60 s proxy timeout.
-                    yield ": keepalive\n\n"
-                    await asyncio.sleep(15)
+                    # Send keepalive if due, then sleep a short interval
+                    # before polling again.  A short poll (100 ms) means
+                    # post-choice events injected while the generator was
+                    # waiting for user input are picked up almost
+                    # immediately — no 15 s stall.
+                    now = _time.monotonic()
+                    if now - _last_keepalive >= _KEEPALIVE_INTERVAL:
+                        yield ": keepalive\n\n"
+                        _last_keepalive = now
+                    await asyncio.sleep(_POLL_INTERVAL)
                     continue
 
                 etype = event.get("type", "")
