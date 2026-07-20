@@ -197,18 +197,24 @@ const CoCreateView = (function () {
         `;
     }
 
-    /** Transition screen with error + Retry button. */
+    /** Transition screen with error + Retry + Back to Menu buttons. */
     function _renderTransitionError(message, retryHandler) {
         _container.innerHTML = `
             <div class="cc-transition">
                 <div class="cc-transition-text" style="font-size:1.4rem; color:var(--text-error); margin-bottom:1.5rem;">
                     ${esc(message)}
                 </div>
-                <button class="menu-btn" id="cc-transition-retry">${esc(_("Retry"))}</button>
+                <div style="display:flex; gap:0.8rem; justify-content:center;">
+                    <button class="menu-btn" id="cc-transition-retry">${esc(_("Retry"))}</button>
+                    <button class="menu-btn" id="cc-transition-back">${esc(_("Back to Menu"))}</button>
+                </div>
             </div>
         `;
         document.getElementById("cc-transition-retry").addEventListener("click", () => {
             retryHandler();
+        });
+        document.getElementById("cc-transition-back").addEventListener("click", () => {
+            Router.navigate("menu");
         });
     }
 

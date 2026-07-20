@@ -142,7 +142,7 @@ const Display = (function () {
             panel.appendChild(btn);
         }
 
-        /* Append below story area */
+        /* Append below story area — at page bottom */
         const story = $("#game-story");
         if (story) {
             story.parentNode.insertBefore(panel, story.nextSibling);
@@ -259,8 +259,60 @@ const Display = (function () {
 
     /* ── In-game Settings ──────────────────────────────────────────── */
 
+    /** Settings section definitions — add entries here to extend the
+     *  settings panel without touching DOM construction or event binding.
+     *  Each section: { id, label, options: [{ val, label }], getVal, onChange } */
+    function _buildSettingsSections(getSpeed, onSpeed, getFont, onFont, getLine, onLine) {
+        return [
+            {
+                id: "setting-speed",
+                label: _("Speed"),
+                options: [
+                    { val: 0.75, label: "0.75x" },
+                    { val: 1,    label: "1x" },
+                    { val: 2,    label: "2x" },
+                    { val: 3,    label: "3x" },
+                ],
+                getVal: getSpeed,
+                onChange: onSpeed,
+                parseVal: Number,
+            },
+            {
+                id: "setting-font",
+                label: _("Font Size"),
+                options: [
+                    { val: "small",  label: _("Small") },
+                    { val: "medium", label: _("Medium") },
+                    { val: "large",  label: _("Large") },
+                ],
+                getVal: getFont,
+                onChange: onFont,
+                parseVal: (v) => v,
+            },
+            {
+                id: "setting-line",
+                label: _("Line Spacing"),
+                options: [
+                    { val: 0.75, label: "0.75" },
+                    { val: 1.0,  label: "1.0" },
+                    { val: 1.25, label: "1.25" },
+                ],
+                getVal: getLine,
+                onChange: onLine,
+                parseVal: Number,
+            },
+        ];
+    }
+
+    function _renderOpts(opts, current) {
+        return opts.map(o => {
+            const active = o.val === current ? " active" : "";
+            return `<button class="game-setting-opt${active}" data-val="${o.val}">${o.label}</button>`;
+        }).join("");
+    }
+
     /** Show the in-game settings overlay.
-     *  @param {Function} getSpeed — () → current speed preset (1, 2, or 4)
+     *  @param {Function} getSpeed — () → current speed preset
      *  @param {Function} onSpeed — (speed) → void
      *  @param {Function} getFont — () → current font size ("small"|"medium"|"large")
      *  @param {Function} onFont — (size) → void
@@ -273,50 +325,24 @@ const Display = (function () {
         overlay.className = "game-settings-overlay";
         overlay.id = "game-settings-overlay";
 
-        const speedOpts = [
-            { val: 1, label: "1x" },
-            { val: 2, label: "2x" },
-            { val: 4, label: "4x" },
-        ];
-        const fontOpts = [
-            { val: "small", label: _("Small") },
-            { val: "medium", label: _("Medium") },
-            { val: "large", label: _("Large") },
-        ];
-        const lineOpts = [
-            { val: 0.75, label: "0.75" },
-            { val: 1.0, label: "1.0" },
-            { val: 1.25, label: "1.25" },
-        ];
+        const sections = _buildSettingsSections(
+            getSpeed, onSpeed, getFont, onFont, getLine, onLine
+        );
 
-        function renderOpts(opts, current, onChange) {
-            return opts.map(o => {
-                const active = o.val === current ? " active" : "";
-                return `<button class="game-setting-opt${active}" data-val="${o.val}">${o.label}</button>`;
-            }).join("");
-        }
+        /* Build rows HTML from section definitions */
+        const rowsHTML = sections.map(s => `
+            <div class="game-setting-row">
+                <span class="game-setting-label">${s.label}</span>
+                <div class="game-setting-options" id="${s.id}">
+                    ${_renderOpts(s.options, s.getVal())}
+                </div>
+            </div>
+        `).join("");
 
         overlay.innerHTML = `
             <div class="game-settings-panel">
                 <h2>${_("Settings")}</h2>
-                <div class="game-setting-row">
-                    <span class="game-setting-label">${_("Speed")}</span>
-                    <div class="game-setting-options" id="setting-speed">
-                        ${renderOpts(speedOpts, getSpeed(), onSpeed)}
-                    </div>
-                </div>
-                <div class="game-setting-row">
-                    <span class="game-setting-label">${_("Font Size")}</span>
-                    <div class="game-setting-options" id="setting-font">
-                        ${renderOpts(fontOpts, getFont(), onFont)}
-                    </div>
-                </div>
-                <div class="game-setting-row">
-                    <span class="game-setting-label">${_("Line Spacing")}</span>
-                    <div class="game-setting-options" id="setting-line">
-                        ${renderOpts(lineOpts, getLine(), onLine)}
-                    </div>
-                </div>
+                ${rowsHTML}
                 <button class="menu-btn game-settings-close" id="btn-game-settings-close">
                     ${_("Close")}
                 </button>
@@ -325,34 +351,19 @@ const Display = (function () {
 
         document.body.appendChild(overlay);
 
-        /* Bind option clicks */
-        overlay.querySelector("#setting-speed").addEventListener("click", (e) => {
-            const btn = e.target.closest(".game-setting-opt");
-            if (!btn) return;
-            const val = Number(btn.dataset.val);
-            onSpeed(val);
-            /* Refresh options */
-            overlay.querySelector("#setting-speed").innerHTML =
-                renderOpts(speedOpts, getSpeed(), onSpeed);
-        });
-
-        overlay.querySelector("#setting-font").addEventListener("click", (e) => {
-            const btn = e.target.closest(".game-setting-opt");
-            if (!btn) return;
-            const val = btn.dataset.val;
-            onFont(val);
-            overlay.querySelector("#setting-font").innerHTML =
-                renderOpts(fontOpts, getFont(), onFont);
-        });
-
-        overlay.querySelector("#setting-line").addEventListener("click", (e) => {
-            const btn = e.target.closest(".game-setting-opt");
-            if (!btn) return;
-            const val = Number(btn.dataset.val);
-            onLine(val);
-            overlay.querySelector("#setting-line").innerHTML =
-                renderOpts(lineOpts, getLine(), onLine);
-        });
+        /* Bind option clicks — one delegated listener per section */
+        for (const s of sections) {
+            const container = overlay.querySelector(`#${s.id}`);
+            if (!container) continue;
+            container.addEventListener("click", (e) => {
+                const btn = e.target.closest(".game-setting-opt");
+                if (!btn) return;
+                const val = s.parseVal(btn.dataset.val);
+                s.onChange(val);
+                /* Refresh the option buttons to reflect new active state */
+                container.innerHTML = _renderOpts(s.options, s.getVal());
+            });
+        }
 
         overlay.querySelector("#btn-game-settings-close").addEventListener("click", closeSettings);
         overlay.addEventListener("click", (e) => {

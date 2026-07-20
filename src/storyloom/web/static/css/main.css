@@ -413,6 +413,11 @@ button.accent:hover, .btn-accent:hover {
     to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes fadeInOpacity {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Co-Create Chat View — modern AI chat layout
    ═══════════════════════════════════════════════════════════════════ */
@@ -748,7 +753,7 @@ button.accent:hover, .btn-accent:hover {
     font-size: 1.05rem;
     color: var(--text-secondary);
     line-height: 1.7;
-    max-width: 500px;
+    max-width: 640px;
     margin-bottom: 2.5rem;
 }
 
@@ -1048,6 +1053,7 @@ button.accent:hover, .btn-accent:hover {
     margin: 0 auto;
     background: var(--bg-primary);
     animation: fadeIn 0.3s ease;
+    position: relative;           /* anchor for absolutely-positioned choices */
 }
 
 /* ── Top Bar ────────────────────────────────────────────────────── */
@@ -1288,17 +1294,25 @@ button.accent:hover, .btn-accent:hover {
 /* ── Choices Panel ──────────────────────────────────────────────── */
 
 .game-choices {
-    flex-shrink: 0;
-    padding: 0.75rem 0.25rem 1rem;
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 420px;
+    padding: 1.5rem 0 1rem;
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 0.5rem;
-    animation: fadeIn 0.3s ease;
+    animation: fadeInOpacity 0.3s ease;
+    z-index: 50;
 }
 
 .game-choice-btn {
     display: block;
     width: 100%;
+    max-width: 420px;
     padding: 0.75rem 1rem;
     border: 1px solid var(--border-color);
     border-radius: 6px;
@@ -1306,15 +1320,16 @@ button.accent:hover, .btn-accent:hover {
     color: var(--text-primary);
     font-family: var(--font-sans);
     font-size: 1rem;
-    text-align: left;
+    text-align: center;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
 }
 
 .game-choice-btn:hover {
     background: var(--button-hover);
     border-color: var(--text-accent);
     box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+    transform: scale(1.02);
 }
 
 .game-choice-btn:active {

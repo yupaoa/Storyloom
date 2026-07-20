@@ -26,12 +26,12 @@ const GameView = (function () {
 
     /* Display settings (defaults per user spec) */
     let _mode = "manual";       // "manual" | "auto"
-    let _speed = 1;             // 1 | 2 | 4  (1x = 2.0s per segment)
+    let _speed = 1;             // 0.75 | 1 | 2 | 3  (1x = 2.0s per segment)
     let _fontSize = "medium";   // "small" | "medium" | "large"
     let _lineSpacing = 1.0;     // 0.75 | 1.0 | 1.25
 
     /* Speed → delay mapping (1x = 2.0s base) */
-    const SPEED_DELAY = { 1: 2000, 2: 1000, 4: 500 };
+    const SPEED_DELAY = { 0.75: 2667, 1: 2000, 2: 1000, 3: 667 };
 
     /* Queue buffer for paced display (exec-flow.md §4.5).
        Receiver (SSE handlers) pushes; display loop (_displayTick)
