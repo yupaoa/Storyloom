@@ -4,6 +4,8 @@
 set -e
 
 PYTHON="${PYTHON:-python3}"
+# Fallback to 'python' on Windows / if 'python3' not found
+command -v "$PYTHON" >/dev/null 2>&1 || PYTHON="python"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
