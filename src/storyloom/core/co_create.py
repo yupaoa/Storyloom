@@ -430,10 +430,10 @@ _LANG_META = {
         ),
         "example_branch_var": "信任度",
         "example_goal": (
-            "在霓虹深渊酒吧，情报贩子向主角透露了一枚神秘芯片的存在。"
-            "通过隐藏终端查询，发现芯片来自企业研发部门的绝密项目，"
-            "多个势力正在逼近。"
-            "主角必须决定是深入调查还是暂避锋芒——时间不多了。"
+            "在霓虹深渊酒吧接头后，主角追踪芯片线索深入地下黑市，"
+            "与情报贩子、企业特工、叛军领袖三方周旋。"
+            "一次突如其来的背叛摧毁了所有线索，将主角推向绝境。"
+            "当真相浮出水面时，主角必须决定——相信谁，毁掉什么，成为怎样的人。"
         ),
     },
     "en": {
@@ -450,11 +450,11 @@ _LANG_META = {
         ),
         "example_branch_var": "Trust",
         "example_goal": (
-            "At the Neon Abyss bar, a fixer tips off the protagonist about a mysterious "
-            "data chip. A search through a hidden terminal reveals the chip is from a "
-            "top-secret corporate R&D project, and multiple factions are already closing "
-            "in. The protagonist must decide whether to dig deeper or lie low — time is "
-            "running out."
+            "After the meeting at the Neon Abyss bar, the protagonist follows the "
+            "chip's trail into the black market, navigating between factions. "
+            "A sudden betrayal destroys every lead, cornering the protagonist. "
+            "When the truth surfaces, the choice is theirs — who to trust, "
+            "what to destroy, who to become."
         ),
     },
 }
