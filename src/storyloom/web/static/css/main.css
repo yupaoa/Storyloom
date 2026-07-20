@@ -39,6 +39,7 @@
     --font-mono: "Consolas", "Courier New", monospace;
     --font-serif: "Georgia", "Noto Serif SC", serif;
     --font-sans: "Segoe UI", "PingFang SC", sans-serif;
+    interpolate-size: allow-keywords;
 }
 
 /* ── Reset & Base ───────────────────────────────────────────────── */
@@ -420,7 +421,7 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 4rem);
-    max-width: 800px;
+    max-width: 960px;
     margin: 0 auto;
     background: var(--bg-primary);
 }
@@ -515,7 +516,7 @@ button.accent:hover, .btn-accent:hover {
     padding: 0.7rem 1rem;
     border-radius: 12px;
     line-height: 1.55;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     animation: fadeIn 0.25s ease;
     white-space: pre-wrap;
     word-break: break-word;
@@ -614,7 +615,7 @@ button.accent:hover, .btn-accent:hover {
     background: transparent;
     color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     resize: none;
     min-height: 2.8rem;
     max-height: 10rem;
@@ -676,7 +677,7 @@ button.accent:hover, .btn-accent:hover {
     align-items: center;
     justify-content: center;
     height: calc(100vh - 4rem);
-    max-width: 800px;
+    max-width: 960px;
     margin: 0 auto;
     text-align: center;
     animation: fadeIn 0.3s ease;
@@ -707,7 +708,7 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 4rem);
-    max-width: 800px;
+    max-width: 960px;
     margin: 0 auto;
     animation: fadeIn 0.3s ease;
 }
@@ -859,9 +860,11 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .sv-list--checkpoints .sv-card:hover .sv-card-meta span {
-    overflow: visible;
+    overflow: hidden;
     white-space: normal;
     text-overflow: clip;
+    height: auto;
+    max-height: 5em;
 }
 
 .sv-list--checkpoints .sv-card:hover .sv-card-time {
@@ -892,6 +895,8 @@ button.accent:hover, .btn-accent:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    height: 1.3em;
+    transition: height 0.3s ease;
 }
 
 .sv-card-time {
