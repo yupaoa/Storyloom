@@ -362,13 +362,22 @@ const GameView = (function () {
                 return;
             }
 
-            /* Restart the display loop.  If post-choice segments have
-               already arrived they are processed immediately; otherwise
-               the empty-queue poll starts and the 500 ms debounce
-               controls when (if ever) the loading indicator appears.
-               Per exec-flow.md §4.3, bridge pre-fetch means post-choice
-               content is already buffered — loading should rarely show. */
-            _displayTick();
+            /* Restart the display loop with pacing — the green choice
+               text already provides a visual beat, so the first
+               post-choice segment must also respect the current mode
+               (auto: speed-based delay, manual: wait for advance).
+               Otherwise it appears instantly and looks like a duplicate
+               of the choice text. */
+            if (_mode === "auto") {
+                _drainTimer = setTimeout(
+                    _displayTick, SPEED_DELAY[_speed] || 2000
+                );
+            } else {
+                _waitForUserAdvance().then(() => {
+                    if (!_displayRunning) return;
+                    _displayTick();
+                });
+            }
         });
     }
 
