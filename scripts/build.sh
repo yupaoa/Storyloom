@@ -26,16 +26,20 @@ esac
 echo "=== Storyloom Web UI Build v${VERSION} ==="
 
 # 1. Install project + build tools (PyInstaller needs deps to discover imports)
-echo "[1/5] Installing project + build tools..."
+echo "[1/6] Installing project + build tools..."
 $PYTHON -m pip install -q -e . build pyinstaller wheel 2>/dev/null || \
     $PYTHON -m pip install -q --break-system-packages -e . build pyinstaller wheel
 
-# 2. pip packages (wheel + sdist)
-echo "[2/5] Building pip packages..."
+# 2. Compile i18n (.po → .mo)
+echo "[2/6] Compiling translations..."
+$PYTHON -c "from storyloom.i18n_compile import compile_all; compile_all('locale')"
+
+# 3. pip packages (wheel + sdist)
+echo "[3/6] Building pip packages..."
 $PYTHON -m build --no-isolation
 
-# 3. PyInstaller single-file executable
-echo "[3/5] Building standalone executable..."
+# 4. PyInstaller single-file executable
+echo "[4/6] Building standalone executable..."
 $PYTHON -m PyInstaller --onefile $PYI_FLAGS \
     --name "$BIN_NAME" \
     --add-data "locale:locale" \
@@ -44,15 +48,15 @@ $PYTHON -m PyInstaller --onefile $PYI_FLAGS \
     --hidden-import uvicorn.protocols.http.auto \
     src/storyloom/web/__main__.py
 
-# 4. Assemble release directory
-echo "[4/5] Assembling release directory..."
+# 5. Assemble release directory
+echo "[5/6] Assembling release directory..."
 mkdir -p "$OUTPUT_DIR"
 cp "dist/$BIN_NAME" "$OUTPUT_DIR/"
 cp -r locale "$OUTPUT_DIR/"
 cp dist/*.whl dist/*.tar.gz "$OUTPUT_DIR/"
 
-# 5. Create zip for GitHub Release upload
-echo "[5/5] Creating release archive..."
+# 6. Create zip for GitHub Release upload
+echo "[6/6] Creating release archive..."
 ZIP_NAME="storyloom-web-v${VERSION}-$(uname -s)"
 $PYTHON -c "import shutil; shutil.make_archive('dist/$ZIP_NAME', 'zip', 'dist', 'storyloom-web-v${VERSION}')"
 
