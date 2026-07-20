@@ -1219,6 +1219,12 @@ button.accent:hover, .btn-accent:hover {
     animation: fadeIn 0.3s ease;
     white-space: pre-wrap;
     word-break: break-word;
+    transition: transform 0.3s ease;
+}
+
+/* Newest segment — slightly enlarged; shrinks when next arrives */
+.game-segment--active {
+    transform: scale(1.06);
 }
 
 /* Font size variants (applied to .game-story container) */
@@ -1265,6 +1271,7 @@ button.accent:hover, .btn-accent:hover {
 .game-loading {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.15rem;
     color: var(--text-secondary);
     font-size: 0.85rem;
