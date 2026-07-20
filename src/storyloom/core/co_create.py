@@ -511,7 +511,7 @@ genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
 tier: {short / medium / long}
 label: $label_hint
 language: $language
-setting: {one sentence: era, location, key world facts}
+setting: {a story blurb that hooks the reader — introduce the world, protagonist, and what's at stake}
 protagonist_name: {name}
 protagonist_identity: {one sentence}
 protagonist_traits: {2-3 key traits}
