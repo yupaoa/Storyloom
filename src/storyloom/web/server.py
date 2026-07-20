@@ -345,12 +345,30 @@ async def game_stream(game_id: str):
     def run_loop() -> None:
         try:
             while True:
+                # Check stop signal before launching next round.
+                # This is the fast-path exit — most rounds spend
+                # their time inside stream_round(), so this check
+                # catches the case where stop was requested between
+                # rounds (or before the first round even started).
+                if sessions.is_game_stream_stopped(game_id):
+                    return
+
                 gen = gl.stream_round()
                 for event in gen:
+                    # Check stop signal after every yielded event.
+                    # Covers the case where the client disconnected
+                    # mid-round — the next yield point exits cleanly.
+                    if sessions.is_game_stream_stopped(game_id):
+                        return
+
                     q.put(event)
                     if event["type"] == "options":
                         # Block until choice arrives via POST /choice
                         key = sessions.wait_for_choice(game_id)
+                        # Stop may have been requested while we were
+                        # blocked — check before resuming the generator.
+                        if sessions.is_game_stream_stopped(game_id):
+                            return
                         try:
                             gen.send(key)
                         except StopIteration:
@@ -383,36 +401,44 @@ async def game_stream(game_id: str):
         except Exception as exc:
             q.put({"type": "error", "message": str(exc)})
         finally:
-            sessions.pop_game_stream(game_id)
+            # Identity-checked pop — only removes the queue if a new
+            # stream hasn't already replaced it (see sessions.py).
+            sessions.pop_game_stream(game_id, q)
 
     thread = threading.Thread(target=run_loop, daemon=True)
     thread.start()
 
     # ── Async SSE generator ───────────────────────────────────────
     async def event_generator():
-        while True:
-            # Non-blocking poll of the queue
-            try:
-                event = q.get_nowait()
-            except queue.Empty:
-                # No event ready — check if stream is still alive
-                if sessions.get_game_stream(game_id) is None:
+        try:
+            while True:
+                # Non-blocking poll of the queue
+                try:
+                    event = q.get_nowait()
+                except queue.Empty:
+                    # No event ready — check if stream is still alive
+                    if sessions.get_game_stream(game_id) is None:
+                        break
+                    # Yield keepalive to prevent proxy timeout.
+                    # 15 s is well under the typical 60 s proxy timeout.
+                    yield ": keepalive\n\n"
+                    await asyncio.sleep(15)
+                    continue
+
+                etype = event.get("type", "")
+
+                # Serialize event data.  For "token" events, the text
+                # may contain characters that confuse SSE — use JSON.
+                data = json.dumps(event, ensure_ascii=False)
+                yield f"event: {etype}\ndata: {data}\n\n"
+
+                if etype in ("stream_end",):
                     break
-                # Yield keepalive to prevent proxy timeout.
-                # 15 s is well under the typical 60 s proxy timeout.
-                yield ": keepalive\n\n"
-                await asyncio.sleep(15)
-                continue
-
-            etype = event.get("type", "")
-
-            # Serialize event data.  For "token" events, the text
-            # may contain characters that confuse SSE — use JSON.
-            data = json.dumps(event, ensure_ascii=False)
-            yield f"event: {etype}\ndata: {data}\n\n"
-
-            if etype in ("stream_end",):
-                break
+        finally:
+            # Client disconnected (or stream ended naturally) —
+            # signal the background daemon thread to stop so it
+            # doesn't keep consuming API tokens.
+            sessions.request_stop_game_stream(game_id)
 
     return StreamingResponse(
         event_generator(),
@@ -458,6 +484,17 @@ async def game_retry(game_id: str):
         gl.retry()
     except RuntimeError as e:
         raise HTTPException(400, str(e))
+    return {"status": "ok"}
+
+
+@app.post("/api/game/{game_id}/stop")
+async def game_stop(game_id: str):
+    """Stop the background daemon thread and clean up stream state.
+
+    Call when navigating away from the game view (exit button, browser
+    back, etc.).  Idempotent — safe to call multiple times.
+    """
+    sessions.request_stop_game_stream(game_id)
     return {"status": "ok"}
 
 

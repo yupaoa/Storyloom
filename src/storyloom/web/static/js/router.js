@@ -102,6 +102,14 @@
        ═══════════════════════════════════════════════════════════════ */
 
     function renderMenu() {
+        // Best-effort stop any lingering game stream — catches
+        // browser-back and manual hash changes that bypass the
+        // per-view quit button.  Capture gameId before reset() clears it.
+        const activeGameId = GameState.gameId;
+        if (activeGameId && typeof API !== "undefined") {
+            API.post(`/api/game/${encodeURIComponent(activeGameId)}/stop`).catch(() => {});
+        }
+
         GameState.reset();
         // SSEClient may not be loaded yet — guard
         if (typeof SSEClient !== "undefined" && SSEClient.close) {

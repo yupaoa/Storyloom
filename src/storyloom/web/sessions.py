@@ -9,6 +9,7 @@ Co-create store:
 Game store:
     store_game / get_game / remove_game
     store_game_stream / pop_game_stream / get_game_stream
+    request_stop_game_stream / is_game_stream_stopped
     inject_choice / wait_for_choice
 """
 
@@ -70,11 +71,9 @@ def get_game(game_id: str) -> GameLoop | None:
 
 
 def remove_game(game_id: str) -> None:
-    """Remove a game from the store."""
+    """Remove a game and all associated stream/choice/stop state."""
     _game_loops.pop(game_id, None)
-    _game_streams.pop(game_id, None)
-    _game_choices.pop(game_id, None)
-    _game_choice_events.pop(game_id, None)
+    pop_game_stream(game_id)
 
 
 # ── Game stream state ──────────────────────────────────────────────
@@ -90,16 +89,75 @@ _game_streams: dict[str, queue.Queue] = {}
 _game_choices: dict[str, str] = {}
 _game_choice_events: dict[str, threading.Event] = {}
 
+# Per-game stop signals — set when the client disconnects or the UI
+# explicitly stops the game stream.  The background daemon thread
+# checks this flag at key yield points and exits cleanly.
+_game_stop_events: dict[str, threading.Event] = {}
+
 
 def store_game_stream(game_id: str) -> queue.Queue:
-    """Create and store an event queue for a game SSE stream."""
+    """Create and store an event queue and stop signal for a game SSE stream.
+
+    Returns the queue so the caller can feed events into it.  A fresh
+    ``threading.Event`` is created as the stop signal — the daemon
+    thread polls ``is_game_stream_stopped()`` to know when to exit.
+    """
     q: queue.Queue = queue.Queue()
     _game_streams[game_id] = q
+    _game_stop_events[game_id] = threading.Event()
     return q
 
 
-def pop_game_stream(game_id: str) -> queue.Queue | None:
-    """Remove and return a game stream queue."""
+def request_stop_game_stream(game_id: str) -> None:
+    """Signal the background daemon thread to stop.
+
+    Sets the stop event and wakes up any ``wait_for_choice()`` call
+    that may be blocking the thread (otherwise it would hang for up to
+    300 s).  Safe to call multiple times and from any thread.
+    """
+    evt = _game_stop_events.get(game_id)
+    if evt is not None:
+        evt.set()
+    # Wake up wait_for_choice so the thread can observe the stop signal
+    # immediately rather than blocking for the full 300 s timeout.
+    choice_evt = _game_choice_events.get(game_id)
+    if choice_evt is not None:
+        choice_evt.set()
+
+
+def is_game_stream_stopped(game_id: str) -> bool:
+    """Return True if the stop signal has been set for *game_id*.
+
+    The background daemon thread calls this at key points (before each
+    ``stream_round()`` call, after each yielded event, and after
+    ``wait_for_choice()`` returns) to decide whether to exit.
+    """
+    evt = _game_stop_events.get(game_id)
+    return evt.is_set() if evt is not None else True
+
+
+def pop_game_stream(game_id: str, q: queue.Queue | None = None) -> queue.Queue | None:
+    """Remove a game stream queue, stop signal, and choice state.
+
+    If *q* is provided, the queue is only removed when the currently
+    stored queue is the same object (identity check).  This prevents
+    an old daemon thread from accidentally removing a new stream's
+    queue — the old thread's ``finally`` block calls this with the old
+    *q* reference, which no longer matches after a new
+    ``store_game_stream()`` overwrites the entry.
+
+    Always cleans up the stop event and choice state regardless of
+    the identity check — those should not persist once *any* stream
+    for this game has ended.
+    """
+    _game_stop_events.pop(game_id, None)
+    _game_choices.pop(game_id, None)
+    _game_choice_events.pop(game_id, None)
+
+    if q is not None:
+        current = _game_streams.get(game_id)
+        if current is not q:
+            return None  # not our queue — new stream already started
     return _game_streams.pop(game_id, None)
 
 

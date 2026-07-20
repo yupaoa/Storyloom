@@ -394,6 +394,11 @@ const GameView = (function () {
             },
             /* Secondary: quit */
             () => {
+                // Best-effort stop server-side stream before leaving.
+                // Fire-and-forget — don't block navigation on the response.
+                if (_gameId) {
+                    API.post(`/api/game/${encodeURIComponent(_gameId)}/stop`).catch(() => {});
+                }
                 SSEClient.close();
                 Router.navigate("menu");
             },
@@ -448,6 +453,11 @@ const GameView = (function () {
             },
             /* Exit */
             () => {
+                // Game start failed — no running stream, but stop is
+                // idempotent and safe to call for belt-and-suspenders.
+                if (_gameId) {
+                    API.post(`/api/game/${encodeURIComponent(_gameId)}/stop`).catch(() => {});
+                }
                 Router.navigate("menu");
             }
         );
