@@ -334,26 +334,16 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 010| <branch name="path_a">
 011| <seg>local variant — merges back after</seg>
 012| </branch>
-013| <!-- main interaction -->
+013| <!-- main interaction — not every choice needs consequences -->
 014| <choice id="variable_name">
-015|   <opt key="1" branch="outcome_a">option text</opt>
-016|   <opt key="2" branch="outcome_b">option text</opt>
+015|   <opt key="1">option text</opt>
+016|   <opt key="2">option text</opt>
 017| </choice>
-018| <set var="variable" op="operation" val="value" if="condition"/>
-019| <checkpoint node="node_id" summary="summary text">
-020|   <route if="condition" target="target_node"/>
-021| </checkpoint>
-022| <bridge/>
-023| <!-- after bridge: narrative only, selected by current_branch -->
-024| <branch name="outcome_a">
-025| <seg>outcome narration</seg>
-026| ...
-027| </branch>
-028| <branch name="outcome_b">
-029| <seg>outcome narration</seg>
-030| ...
-031| </branch>
-032| </story>
+018| <!-- node still in progress — no <checkpoint> yet -->
+019| <bridge/>
+020| <seg>narration continues on a single path</seg>
+021| ...
+022| </story>
 
 ## Elements
 
@@ -376,40 +366,44 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 Below is a format example (content is a short fictional fantasy story in English):
 
 001| <story>
-002| <seg>Snow fell on the empty road.</seg>
-003| <seg>Kael stamped the snow from his boots.</seg>
-004| <seg>He pushed through the heavy oak door.</seg>
+002| <seg>Snow fell on the empty road</seg>
+003| <seg>Kael stamped the snow from his boots</seg>
+004| <seg>He pushed through the heavy oak door</seg>
 005| <seg>Innkeeper: Room for the night?</seg>
 006| <choice id="inn_choice">
 007|   <opt key="1" branch="take_room">Take a room</opt>
 008|   <opt key="2">Just a drink</opt>
 009| </choice>
 010| <branch name="take_room">
-011| <seg>A key slid across the counter.</seg>
+011| <seg>A key slid across the counter</seg>
 012| </branch>
-013| <seg>A stranger sat alone at the corner table.</seg>
-014| <seg>Stranger: You're the one I've been waiting for.</seg>
-015| <seg>Stranger: Word is you handle things quietly.</seg>
-016| <choice id="approach">
-017|   <opt key="1" branch="accept">I'm listening</opt>
-018|   <opt key="2" branch="decline">Not interested</opt>
-019| </choice>
-020| <set var="reputation" op="+" val="5" if="approach==1"/>
-021| <checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
-022|   <route if="approach==1" target="ch3_job"/>
-023|   <route if="approach==2" target="ch3_alone"/>
-024| </checkpoint>
-025| <bridge/>
-026| <branch name="accept">
-027| <seg>The stranger leaned closer.</seg>
-028| <seg>Stranger: There's a shipment. Tomorrow night. Old pass.</seg>
-029| <seg>Stranger: Payment on delivery. Half up front.</seg>
-030| </branch>
-031| <branch name="decline">
-032| <seg>The stranger shrugged.</seg>
-033| <seg>Stranger: Suit yourself. But you'll be back.</seg>
+013| <choice id="drink">
+014|   <opt key="1">Somethin' strong</opt>
+015|   <opt key="2">Just water</opt>
+016| </choice>
+017| <seg>A stranger sat alone at the corner table</seg>
+018| <seg>Stranger: You're the one I've been waiting for</seg>
+019| <seg>Stranger: Word is you handle things quietly</seg>
+020| <choice id="approach">
+021|   <opt key="1" branch="accept">I'm listening</opt>
+022|   <opt key="2" branch="decline">Not interested</opt>
+023| </choice>
+024| <set var="reputation" op="+" val="5" if="approach==1"/>
+025| <checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
+026|   <route if="approach==1" target="ch3_job"/>
+027|   <route if="approach==2" target="ch3_alone"/>
+028| </checkpoint>
+029| <bridge/>
+030| <branch name="accept">
+031| <seg>The stranger leaned closer</seg>
+032| <seg>Stranger: There's a shipment. Tomorrow night. Old pass</seg>
+033| <seg>Stranger: Payment on delivery. Half up front</seg>
 034| </branch>
-035| </story>
+035| <branch name="decline">
+036| <seg>The stranger shrugged</seg>
+037| <seg>Stranger: Suit yourself. But you'll be back</seg>
+038| </branch>
+039| </story>
 (This is a format example ONLY. Your output is an entirely new story segment.)
 
 # Core Rules
@@ -605,26 +599,16 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 010| <branch name="path_a">
 011| <seg>local variant — merges back after</seg>
 012| </branch>
-013| <!-- main interaction -->
+013| <!-- main interaction — not every choice needs consequences -->
 014| <choice id="variable_name">
-015|   <opt key="1" branch="outcome_a">option text</opt>
-016|   <opt key="2" branch="outcome_b">option text</opt>
+015|   <opt key="1">option text</opt>
+016|   <opt key="2">option text</opt>
 017| </choice>
-018| <set var="variable" op="operation" val="value" if="condition"/>
-019| <checkpoint node="node_id" summary="summary text">
-020|   <route if="condition" target="target_node"/>
-021| </checkpoint>
-022| <bridge/>
-023| <!-- after bridge: narrative only, selected by current_branch -->
-024| <branch name="outcome_a">
-025| <seg>outcome narration</seg>
-026| ...
-027| </branch>
-028| <branch name="outcome_b">
-029| <seg>outcome narration</seg>
-030| ...
-031| </branch>
-032| </story>
+018| <!-- node still in progress — no <checkpoint> yet -->
+019| <bridge/>
+020| <seg>narration continues on a single path</seg>
+021| ...
+022| </story>
 
 ## Elements
 
@@ -647,40 +631,44 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 Below is a format example (content is a short fictional fantasy story in English):
 
 001| <story>
-002| <seg>Snow fell on the empty road.</seg>
-003| <seg>Kael stamped the snow from his boots.</seg>
-004| <seg>He pushed through the heavy oak door.</seg>
+002| <seg>Snow fell on the empty road</seg>
+003| <seg>Kael stamped the snow from his boots</seg>
+004| <seg>He pushed through the heavy oak door</seg>
 005| <seg>Innkeeper: Room for the night?</seg>
 006| <choice id="inn_choice">
 007|   <opt key="1" branch="take_room">Take a room</opt>
 008|   <opt key="2">Just a drink</opt>
 009| </choice>
 010| <branch name="take_room">
-011| <seg>A key slid across the counter.</seg>
+011| <seg>A key slid across the counter</seg>
 012| </branch>
-013| <seg>A stranger sat alone at the corner table.</seg>
-014| <seg>Stranger: You're the one I've been waiting for.</seg>
-015| <seg>Stranger: Word is you handle things quietly.</seg>
-016| <choice id="approach">
-017|   <opt key="1" branch="accept">I'm listening</opt>
-018|   <opt key="2" branch="decline">Not interested</opt>
-019| </choice>
-020| <set var="reputation" op="+" val="5" if="approach==1"/>
-021| <checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
-022|   <route if="approach==1" target="ch3_job"/>
-023|   <route if="approach==2" target="ch3_alone"/>
-024| </checkpoint>
-025| <bridge/>
-026| <branch name="accept">
-027| <seg>The stranger leaned closer.</seg>
-028| <seg>Stranger: There's a shipment. Tomorrow night. Old pass.</seg>
-029| <seg>Stranger: Payment on delivery. Half up front.</seg>
-030| </branch>
-031| <branch name="decline">
-032| <seg>The stranger shrugged.</seg>
-033| <seg>Stranger: Suit yourself. But you'll be back.</seg>
+013| <choice id="drink">
+014|   <opt key="1">Somethin' strong</opt>
+015|   <opt key="2">Just water</opt>
+016| </choice>
+017| <seg>A stranger sat alone at the corner table</seg>
+018| <seg>Stranger: You're the one I've been waiting for</seg>
+019| <seg>Stranger: Word is you handle things quietly</seg>
+020| <choice id="approach">
+021|   <opt key="1" branch="accept">I'm listening</opt>
+022|   <opt key="2" branch="decline">Not interested</opt>
+023| </choice>
+024| <set var="reputation" op="+" val="5" if="approach==1"/>
+025| <checkpoint node="ch2_meeting" summary="A stranger made contact at the inn.">
+026|   <route if="approach==1" target="ch3_job"/>
+027|   <route if="approach==2" target="ch3_alone"/>
+028| </checkpoint>
+029| <bridge/>
+030| <branch name="accept">
+031| <seg>The stranger leaned closer</seg>
+032| <seg>Stranger: There's a shipment. Tomorrow night. Old pass</seg>
+033| <seg>Stranger: Payment on delivery. Half up front</seg>
 034| </branch>
-035| </story>
+035| <branch name="decline">
+036| <seg>The stranger shrugged</seg>
+037| <seg>Stranger: Suit yourself. But you'll be back</seg>
+038| </branch>
+039| </story>
 (This is a format example ONLY. Your output is an entirely new story segment.)
 
 # Core Rules
