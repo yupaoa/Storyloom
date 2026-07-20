@@ -24,10 +24,10 @@ esac
 
 echo "=== Storyloom Web UI Build v${VERSION} ==="
 
-# 1. Install build tools
-echo "[1/5] Installing build tools..."
-$PYTHON -m pip install -q build pyinstaller wheel 2>/dev/null || \
-    $PYTHON -m pip install -q --break-system-packages build pyinstaller wheel
+# 1. Install project + build tools (PyInstaller needs deps to discover imports)
+echo "[1/5] Installing project + build tools..."
+$PYTHON -m pip install -q -e . build pyinstaller wheel 2>/dev/null || \
+    $PYTHON -m pip install -q --break-system-packages -e . build pyinstaller wheel
 
 # 2. pip packages (wheel + sdist)
 echo "[2/5] Building pip packages..."
