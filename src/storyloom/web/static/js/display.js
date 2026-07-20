@@ -130,7 +130,7 @@ const Display = (function () {
         for (const opt of flatOpts) {
             const btn = document.createElement("button");
             btn.className = "game-choice-btn";
-            btn.textContent = `[${opt.key}] ${opt.label}`;
+            btn.textContent = opt.label;
             if (!opt.enabled) {
                 btn.disabled = true;
                 btn.textContent += " " + _("(unavailable)");

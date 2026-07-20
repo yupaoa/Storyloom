@@ -24,9 +24,11 @@
 /* ── CSS Variables ──────────────────────────────────────────────── */
 
 :root {
+    /* ── Colors ──────────────────────────────────────────────────── */
     --bg-primary: #1a1a2e;
     --bg-secondary: #16213e;
     --bg-panel: rgba(22, 33, 62, 0.85);
+    --bg-panel-solid: rgba(22, 33, 62, 0.92);
     --text-primary: #e0e0e0;
     --text-secondary: #a0a0b0;
     --text-accent: #4ecca3;
@@ -36,9 +38,61 @@
     --button-bg: #0f3460;
     --button-hover: #1a5080;
     --button-accent: #4ecca3;
+
+    /* ── Typography ──────────────────────────────────────────────── */
     --font-mono: "Consolas", "Courier New", monospace;
     --font-serif: "Georgia", "Noto Serif SC", serif;
     --font-sans: "Segoe UI", "PingFang SC", sans-serif;
+    /* font-size scale */
+    --font-xs: 0.8rem;
+    --font-sm: 0.85rem;
+    --font-base: 0.95rem;
+    --font-md: 1.05rem;
+    --font-lg: 1.15rem;
+    --font-xl: 1.3rem;
+    --font-2xl: 1.8rem;
+    --font-3xl: 2.2rem;
+    --font-4xl: 3.2rem;
+
+    /* ── Spacing ─────────────────────────────────────────────────── */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 0.75rem;
+    --space-lg: 1rem;
+    --space-xl: 1.5rem;
+    --space-2xl: 2rem;
+    --space-3xl: 3rem;
+
+    /* ── Layout ──────────────────────────────────────────────────── */
+    --content-width: 960px;
+    --choices-width: 420px;
+    --icon-btn-size: 2.2rem;
+
+    /* ── Border Radius ───────────────────────────────────────────── */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+    --radius-round: 24px;
+
+    /* ── Transitions ─────────────────────────────────────────────── */
+    --trans-fast: 0.15s ease;
+    --trans-normal: 0.2s ease;
+    --trans-slow: 0.3s ease;
+
+    /* ── Shadows ─────────────────────────────────────────────────── */
+    --shadow-glow: 0 0 8px rgba(78, 204, 163, 0.2);
+    --shadow-glow-sm: 0 0 10px rgba(78, 204, 163, 0.15);
+    --shadow-glow-lg: 0 0 12px rgba(78, 204, 163, 0.4);
+    --shadow-glow-xl: 0 0 18px rgba(78, 204, 163, 0.4);
+    --shadow-modal: 0 8px 32px rgba(0, 0, 0, 0.4);
+    --shadow-toast: 0 4px 16px rgba(0, 0, 0, 0.3);
+    --shadow-focus: 0 0 0 2px rgba(78, 204, 163, 0.35);
+
+    /* ── Overlays ────────────────────────────────────────────────── */
+    --overlay-bg: rgba(0, 0, 0, 0.55);
+    --overlay-bg-light: rgba(0, 0, 0, 0.6);
+
     interpolate-size: allow-keywords;
 }
 
@@ -59,9 +113,9 @@ body {
 }
 
 #app {
-    max-width: 960px;
+    max-width: var(--content-width);
     margin: 0 auto;
-    padding: 2rem 1.5rem;
+    padding: var(--space-2xl) var(--space-xl);
     min-height: 100vh;
 }
 
@@ -73,9 +127,9 @@ h1, h2, h3 {
     font-weight: normal;
 }
 
-h1 { font-size: 1.8rem; margin-bottom: 1.5rem; }
-h2 { font-size: 1.3rem; margin-bottom: 1rem; }
-h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+h1 { font-size: var(--font-2xl); margin-bottom: var(--space-xl); }
+h2 { font-size: var(--font-xl); margin-bottom: var(--space-lg); }
+h3 { font-size: var(--font-md); margin-bottom: var(--space-sm); }
 
 /* ── Buttons ────────────────────────────────────────────────────── */
 
@@ -83,19 +137,19 @@ button, .btn {
     display: inline-block;
     padding: 0.6rem 1.4rem;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--button-bg);
     color: var(--text-primary);
     font-family: var(--font-mono);
     font-size: 0.9rem;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    transition: background var(--trans-normal), border-color var(--trans-normal), box-shadow var(--trans-normal);
 }
 
 button:hover, .btn:hover {
     background: var(--button-hover);
     border-color: var(--text-accent);
-    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+    box-shadow: var(--shadow-glow);
 }
 
 button:disabled, .btn:disabled {
@@ -111,7 +165,7 @@ button.accent, .btn-accent {
 }
 
 button.accent:hover, .btn-accent:hover {
-    box-shadow: 0 0 12px rgba(78, 204, 163, 0.4);
+    box-shadow: var(--shadow-glow-lg);
 }
 
 /* ── Layout: Menu View ──────────────────────────────────────────── */
@@ -122,25 +176,25 @@ button.accent:hover, .btn-accent:hover {
     align-items: center;
     justify-content: center;
     min-height: 70vh;
-    padding-top: 2rem;
+    padding-top: var(--space-2xl);
     text-align: center;
 }
 
 .menu-title {
     font-family: var(--font-mono);
-    font-size: 3.2rem;
+    font-size: var(--font-4xl);
     font-weight: normal;
     color: var(--text-accent);
     letter-spacing: 0.08em;
-    margin-bottom: 0.5rem;
+    margin-bottom: var(--space-sm);
     user-select: none;
 }
 
 .menu-subtitle {
     font-family: var(--font-sans);
-    font-size: 0.95rem;
+    font-size: var(--font-base);
     color: var(--text-secondary);
-    margin-bottom: 3rem;
+    margin-bottom: var(--space-3xl);
 }
 
 /* ── Menu Buttons ───────────────────────────────────────────────── */
@@ -149,29 +203,29 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1rem;
+    gap: var(--space-lg);
 }
 
 .menu-btn {
     width: 260px;
     padding: 0.8rem 1.6rem;
     font-family: var(--font-sans);
-    font-size: 1.05rem;
+    font-size: var(--font-md);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--button-bg);
     color: var(--text-primary);
     cursor: pointer;
     /* Hover grow animation — core menu requirement */
-    transition: transform 0.3s ease, background 0.2s ease,
-                border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: transform var(--trans-slow), background var(--trans-normal),
+                border-color var(--trans-normal), box-shadow var(--trans-normal);
 }
 
 .menu-btn:hover {
     transform: scale(1.08);
     background: var(--button-hover);
     border-color: var(--text-accent);
-    box-shadow: 0 0 12px rgba(78, 204, 163, 0.25);
+    box-shadow: var(--shadow-glow-lg);
 }
 
 .menu-btn:active {
@@ -185,7 +239,7 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .menu-btn.accent:hover {
-    box-shadow: 0 0 18px rgba(78, 204, 163, 0.4);
+    box-shadow: var(--shadow-glow-xl);
 }
 
 /* ── Continue Panel ─────────────────────────────────────────────── */
@@ -195,36 +249,36 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
 }
 
 .continue-item {
     width: 260px;
-    padding: 0.7rem 1rem;
+    padding: 0.7rem var(--space-lg);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-panel);
     cursor: pointer;
-    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: transform var(--trans-normal), border-color var(--trans-normal), box-shadow var(--trans-normal);
     text-align: left;
 }
 
 .continue-item:hover {
     transform: scale(1.05);
     border-color: var(--text-accent);
-    box-shadow: 0 0 10px rgba(78, 204, 163, 0.2);
+    box-shadow: var(--shadow-glow-sm);
 }
 
 .continue-item .ci-label {
     font-family: var(--font-mono);
-    font-size: 0.95rem;
+    font-size: var(--font-base);
     color: var(--text-primary);
     display: block;
     margin-bottom: 0.15rem;
 }
 
 .continue-item .ci-meta {
-    font-size: 0.8rem;
+    font-size: var(--font-xs);
     color: var(--text-secondary);
 }
 
@@ -233,19 +287,19 @@ button.accent:hover, .btn-accent:hover {
 .settings-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--overlay-bg-light);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 100;
-    animation: fadeIn 0.2s ease;
+    animation: fadeIn var(--trans-normal);
 }
 
 .settings-panel {
     background: var(--bg-panel);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 2rem;
+    border-radius: var(--radius-lg);
+    padding: var(--space-2xl);
     min-width: 420px;
     max-width: 520px;
 }
@@ -253,7 +307,7 @@ button.accent:hover, .btn-accent:hover {
 .settings-panel h2 {
     font-family: var(--font-mono);
     color: var(--text-accent);
-    margin-bottom: 1.5rem;
+    margin-bottom: var(--space-xl);
     text-align: center;
 }
 
@@ -261,12 +315,12 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
+    margin-bottom: var(--space-lg);
 }
 
 .setting-label {
     color: var(--text-secondary);
-    font-size: 0.95rem;
+    font-size: var(--font-base);
 }
 
 .settings-panel select {
@@ -285,7 +339,7 @@ button.accent:hover, .btn-accent:hover {
 .settings-panel input[type="password"]:focus {
     outline: none;
     border-color: var(--text-accent);
-    box-shadow: 0 0 0 2px rgba(78, 204, 163, 0.35);
+    box-shadow: var(--shadow-focus);
 }
 
 .settings-panel input[type="text"],
@@ -301,7 +355,7 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .settings-close {
-    margin-top: 1.5rem;
+    margin-top: var(--space-xl);
     width: 100%;
 }
 
@@ -337,7 +391,7 @@ button.accent:hover, .btn-accent:hover {
 .setting-input:focus {
     outline: none;
     border-color: var(--text-accent);
-    box-shadow: 0 0 0 2px rgba(78, 204, 163, 0.35);
+    box-shadow: var(--shadow-focus);
 }
 
 .setting-edit-btn {
@@ -345,11 +399,11 @@ button.accent:hover, .btn-accent:hover {
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
-    font-size: 1rem;
+    font-size: var(--font-md);
     padding: 0.2rem 0.4rem;
     border-radius: 3px;
     flex-shrink: 0;
-    transition: color 0.2s, background 0.2s;
+    transition: color var(--trans-normal), background var(--trans-normal);
 }
 
 .setting-edit-btn:hover {
@@ -361,13 +415,13 @@ button.accent:hover, .btn-accent:hover {
 
 .credits-app {
     font-family: var(--font-mono);
-    font-size: 1.05rem;
+    font-size: var(--font-md);
     color: var(--text-accent);
     margin-bottom: 0.2rem;
 }
 
 .credits-section {
-    margin-bottom: 1rem;
+    margin-bottom: var(--space-lg);
 }
 
 .credits-section h3 {
@@ -378,7 +432,7 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .credits-name {
-    font-size: 1rem;
+    font-size: var(--font-md);
     color: var(--text-primary);
     margin-bottom: 0.15rem;
 }
@@ -391,7 +445,7 @@ button.accent:hover, .btn-accent:hover {
 .text-muted { color: var(--text-secondary); }
 .text-accent { color: var(--text-accent); }
 .text-error { color: var(--text-error); }
-.no-saves-msg { color: var(--text-secondary); font-style: italic; margin-top: 0.5rem; }
+.no-saves-msg { color: var(--text-secondary); font-style: italic; margin-top: var(--space-sm); }
 
 .placeholder-view {
     display: flex;
@@ -403,7 +457,7 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .placeholder-view h2 {
-    margin-bottom: 1rem;
+    margin-bottom: var(--space-lg);
 }
 
 /* ── Keyframes ──────────────────────────────────────────────────── */
@@ -426,7 +480,7 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 4rem);
-    max-width: 960px;
+    max-width: var(--content-width);
     margin: 0 auto;
     background: var(--bg-primary);
 }
@@ -436,7 +490,7 @@ button.accent:hover, .btn-accent:hover {
 .cc-header {
     display: flex;
     align-items: center;
-    padding: 0.75rem 0.25rem;
+    padding: var(--space-md) var(--space-xs);
     flex-shrink: 0;
     background: var(--bg-primary);
     gap: 0.6rem;
@@ -446,8 +500,8 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--icon-btn-size);
+    height: var(--icon-btn-size);
     padding: 0;
     border: none;
     background: transparent;
@@ -456,8 +510,8 @@ button.accent:hover, .btn-accent:hover {
     line-height: 1;
     transform: translateY(-2px);
     cursor: pointer;
-    border-radius: 6px;
-    transition: color 0.2s, background 0.2s;
+    border-radius: var(--radius-md);
+    transition: color var(--trans-normal), background var(--trans-normal);
     flex-shrink: 0;
 }
 
@@ -469,7 +523,7 @@ button.accent:hover, .btn-accent:hover {
 
 .cc-title {
     font-family: var(--font-mono);
-    font-size: 1rem;
+    font-size: var(--font-md);
     color: var(--text-accent);
     font-weight: normal;
 }
@@ -478,19 +532,19 @@ button.accent:hover, .btn-accent:hover {
     margin-left: auto;
     padding: 0.35rem 0.9rem;
     border: 1px solid var(--text-accent);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-accent);
     font-family: var(--font-sans);
-    font-size: 0.85rem;
+    font-size: var(--font-sm);
     cursor: pointer;
-    transition: background 0.2s, box-shadow 0.2s;
+    transition: background var(--trans-normal), box-shadow var(--trans-normal);
     flex-shrink: 0;
 }
 
 .cc-start-btn:hover {
     background: rgba(78, 204, 163, 0.1);
-    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+    box-shadow: var(--shadow-glow);
 }
 
 .cc-start-btn:disabled {
@@ -504,7 +558,7 @@ button.accent:hover, .btn-accent:hover {
 .cc-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 1rem 0.25rem;
+    padding: var(--space-lg) var(--space-xs);
     display: flex;
     flex-direction: column;
     gap: 0.8rem;
@@ -518,10 +572,10 @@ button.accent:hover, .btn-accent:hover {
 
 .cc-message {
     max-width: 85%;
-    padding: 0.7rem 1rem;
-    border-radius: 12px;
+    padding: 0.7rem var(--space-lg);
+    border-radius: var(--radius-xl);
     line-height: 1.55;
-    font-size: 1.05rem;
+    font-size: var(--font-md);
     animation: fadeIn 0.25s ease;
     white-space: pre-wrap;
     word-break: break-word;
@@ -531,21 +585,21 @@ button.accent:hover, .btn-accent:hover {
     align-self: flex-start;
     background: var(--bg-secondary);
     color: var(--text-primary);
-    border-bottom-left-radius: 4px;
+    border-bottom-left-radius: var(--radius-sm);
 }
 
 .cc-message.user {
     align-self: flex-end;
     background: var(--button-bg);
     color: var(--text-primary);
-    border-bottom-right-radius: 4px;
+    border-bottom-right-radius: var(--radius-sm);
 }
 
 .cc-message.info {
     align-self: center;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 0.85rem;
+    font-size: var(--font-sm);
     font-style: italic;
     max-width: 100%;
     text-align: center;
@@ -564,11 +618,11 @@ button.accent:hover, .btn-accent:hover {
 .cc-typing {
     align-self: flex-start;
     color: var(--text-secondary);
-    font-size: 0.85rem;
-    padding: 0.5rem 1rem;
+    font-size: var(--font-sm);
+    padding: var(--space-sm) var(--space-lg);
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: var(--space-xs);
 }
 
 .cc-dots span {
@@ -591,7 +645,7 @@ button.accent:hover, .btn-accent:hover {
 .cc-input-bar {
     display: flex;
     align-items: center;
-    padding: 0.75rem 0.25rem 1rem;
+    padding: var(--space-md) var(--space-xs) var(--space-lg);
     flex-shrink: 0;
     background: var(--bg-primary);
 }
@@ -603,9 +657,9 @@ button.accent:hover, .btn-accent:hover {
     align-items: center;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 24px;
-    padding: 0.5rem 0.35rem 0.5rem 1.2rem;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    border-radius: var(--radius-round);
+    padding: var(--space-sm) 0.35rem var(--space-sm) 1.2rem;
+    transition: border-color var(--trans-normal), box-shadow var(--trans-normal);
 }
 
 .cc-input-wrap:focus-within {
@@ -620,7 +674,7 @@ button.accent:hover, .btn-accent:hover {
     background: transparent;
     color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: 1.05rem;
+    font-size: var(--font-md);
     resize: none;
     min-height: 2.8rem;
     max-height: 10rem;
@@ -644,8 +698,8 @@ button.accent:hover, .btn-accent:hover {
 
 /* Circular send button inside the input wrap */
 .cc-send-btn {
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--icon-btn-size);
+    height: var(--icon-btn-size);
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -656,13 +710,13 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s, box-shadow 0.2s;
+    transition: background var(--trans-normal), box-shadow var(--trans-normal);
     flex-shrink: 0;
 }
 
 .cc-send-btn:hover {
     background: #5ddbae;
-    box-shadow: 0 0 12px rgba(78, 204, 163, 0.4);
+    box-shadow: var(--shadow-glow-lg);
 }
 
 .cc-send-btn:disabled {
@@ -682,15 +736,15 @@ button.accent:hover, .btn-accent:hover {
     align-items: center;
     justify-content: center;
     height: calc(100vh - 4rem);
-    max-width: 960px;
+    max-width: var(--content-width);
     margin: 0 auto;
     text-align: center;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
 }
 
 .cc-transition-text {
     font-family: var(--font-sans);
-    font-size: 2.2rem;
+    font-size: var(--font-3xl);
     color: var(--text-accent);
     display: flex;
     align-items: center;
@@ -701,7 +755,7 @@ button.accent:hover, .btn-accent:hover {
    Animation rules (.cc-dots span, @keyframes cc-bounce) are inherited
    from the global definition — only font-size needs overrides here. */
 .cc-transition .cc-dots {
-    font-size: 2.2rem;
+    font-size: var(--font-3xl);
 }
 
 /* ── Game Preview Screen ────────────────────────────────────────── */
@@ -713,9 +767,9 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 4rem);
-    max-width: 960px;
+    max-width: var(--content-width);
     margin: 0 auto;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
 }
 
 /* ── Header (back button, same style as co-create) ────────────── */
@@ -723,7 +777,7 @@ button.accent:hover, .btn-accent:hover {
 .gp-header {
     display: flex;
     align-items: center;
-    padding: 0.75rem 0.25rem;
+    padding: var(--space-md) var(--space-xs);
     flex-shrink: 0;
 }
 
@@ -736,21 +790,21 @@ button.accent:hover, .btn-accent:hover {
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding-bottom: 3rem;
+    padding-bottom: var(--space-3xl);
 }
 
 .gp-label {
     font-family: var(--font-mono);
-    font-size: 2.2rem;
+    font-size: var(--font-3xl);
     font-weight: normal;
     color: var(--text-accent);
-    margin-bottom: 1.5rem;
+    margin-bottom: var(--space-xl);
     letter-spacing: 0.05em;
 }
 
 .gp-setting {
     font-family: var(--font-sans);
-    font-size: 1.05rem;
+    font-size: var(--font-md);
     color: var(--text-secondary);
     line-height: 1.7;
     max-width: 640px;
@@ -762,18 +816,18 @@ button.accent:hover, .btn-accent:hover {
 .gp-start-btn {
     padding: 0.7rem 2.2rem;
     border: 1px solid var(--text-accent);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-accent);
     font-family: var(--font-sans);
-    font-size: 1.05rem;
+    font-size: var(--font-md);
     cursor: pointer;
-    transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+    transition: background var(--trans-normal), box-shadow var(--trans-normal), transform var(--trans-normal);
 }
 
 .gp-start-btn:hover {
     background: rgba(78, 204, 163, 0.12);
-    box-shadow: 0 0 12px rgba(78, 204, 163, 0.2);
+    box-shadow: var(--shadow-glow-lg);
     transform: scale(1.04);
 }
 
@@ -785,9 +839,9 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 4rem);
-    max-width: 800px;
+    max-width: var(--content-width);
     margin: 0 auto;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
 }
 
 /* ── Header (back button + title, matches co-create style) ────── */
@@ -795,14 +849,14 @@ button.accent:hover, .btn-accent:hover {
 .sv-header {
     display: flex;
     align-items: center;
-    padding: 0.75rem 0.25rem;
+    padding: var(--space-md) var(--space-xs);
     flex-shrink: 0;
     gap: 0.6rem;
 }
 
 .sv-title {
     font-family: var(--font-mono);
-    font-size: 1rem;
+    font-size: var(--font-md);
     color: var(--text-accent);
     font-weight: normal;
     flex: 1;
@@ -812,19 +866,19 @@ button.accent:hover, .btn-accent:hover {
     margin-left: auto;
     padding: 0.35rem 0.9rem;
     border: 1px solid var(--text-accent);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-accent);
     font-family: var(--font-sans);
-    font-size: 0.85rem;
+    font-size: var(--font-sm);
     cursor: pointer;
-    transition: background 0.2s, box-shadow 0.2s;
+    transition: background var(--trans-normal), box-shadow var(--trans-normal);
     flex-shrink: 0;
 }
 
 .sv-restart-btn:hover {
     background: rgba(78, 204, 163, 0.1);
-    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+    box-shadow: var(--shadow-glow);
 }
 
 /* ── Scrollable list (no border, hidden scrollbar) ────────────── */
@@ -832,7 +886,7 @@ button.accent:hover, .btn-accent:hover {
 .sv-list {
     flex: 1;
     overflow-y: auto;
-    padding: 0.5rem 0.25rem 2rem;
+    padding: var(--space-sm) var(--space-xs) var(--space-2xl);
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
@@ -851,16 +905,16 @@ button.accent:hover, .btn-accent:hover {
     flex-direction: row;
     align-items: center;
     padding: 0.9rem 1.2rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
     cursor: pointer;
-    transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+    transition: background var(--trans-normal), box-shadow var(--trans-normal), transform var(--trans-normal);
     user-select: none;
 }
 
 .sv-card:hover {
     background: var(--button-hover);
-    box-shadow: 0 0 10px rgba(78, 204, 163, 0.15);
+    box-shadow: var(--shadow-glow-sm);
     transform: translateX(4px);
 }
 
@@ -883,7 +937,7 @@ button.accent:hover, .btn-accent:hover {
 
 .sv-card-label {
     font-family: var(--font-mono);
-    font-size: 1rem;
+    font-size: var(--font-md);
     color: var(--text-primary);
     margin-bottom: 0.2rem;
 }
@@ -901,7 +955,7 @@ button.accent:hover, .btn-accent:hover {
     text-overflow: ellipsis;
     white-space: nowrap;
     height: 1.3em;
-    transition: height 0.3s ease;
+    transition: height var(--trans-slow);
 }
 
 .sv-card-time {
@@ -921,12 +975,12 @@ button.accent:hover, .btn-accent:hover {
     margin-left: 0.8rem;
     padding: 0;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: #c0392b;
     font-size: 1.1rem;
     cursor: pointer;
-    transition: background 0.2s, transform 0.2s;
+    transition: background var(--trans-normal), transform var(--trans-normal);
     line-height: 1;
 }
 
@@ -945,7 +999,7 @@ button.accent:hover, .btn-accent:hover {
     color: var(--text-secondary);
     font-style: italic;
     text-align: center;
-    padding: 3rem 0;
+    padding: var(--space-3xl) 0;
 }
 
 /* ── Context Menu (right-click popup) ─────────────────────────── */
@@ -955,11 +1009,11 @@ button.accent:hover, .btn-accent:hover {
     z-index: 200;
     background: var(--bg-panel);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 1rem 1.2rem;
+    border-radius: var(--radius-md);
+    padding: var(--space-lg) 1.2rem;
     min-width: 220px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-    animation: fadeIn 0.15s ease;
+    box-shadow: var(--shadow-modal);
+    animation: fadeIn var(--trans-fast);
 }
 
 .ctx-menu-text {
@@ -969,7 +1023,7 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .ctx-menu-warn {
-    font-size: 0.8rem;
+    font-size: var(--font-xs);
     color: var(--text-secondary);
     margin-bottom: 0.9rem;
 }
@@ -981,15 +1035,15 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .ctx-menu-btn {
-    padding: 0.35rem 1rem;
+    padding: 0.35rem var(--space-lg);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--button-bg);
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: var(--font-sm);
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s;
+    transition: background var(--trans-normal), border-color var(--trans-normal);
 }
 
 .ctx-menu-btn:hover {
@@ -1011,29 +1065,29 @@ button.accent:hover, .btn-accent:hover {
 
 #toast-container {
     position: fixed;
-    top: 1.5rem;
+    top: var(--space-xl);
     left: 50%;
     transform: translateX(-50%);
     z-index: 1000;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--space-sm);
     pointer-events: none;
 }
 
 .toast {
-    background: var(--surface-card);
+    background: var(--bg-panel);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0.6rem 1.2rem;
     font-size: 0.9rem;
     opacity: 0;
     transform: translateY(-0.5rem);
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    transition: opacity var(--trans-slow), transform var(--trans-slow);
     pointer-events: auto;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--shadow-toast);
 }
 
 .toast--visible {
@@ -1049,10 +1103,10 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 4rem);   /* #app padding is 2rem top + 2rem bottom */
-    max-width: 960px;
+    max-width: var(--content-width);
     margin: 0 auto;
     background: var(--bg-primary);
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
     position: relative;           /* anchor for absolutely-positioned choices */
 }
 
@@ -1061,7 +1115,7 @@ button.accent:hover, .btn-accent:hover {
 .game-topbar {
     display: flex;
     align-items: center;
-    padding: 0.75rem 0.25rem;
+    padding: var(--space-md) var(--space-xs);
     flex-shrink: 0;
     background: var(--bg-primary);
     gap: 0.6rem;
@@ -1071,8 +1125,8 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--icon-btn-size);
+    height: var(--icon-btn-size);
     padding: 0;
     border: none;
     background: transparent;
@@ -1080,8 +1134,8 @@ button.accent:hover, .btn-accent:hover {
     font-size: 1.6rem;
     line-height: 1;
     cursor: pointer;
-    border-radius: 6px;
-    transition: color 0.2s, background 0.2s;
+    border-radius: var(--radius-md);
+    transition: color var(--trans-normal), background var(--trans-normal);
     flex-shrink: 0;
 }
 
@@ -1093,7 +1147,7 @@ button.accent:hover, .btn-accent:hover {
 
 .game-label {
     font-family: var(--font-mono);
-    font-size: 1rem;
+    font-size: var(--font-md);
     color: var(--text-accent);
     font-weight: normal;
     flex: 1;
@@ -1117,15 +1171,15 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--icon-btn-size);
+    height: var(--icon-btn-size);
     padding: 0;
     border: none;
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
     border-radius: 50%;
-    transition: color 0.2s, background 0.2s;
+    transition: color var(--trans-normal), background var(--trans-normal);
     flex-shrink: 0;
     position: relative;
 }
@@ -1179,15 +1233,15 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.2rem;
-    height: 2.2rem;
+    width: var(--icon-btn-size);
+    height: var(--icon-btn-size);
     padding: 0;
     border: none;
     background: transparent;
     color: var(--text-secondary);
     cursor: pointer;
     border-radius: 50%;
-    transition: color 0.2s, background 0.2s;
+    transition: color var(--trans-normal), background var(--trans-normal);
     flex-shrink: 0;
 }
 
@@ -1207,8 +1261,8 @@ button.accent:hover, .btn-accent:hover {
 .game-story {
     flex: 1;
     overflow-y: auto;
-    padding: 1rem 0.25rem 50vh;     /* 50vh bottom pad → last segment
-                                       can scroll to viewport centre */
+    padding: var(--space-lg) var(--space-xs) 50vh;  /* 50vh bottom pad → last segment
+                                                       can scroll to viewport centre */
     display: flex;
     flex-direction: column;
     gap: 1.2rem;
@@ -1226,49 +1280,55 @@ button.accent:hover, .btn-accent:hover {
 
 .game-segment {
     font-family: var(--font-sans);
-    font-size: 1.15rem;             /* Default: medium */
+    font-size: var(--font-lg);      /* Default: medium */
     line-height: 1.8;               /* Default: 1.0 spacing */
     color: var(--text-primary);
     text-align: center;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
     white-space: pre-wrap;
     word-break: break-word;
 }
 
 /* Font size variants (applied to .game-story container) */
-.game-story.font-small .game-segment {
-    font-size: 1.0rem;
+.game-story.font-small .game-segment,
+.game-story.font-small .game-choice-text {
+    font-size: var(--font-md);
 }
 
-.game-story.font-medium .game-segment {
-    font-size: 1.15rem;
+.game-story.font-medium .game-segment,
+.game-story.font-medium .game-choice-text {
+    font-size: var(--font-lg);
 }
 
-.game-story.font-large .game-segment {
-    font-size: 1.3rem;
+.game-story.font-large .game-segment,
+.game-story.font-large .game-choice-text {
+    font-size: var(--font-xl);
 }
 
 /* Line spacing variants */
-.game-story.line-075 .game-segment {
+.game-story.line-075 .game-segment,
+.game-story.line-075 .game-choice-text {
     line-height: calc(1.8 * 0.75);
 }
 
-.game-story.line-100 .game-segment {
+.game-story.line-100 .game-segment,
+.game-story.line-100 .game-choice-text {
     line-height: 1.8;
 }
 
-.game-story.line-125 .game-segment {
+.game-story.line-125 .game-segment,
+.game-story.line-125 .game-choice-text {
     line-height: calc(1.8 * 1.25);
 }
 
 /* Selected choice text — green highlight, same font/size as normal */
 .game-choice-text {
     font-family: var(--font-sans);
-    font-size: inherit;
-    line-height: inherit;
+    font-size: var(--font-lg);      /* matches .game-segment default */
+    line-height: 1.8;               /* matches .game-segment default */
     color: var(--text-accent);
     text-align: center;
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
     white-space: pre-wrap;
     word-break: break-word;
     margin: 0.15rem 0;
@@ -1282,9 +1342,9 @@ button.accent:hover, .btn-accent:hover {
     justify-content: center;
     gap: 0.15rem;
     color: var(--text-secondary);
-    font-size: 0.85rem;
-    padding: 0.5rem 0;
-    animation: fadeIn 0.2s ease;
+    font-size: var(--font-sm);
+    padding: var(--space-sm) 0;
+    animation: fadeIn var(--trans-normal);
 }
 
 .game-loading .cc-dots span {
@@ -1295,40 +1355,42 @@ button.accent:hover, .btn-accent:hover {
 
 .game-choices {
     position: absolute;
-    bottom: 2rem;
+    bottom: var(--space-2xl);
     left: 50%;
     transform: translateX(-50%);
     width: 100%;
-    max-width: 420px;
-    padding: 1.5rem 0 1rem;
+    max-width: var(--choices-width);
+    padding: var(--space-xl) 0 var(--space-lg);
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
-    animation: fadeInOpacity 0.3s ease;
+    gap: var(--space-sm);
+    animation: fadeInOpacity var(--trans-slow);
     z-index: 50;
+    /* Gradient mask — fades story text out behind the button area */
+    background: linear-gradient(to top, var(--bg-primary) 60%, transparent 100%);
 }
 
 .game-choice-btn {
     display: block;
     width: 100%;
-    max-width: 420px;
-    padding: 0.75rem 1rem;
+    max-width: var(--choices-width);
+    padding: var(--space-md) var(--space-lg);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
     color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: 1rem;
+    font-size: var(--font-md);
     text-align: center;
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    transition: background var(--trans-normal), border-color var(--trans-normal), box-shadow var(--trans-normal), transform var(--trans-normal);
 }
 
 .game-choice-btn:hover {
     background: var(--button-hover);
     border-color: var(--text-accent);
-    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+    box-shadow: var(--shadow-glow);
     transform: scale(1.02);
 }
 
@@ -1356,26 +1418,26 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--overlay-bg);
     animation: fadeIn 0.25s ease;
 }
 
 .game-modal {
-    background: rgba(22, 33, 62, 0.92);
+    background: var(--bg-panel-solid);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 2rem 2.2rem;
+    border-radius: var(--radius-xl);
+    padding: var(--space-2xl) 2.2rem;
     min-width: 360px;
     max-width: 480px;
     text-align: center;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-modal);
     backdrop-filter: blur(8px);
-    animation: fadeIn 0.3s ease;
+    animation: fadeIn var(--trans-slow);
 }
 
 .game-modal-text {
     font-family: var(--font-sans);
-    font-size: 1.05rem;
+    font-size: var(--font-md);
     color: var(--text-primary);
     line-height: 1.6;
     margin-bottom: 1.8rem;
@@ -1391,19 +1453,19 @@ button.accent:hover, .btn-accent:hover {
 .game-modal-btn {
     padding: 0.6rem 1.6rem;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--button-bg);
     color: var(--text-primary);
     font-family: var(--font-sans);
-    font-size: 0.95rem;
+    font-size: var(--font-base);
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    transition: background var(--trans-normal), border-color var(--trans-normal), box-shadow var(--trans-normal);
 }
 
 .game-modal-btn:hover {
     background: var(--button-hover);
     border-color: var(--text-accent);
-    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+    box-shadow: var(--shadow-glow);
 }
 
 .game-modal-btn.accent {
@@ -1413,7 +1475,7 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .game-modal-btn.accent:hover {
-    box-shadow: 0 0 12px rgba(78, 204, 163, 0.4);
+    box-shadow: var(--shadow-glow-lg);
 }
 
 /* ── In-game Settings Overlay ───────────────────────────────────── */
@@ -1425,25 +1487,25 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--overlay-bg);
     animation: fadeIn 0.25s ease;
 }
 
 .game-settings-panel {
-    background: rgba(22, 33, 62, 0.92);
+    background: var(--bg-panel-solid);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 2rem 2.2rem;
+    border-radius: var(--radius-xl);
+    padding: var(--space-2xl) 2.2rem;
     min-width: 360px;
     max-width: 440px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-modal);
     backdrop-filter: blur(8px);
 }
 
 .game-settings-panel h2 {
     font-family: var(--font-mono);
     color: var(--text-accent);
-    margin-bottom: 1.5rem;
+    margin-bottom: var(--space-xl);
     text-align: center;
     font-size: 1.1rem;
 }
@@ -1452,12 +1514,12 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
+    margin-bottom: var(--space-lg);
 }
 
 .game-setting-label {
     color: var(--text-secondary);
-    font-size: 0.95rem;
+    font-size: var(--font-base);
 }
 
 .game-setting-options {
@@ -1468,13 +1530,13 @@ button.accent:hover, .btn-accent:hover {
 .game-setting-opt {
     padding: 0.35rem 0.8rem;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-secondary);
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: var(--font-sm);
     cursor: pointer;
-    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+    transition: background var(--trans-normal), border-color var(--trans-normal), box-shadow var(--trans-normal);
 }
 
 .game-setting-opt:hover {
@@ -1489,7 +1551,7 @@ button.accent:hover, .btn-accent:hover {
 }
 
 .game-settings-close {
-    margin-top: 1.5rem;
+    margin-top: var(--space-xl);
     width: 100%;
 }
 
