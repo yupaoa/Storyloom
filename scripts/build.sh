@@ -35,7 +35,7 @@ $PYTHON -m build --no-isolation
 
 # 3. PyInstaller single-file executable
 echo "[3/5] Building standalone executable..."
-pyinstaller --onefile \
+$PYTHON -m PyInstaller --onefile \
     --name "$BIN_NAME" \
     --add-data "locale:locale" \
     --add-data "src/storyloom/web/static:storyloom/web/static" \
