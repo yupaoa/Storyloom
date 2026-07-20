@@ -183,6 +183,7 @@ ROUND_TEMPLATE = """**Outline:**
 **Current State:**
 {state_vars_text}{error_feedback}
 Output {MIN_LINES}-{MAX_LINES} total lines. Exactly one `<bridge/>`. Less is fine — do not pad to hit the upper bound.
+Choices aren't just for branching — place them freely as moments of play and interaction.
 The active node may take several rounds to reach. Do not force progress — simply continue from where the story left off.
 {bridge_text}"""
 
