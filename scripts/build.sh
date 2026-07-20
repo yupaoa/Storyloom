@@ -1,28 +1,40 @@
 #!/bin/bash
 # Build Storyloom Web UI — wheel + PyInstaller portable distribution
+# Run on the target platform (Linux → ELF, Windows → .exe, macOS → Mach-O)
 set -e
+
+PYTHON="${PYTHON:-python3}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
-VERSION=$(python3 -c "from storyloom import __version__; print(__version__)")
+VERSION=$($PYTHON -c "from storyloom import __version__; print(__version__)")
+BIN_NAME="storyloom-web"
 OUTPUT_DIR="dist/storyloom-web-v${VERSION}"
+
+# Platform-specific binary extension
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*)  BIN_NAME="storyloom-web.exe" ;;
+    Darwin)                ;;  # macOS: no extension
+    Linux)                 ;;  # Linux: no extension
+esac
 
 echo "=== Storyloom Web UI Build v${VERSION} ==="
 
 # 1. Install build tools
-echo "[1/4] Installing build tools..."
-pip install --break-system-packages -q build pyinstaller
+echo "[1/5] Installing build tools..."
+$PYTHON -m pip install -q build pyinstaller 2>/dev/null || \
+    $PYTHON -m pip install -q --break-system-packages build pyinstaller
 
 # 2. pip packages (wheel + sdist)
-echo "[2/4] Building pip packages..."
-python3 -m build --no-isolation
+echo "[2/5] Building pip packages..."
+$PYTHON -m build --no-isolation
 
 # 3. PyInstaller single-file executable
-echo "[3/4] Building standalone executable..."
+echo "[3/5] Building standalone executable..."
 pyinstaller --onefile \
-    --name storyloom-web \
+    --name "$BIN_NAME" \
     --add-data "locale:locale" \
     --add-data "src/storyloom/web/static:storyloom/web/static" \
     --hidden-import uvicorn.loops.auto \
@@ -30,13 +42,19 @@ pyinstaller --onefile \
     src/storyloom/web/__main__.py
 
 # 4. Assemble release directory
-echo "[4/4] Assembling release directory..."
+echo "[4/5] Assembling release directory..."
 mkdir -p "$OUTPUT_DIR"
-cp dist/storyloom-web "$OUTPUT_DIR/"
+cp "dist/$BIN_NAME" "$OUTPUT_DIR/"
 cp -r locale "$OUTPUT_DIR/"
 cp dist/*.whl dist/*.tar.gz "$OUTPUT_DIR/"
 
+# 5. Create zip for GitHub Release upload
+echo "[5/5] Creating release archive..."
+ZIP_NAME="storyloom-web-v${VERSION}-$(uname -s)"
+$PYTHON -c "import shutil; shutil.make_archive('dist/$ZIP_NAME', 'zip', 'dist', 'storyloom-web-v${VERSION}')"
+
 echo ""
 echo "=== Done ==="
-echo "Release: $OUTPUT_DIR"
+echo "Release dir:  $OUTPUT_DIR"
+echo "GitHub asset: dist/${ZIP_NAME}.zip"
 ls -lh "$OUTPUT_DIR/"
