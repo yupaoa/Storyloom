@@ -268,13 +268,15 @@ const GameView = (function () {
         }
 
         /* ── Pacing (after segment display, per dev_cli pattern) ─── */
-        if (_mode === "auto" || _optionsPending) {
+        if (_mode === "auto") {
             /* Options-pending: accelerated 200 ms drain so context
                appears before choices.  Normal auto: full delay. */
             const delay = _optionsPending ? 200 : (SPEED_DELAY[_speed] || 2000);
             _drainTimer = setTimeout(_displayTick, delay);
         } else {
-            /* Manual mode — wait for click / Space / Enter. */
+            /* Manual mode — wait for click / Space / Enter.
+               _optionsPending does NOT override this: the user chose
+               manual pacing and each segment must be confirmed. */
             _waitForUserAdvance().then(() => {
                 if (!_displayRunning) return;
                 _displayTick();
