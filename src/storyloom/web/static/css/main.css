@@ -1409,6 +1409,11 @@ button.accent:hover, .btn-accent:hover {
     border-color: var(--border-color);
 }
 
+/* Ending choice — green text matching story label (.game-label) */
+.game-ending-choice {
+    color: var(--text-accent);
+}
+
 /* ── Game Modal Overlay ─────────────────────────────────────────── */
 
 .game-modal-overlay {
