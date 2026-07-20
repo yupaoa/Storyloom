@@ -40,15 +40,21 @@ const Display = (function () {
     /* ── Story text ────────────────────────────────────────────────── */
 
     /** Append a narrative segment paragraph to the story area.
-     *  The newest segment gets .game-segment--active (slightly
-     *  enlarged); the previous active segment shrinks back. */
+     *  New segment appears instantly large (.game-segment--active).
+     *  The previous segment shrinks with a transition. */
     function appendSegment(text) {
         const story = $("#game-story");
         if (!story) return;
-        /* Shrink previous active segment */
+        /* Shrink previous active segment (animated) */
         const prev = story.querySelector(".game-segment--active");
-        if (prev) prev.classList.remove("game-segment--active");
-        /* Append new segment with active class */
+        if (prev) {
+            prev.classList.remove("game-segment--active");
+            prev.classList.add("game-segment--shrinking");
+            prev.addEventListener("transitionend", () => {
+                prev.classList.remove("game-segment--shrinking");
+            }, { once: true });
+        }
+        /* Append new — instantly large */
         const p = document.createElement("p");
         p.className = "game-segment game-segment--active";
         p.textContent = text;

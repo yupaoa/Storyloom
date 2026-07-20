@@ -1219,12 +1219,18 @@ button.accent:hover, .btn-accent:hover {
     animation: fadeIn 0.3s ease;
     white-space: pre-wrap;
     word-break: break-word;
-    transition: transform 0.3s ease;
 }
 
-/* Newest segment — slightly enlarged; shrinks when next arrives */
+/* Newest segment — instantly large (no transition on add).
+   Shrink is animated via .game-segment--shrinking below. */
 .game-segment--active {
     transform: scale(1.06);
+}
+
+/* Previous segment shrinking back to normal size */
+.game-segment--shrinking {
+    transition: transform 0.3s ease;
+    transform: scale(1);
 }
 
 /* Font size variants (applied to .game-story container) */
