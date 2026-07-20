@@ -34,7 +34,6 @@ GameSession construction:
     UserConfig → ApiClient(config) → GameSession(api_client, saves_dir)
 """
 
-import json
 import os
 from pathlib import Path
 
@@ -333,35 +332,11 @@ async def saves_last_played():
 async def saves_list_games():
     """List all games sorted by last activity (most recent first).
 
-    Enriches each game with ``last_played_at`` — the most recent
-    ``updated_at`` across all save files in the game directory.
+    Delegates to ``GameSession.list_games(enrich_last_played=True)``
+    which enriches each game with ``last_played_at`` (from the most
+    recently modified save file) and sorts descending.
     """
-    games = _game_session.list_games()
-    saves_root = _game_session._saves_root
-    for game in games:
-        game_dir = os.path.join(saves_root, game["game_id"])
-        latest = ""
-        if os.path.isdir(game_dir):
-            try:
-                json_files = sorted(
-                    Path(game_dir).glob("*.json"),
-                    key=lambda p: p.stat().st_mtime,
-                    reverse=True,
-                )
-            except OSError:
-                json_files = []
-            for f in json_files:
-                try:
-                    with open(f, "r", encoding="utf-8") as fh:
-                        d = json.load(fh)
-                    latest = d.get("metadata", {}).get("updated_at", "")
-                    if latest:
-                        break
-                except (json.JSONDecodeError, OSError):
-                    continue
-        game["last_played_at"] = latest
-    games.sort(key=lambda g: g.get("last_played_at", ""), reverse=True)
-    return games
+    return _game_session.list_games(enrich_last_played=True)
 
 
 @app.get("/api/saves/{game_id}")
@@ -406,16 +381,17 @@ async def save_load(game_id: str, filename: str):
 async def save_start(game_id: str, filename: str):
     """Load a save into the active game session and return preview data.
 
-    This is the checkpoint-left-click path: loads the save via
-    ``GameSession.load_game()`` (which also updates ``.last_played.json``),
-    stores the GameLoop server-side, and returns story_config for the
-    game-preview page.
+    This is the checkpoint-left-click path: reads the save once via
+    ``GameSession.read_save()``, uses the same data to reconstruct a
+    ``GameLoop`` (via ``_load_from_data()``, which also updates
+    ``.last_played.json``), stores it server-side, and returns
+    story_config for the game-preview page.
 
     After this, the UI navigates to ``#game-preview`` and the
     "Begin Adventure" button calls ``POST /api/game/{game_id}/start``.
     """
     try:
-        gl = _game_session.load_game(game_id, filename)
+        data = _game_session.read_save(game_id, filename)
     except FileNotFoundError:
         raise HTTPException(
             404, f"Save '{filename}' not found in game '{game_id}'."
@@ -423,9 +399,9 @@ async def save_start(game_id: str, filename: str):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
+    gl = _game_session._load_from_data(game_id, filename, data)
     sessions.store_game(game_id, gl)
 
-    data = _game_session.read_save(game_id, filename)
     progress = data.get("progress", {})
     return {
         "game_id": game_id,

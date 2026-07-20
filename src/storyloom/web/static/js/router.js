@@ -560,7 +560,7 @@
                 });
                 card.querySelector(".sv-card-trash").addEventListener("click", e => {
                     e.stopPropagation();
-                    showContextMenu(e.clientX, e.clientY,
+                    showConfirmPopup(e.clientX, e.clientY,
                         _("Delete this game?"),
                         () => {
                             API.del(`/api/saves/${encodeURIComponent(card.dataset.gameId)}`)
@@ -685,7 +685,7 @@
                 });
                 card.querySelector(".sv-card-trash").addEventListener("click", e => {
                     e.stopPropagation();
-                    showContextMenu(e.clientX, e.clientY,
+                    showConfirmPopup(e.clientX, e.clientY,
                         _("Delete this save?"),
                         () => {
                             API.del(`/api/saves/${encodeURIComponent(gameId)}/${encodeURIComponent(card.dataset.filename)}`)
@@ -706,14 +706,14 @@
         });
     }
 
-    /* ── Context Menu (right-click popup) ─────────────────────────── */
+    /* ── Confirm Popup (delete confirmation) ───────────────────────── */
 
     /** Show a positioned confirmation popup for delete actions.
-     *  @param {number} x - clientX of the right-click
-     *  @param {number} y - clientY of the right-click
+     *  @param {number} x - clientX of the triggering click
+     *  @param {number} y - clientY of the triggering click
      *  @param {string} message - main question text (already translated)
      *  @param {Function} onConfirm - called when user clicks "Yes"    */
-    function showContextMenu(x, y, message, onConfirm) {
+    function showConfirmPopup(x, y, message, onConfirm) {
         const existing = document.querySelector(".ctx-menu");
         if (existing) existing.remove();
 

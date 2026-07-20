@@ -332,12 +332,19 @@ class SaveManager:
         return str(game_dir), game_id, created_at
 
     @staticmethod
-    def list_games(root: str = "saves") -> list[dict]:
+    def list_games(root: str = "saves", enrich: bool = False) -> list[dict]:
         """List all games under *root* by reading each ``_init.json``.
+
+        Args:
+            root: Root saves directory.
+            enrich: When True, adds ``last_played_at`` — the
+                    ``updated_at`` of the most recently modified
+                    save file in each game directory (one file-open
+                    per game, no full iteration).
 
         Returns:
             List of ``{game_id, label, language, genre, tier,
-            created_at, save_count}`` dicts.
+            created_at, save_count[, last_played_at]}`` dicts.
         """
         root_path = Path(root)
         if not root_path.exists():
@@ -358,7 +365,7 @@ class SaveManager:
             sc = data.get("story_config", {})
             save_files = list(game_dir.glob("*.json"))
             save_count = len(save_files)
-            result.append({
+            game_data = {
                 "game_id": game_dir.name,
                 "label": meta.get("label", game_dir.name),
                 "language": sc.get("language", ""),
@@ -366,7 +373,22 @@ class SaveManager:
                 "tier": sc.get("tier", ""),
                 "created_at": meta.get("created_at", ""),
                 "save_count": save_count,
-            })
+            }
+            if enrich and save_files:
+                try:
+                    newest = max(save_files, key=lambda p: p.stat().st_mtime)
+                except OSError:
+                    game_data["last_played_at"] = ""
+                else:
+                    try:
+                        with open(newest, "r", encoding="utf-8") as f:
+                            d = json.load(f)
+                        game_data["last_played_at"] = (
+                            d.get("metadata", {}).get("updated_at", "")
+                        )
+                    except (json.JSONDecodeError, OSError):
+                        game_data["last_played_at"] = ""
+            result.append(game_data)
         return result
 
     @staticmethod

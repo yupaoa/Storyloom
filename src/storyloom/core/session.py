@@ -80,6 +80,18 @@ class GameSession:
         """
         sm = SaveManager(os.path.join(self._saves_root, game_id))
         data = sm.load(filename)
+        return self._load_from_data(game_id, filename, data)
+
+    def _load_from_data(
+        self, game_id: str, filename: str, data: dict
+    ) -> GameLoop:
+        """Reconstruct a ``GameLoop`` from already-loaded save data.
+
+        Internal — called by :meth:`load_game` and by the web server's
+        ``save_start`` endpoint that needs both the raw data (for the
+        HTTP response) and the GameLoop (for the server-side session).
+        """
+        sm = SaveManager(os.path.join(self._saves_root, game_id))
         gl = GameLoop.from_save_dict(data, self._api_client)
         gl.set_save_manager(sm)
         self._game_loop = gl
@@ -108,14 +120,22 @@ class GameSession:
 
     # ── Save management ───────────────────────────────────────────
 
-    def list_games(self) -> list[dict]:
+    def list_games(self, enrich_last_played: bool = False) -> list[dict]:
         """List all games under ``saves/``.
+
+        Args:
+            enrich_last_played: When True, each game dict includes
+                ``last_played_at`` and the result is sorted by it
+                descending (most recent first).
 
         Returns:
             List of ``{game_id, label, language, genre, tier,
-            created_at, save_count}`` dicts.
+            created_at, save_count[, last_played_at]}`` dicts.
         """
-        return SaveManager.list_games(self._saves_root)
+        games = SaveManager.list_games(self._saves_root, enrich=enrich_last_played)
+        if enrich_last_played:
+            games.sort(key=lambda g: g.get("last_played_at", ""), reverse=True)
+        return games
 
     def list_saves(self, game_id: str) -> list[dict]:
         """List all saves in a game directory.
