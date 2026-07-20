@@ -62,7 +62,7 @@ const AdventureLogView = (function () {
                 <!-- Top bar -->
                 <div class="al-header">
                     <button class="cc-back-btn" id="al-back"
-                            title="${_("Back to Menu")}">←</button>
+                            title="${_("Back to Menu")}">${Icons.arrowLeft()}</button>
                     <span class="al-label">${escHtml(label)}</span>
                     <button class="al-export-btn" id="al-export" disabled>
                         ${_("Export")}

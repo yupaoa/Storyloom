@@ -110,7 +110,7 @@ const GameView = (function () {
                 <!-- Top bar -->
                 <div class="game-topbar">
                     <button class="game-exit-btn" id="game-exit"
-                            title="${_("Quit")}">←</button>
+                            title="${_("Quit")}">${Icons.arrowLeft()}</button>
                     <span class="game-label" id="game-label"></span>
                     <div class="game-topright">
                         <button class="game-mode-btn" id="game-mode-btn"

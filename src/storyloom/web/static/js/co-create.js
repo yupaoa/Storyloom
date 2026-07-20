@@ -51,7 +51,7 @@ const CoCreateView = (function () {
                 <!-- Header: ← back | title | Start -->
                 <div class="cc-header">
                     <button class="cc-back-btn" id="cc-back"
-                            title="${esc(_("Back to Menu"))}" disabled>←</button>
+                            title="${esc(_("Back to Menu"))}" disabled>${Icons.arrowLeft()}</button>
                     <span class="cc-title">${esc(_("Co-Create"))}</span>
                     <button class="cc-start-btn" id="cc-start" disabled>${esc(_("Start"))}</button>
                 </div>
@@ -66,7 +66,7 @@ const CoCreateView = (function () {
                                   placeholder="${esc(_("Type your story idea..."))}"
                                   rows="1"></textarea>
                         <button class="cc-send-btn" id="cc-send"
-                                title="${esc(_("Send"))}" disabled>↑</button>
+                                title="${esc(_("Send"))}" disabled>${Icons.arrowUp()}</button>
                     </div>
                 </div>
             </div>

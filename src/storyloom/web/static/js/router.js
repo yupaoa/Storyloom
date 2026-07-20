@@ -313,7 +313,7 @@
                            placeholder="${esc(def.placeholder || "")}"
                            class="setting-input hidden">
                     <button class="setting-edit-btn" id="edit-${def.key}"
-                            title="${esc(_("Edit"))}">&#9998;</button>
+                            title="${esc(_("Edit"))}">${Icons.pencil()}</button>
                 </div>`;
         }).join("");
 
@@ -369,13 +369,13 @@
                     }
                     inputEl.classList.add("hidden");
                     displayEl.classList.remove("hidden");
-                    editBtn.innerHTML = "&#9998;";
+                    editBtn.innerHTML = Icons.pencil();
                 } else {
                     /* Enter edit mode */
                     inputEl.value = getSetting(def.key);
                     inputEl.classList.remove("hidden");
                     displayEl.classList.add("hidden");
-                    editBtn.innerHTML = "&#10003;";
+                    editBtn.innerHTML = Icons.checkmark();
                     inputEl.focus();
                 }
             });
@@ -437,7 +437,7 @@
             <div class="gp-view">
                 <div class="gp-header">
                     <button class="cc-back-btn" id="gp-back"
-                            title="${esc(_("Back to Menu"))}">←</button>
+                            title="${esc(_("Back to Menu"))}">${Icons.arrowLeft()}</button>
                 </div>
                 <div class="gp-content">
                     <p class="text-muted">${esc(_("Loading..."))}</p>
@@ -492,7 +492,7 @@
             <div class="gp-view">
                 <div class="gp-header">
                     <button class="cc-back-btn" id="gp-back"
-                            title="${esc(_("Back to Menu"))}">←</button>
+                            title="${esc(_("Back to Menu"))}">${Icons.arrowLeft()}</button>
                 </div>
 
                 <div class="gp-content">
@@ -554,7 +554,7 @@
             <div class="sv-view">
                 <div class="sv-header">
                     <button class="cc-back-btn" id="sv-back"
-                            title="${esc(_("Back to Menu"))}">←</button>
+                            title="${esc(_("Back to Menu"))}">${Icons.arrowLeft()}</button>
                     <span class="sv-title">${esc(_("Load Save"))}</span>
                 </div>
                 <div class="sv-list" id="sv-game-list">
@@ -631,7 +631,7 @@
             <div class="sv-view">
                 <div class="sv-header">
                     <button class="cc-back-btn" id="sv-back"
-                            title="${esc(_("Back to Menu"))}">←</button>
+                            title="${esc(_("Back to Menu"))}">${Icons.arrowLeft()}</button>
                     <span class="sv-title" id="sv-cp-title">${esc(_("Loading..."))}</span>
                     <button class="sv-restart-btn" id="sv-restart">${esc(_("Restart"))}</button>
                 </div>
