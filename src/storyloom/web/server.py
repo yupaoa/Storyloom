@@ -34,11 +34,15 @@ GameSession construction:
     UserConfig → ApiClient(config) → GameSession(api_client, saves_dir)
 """
 
+import asyncio
+import json
 import os
+import queue
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -309,6 +313,159 @@ async def game_start(game_id: str):
         "current_node": gl.current_node,
         "story_config": sc,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Game — SSE narrative stream
+# ═══════════════════════════════════════════════════════════════════
+
+
+@app.get("/api/game/{game_id}/stream")
+async def game_stream(game_id: str):
+    """SSE endpoint for the narrative event stream.
+
+    A background daemon thread runs the game loop (stream_round()
+    generator).  Events are pushed into a ``queue.Queue`` and the
+    async generator drains it, yielding SSE messages to the client.
+
+    When the generator yields an ``options`` event, the background
+    thread blocks on ``wait_for_choice()`` until the player sends a
+    choice via ``POST /api/game/{game_id}/choice``.
+
+    The stream ends naturally after the ``ending`` → ``done`` sequence,
+    or on a fatal error.
+    """
+    gl = sessions.get_game(game_id)
+    if gl is None:
+        raise HTTPException(404, f"Game '{game_id}' not found.")
+
+    q = sessions.store_game_stream(game_id)
+
+    # ── Background thread: run game loop ──────────────────────────
+    def run_loop() -> None:
+        try:
+            while True:
+                gen = gl.stream_round()
+                for event in gen:
+                    q.put(event)
+                    if event["type"] == "options":
+                        # Block until choice arrives via POST /choice
+                        key = sessions.wait_for_choice(game_id)
+                        try:
+                            gen.send(key)
+                        except StopIteration:
+                            pass
+                        # Continue receiving post-choice events from
+                        # the generator (bridge_text, etc.)
+                    elif event["type"] == "error":
+                        # Error event sent to client — loop ends.
+                        # Client may call POST /retry to re-launch.
+                        return
+                    elif event["type"] == "done":
+                        # Round complete.  If ending, exit the while
+                        # loop after this round.
+                        if gl.ending_flag:
+                            q.put({"type": "stream_end"})
+                            return
+                        # Otherwise, loop continues to next round.
+                        break  # exit for loop, continue while loop
+        except Exception as exc:
+            q.put({"type": "error", "message": str(exc)})
+        finally:
+            sessions.pop_game_stream(game_id)
+
+    thread = threading.Thread(target=run_loop, daemon=True)
+    thread.start()
+
+    # ── Async SSE generator ───────────────────────────────────────
+    async def event_generator():
+        while True:
+            # Non-blocking poll of the queue
+            try:
+                event = q.get_nowait()
+            except queue.Empty:
+                # No event ready — check if stream is still alive
+                if sessions.get_game_stream(game_id) is None:
+                    break
+                # Yield keepalive to prevent proxy timeout
+                yield ": keepalive\n\n"
+                await asyncio.sleep(0.1)
+                continue
+
+            etype = event.get("type", "")
+
+            # Serialize event data.  For "token" events, the text
+            # may contain characters that confuse SSE — use JSON.
+            data = json.dumps(event, ensure_ascii=False)
+            yield f"event: {etype}\ndata: {data}\n\n"
+
+            if etype in ("stream_end",):
+                break
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class ChoiceBody(BaseModel):
+    key: str
+
+
+@app.post("/api/game/{game_id}/choice")
+async def game_choice(game_id: str, body: ChoiceBody):
+    """Inject a player choice into the running game loop.
+
+    The background SSE thread is blocked on ``wait_for_choice()``.
+    This handler sets the choice and signals the event to unblock it.
+    The generator resumes with ``gen.send(key)``.
+    """
+    gl = sessions.get_game(game_id)
+    if gl is None:
+        raise HTTPException(404, f"Game '{game_id}' not found.")
+    sessions.inject_choice(game_id, body.key)
+    return {"status": "ok"}
+
+
+@app.post("/api/game/{game_id}/retry")
+async def game_retry(game_id: str):
+    """Retry the last failed API call.
+
+    Call after receiving an ``error`` event.  Re-launches the failed
+    round with the same messages.  The SSE stream reconnects afterward.
+    """
+    gl = sessions.get_game(game_id)
+    if gl is None:
+        raise HTTPException(404, f"Game '{game_id}' not found.")
+    try:
+        gl.retry()
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "ok"}
+
+
+@app.get("/api/game/{game_id}/adventure-log")
+async def game_adventure_log(game_id: str):
+    """Get the adventure log after natural ending.
+
+    Call after receiving an ``ending`` event.  Returns the generated
+    adventure log text, or null if still generating.
+    """
+    gl = sessions.get_game(game_id)
+    if gl is None:
+        raise HTTPException(404, f"Game '{game_id}' not found.")
+    log_text = gl.get_adventure_log(timeout=5.0)
+    if log_text is not None:
+        return {"status": "ok", "text": log_text}
+    err = gl.adventure_log_error
+    if err is not None:
+        return {"status": "error", "message": err}
+    return {"status": "pending"}
 
 
 # ═══════════════════════════════════════════════════════════════════

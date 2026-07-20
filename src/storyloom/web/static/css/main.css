@@ -761,8 +761,14 @@ button.accent:hover, .btn-accent:hover {
     color: var(--text-accent);
     font-family: var(--font-sans);
     font-size: 1.05rem;
-    opacity: 0.35;
-    cursor: not-allowed;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.gp-start-btn:hover {
+    background: rgba(78, 204, 163, 0.12);
+    box-shadow: 0 0 12px rgba(78, 204, 163, 0.2);
+    transform: scale(1.04);
 }
 
 /* ── Save Browser (game list + checkpoint list) ─────────────────── */
@@ -1023,4 +1029,458 @@ button.accent:hover, .btn-accent:hover {
 .toast--visible {
     opacity: 1;
     transform: translateY(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Game Narrative View — core gameplay interface
+   ═══════════════════════════════════════════════════════════════════ */
+
+.game-view {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    max-width: 800px;
+    margin: 0 auto;
+    background: var(--bg-primary);
+    animation: fadeIn 0.3s ease;
+}
+
+/* ── Top Bar ────────────────────────────────────────────────────── */
+
+.game-topbar {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0.25rem;
+    flex-shrink: 0;
+    background: var(--bg-primary);
+    gap: 0.6rem;
+}
+
+.game-exit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: color 0.2s, background 0.2s;
+    flex-shrink: 0;
+}
+
+.game-exit-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+}
+
+.game-label {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--text-accent);
+    font-weight: normal;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Top-right buttons ──────────────────────────────────────────── */
+
+.game-topright {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+/* Mode toggle button — circle with play/pause icon */
+
+.game-mode-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 50%;
+    transition: color 0.2s, background 0.2s;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.game-mode-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.game-mode-btn svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    display: block;
+}
+
+/* Mode toggle — circle track */
+.game-mode-btn .mode-circle {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+}
+
+/* Mode toggle — rotating arc (auto mode) */
+.game-mode-btn .mode-arc {
+    fill: none;
+    stroke: var(--text-accent);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.game-mode-btn.auto .mode-arc {
+    opacity: 1;
+    animation: mode-spin 1.5s linear infinite;
+    transform-origin: center;
+}
+
+.game-mode-btn.auto {
+    color: var(--text-accent);
+}
+
+@keyframes mode-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+/* Settings button — gear icon */
+
+.game-settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-radius: 50%;
+    transition: color 0.2s, background 0.2s;
+    flex-shrink: 0;
+}
+
+.game-settings-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.game-settings-btn svg {
+    width: 1.2rem;
+    height: 1.2rem;
+    display: block;
+}
+
+/* ── Story Area ─────────────────────────────────────────────────── */
+
+.game-story {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem 0.25rem 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    /* No border — seamless with background */
+    scrollbar-width: none;          /* Firefox */
+    -ms-overflow-style: none;       /* IE / old Edge */
+}
+
+.game-story::-webkit-scrollbar {
+    display: none;                  /* Chrome / Safari */
+}
+
+.game-segment {
+    font-family: var(--font-sans);
+    font-size: 1.05rem;             /* Default: medium */
+    line-height: 1.6;               /* Default: 1.0 × 1.6 */
+    color: var(--text-primary);
+    animation: fadeIn 0.3s ease;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+/* Font size variants (applied to .game-story container) */
+.game-story.font-small .game-segment {
+    font-size: 0.9rem;
+}
+
+.game-story.font-medium .game-segment {
+    font-size: 1.05rem;
+}
+
+.game-story.font-large .game-segment {
+    font-size: 1.2rem;
+}
+
+/* Line spacing variants */
+.game-story.line-075 .game-segment {
+    line-height: calc(1.6 * 0.75);
+}
+
+.game-story.line-100 .game-segment {
+    line-height: 1.6;
+}
+
+.game-story.line-125 .game-segment {
+    line-height: calc(1.6 * 1.25);
+}
+
+/* Selected choice text — green highlight, same font/size as normal */
+.game-choice-text {
+    font-family: var(--font-sans);
+    font-size: inherit;
+    line-height: inherit;
+    color: var(--text-accent);
+    animation: fadeIn 0.3s ease;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0.15rem 0;
+}
+
+/* ── Loading Indicator ──────────────────────────────────────────── */
+
+.game-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 0.5rem 0;
+    animation: fadeIn 0.2s ease;
+}
+
+.game-loading .cc-dots span {
+    color: var(--text-secondary);
+}
+
+/* ── Manual-mode continue hint ───────────────────────────────── */
+
+.game-continue-hint {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 1rem 0 0.5rem;
+    animation: fadeIn 0.3s ease;
+    cursor: pointer;
+    user-select: none;
+}
+
+.game-continue-hint:hover {
+    color: var(--text-primary);
+}
+
+/* ── Choices Panel ──────────────────────────────────────────────── */
+
+.game-choices {
+    flex-shrink: 0;
+    padding: 0.75rem 0.25rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    animation: fadeIn 0.3s ease;
+}
+
+.game-choice-btn {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.game-choice-btn:hover {
+    background: var(--button-hover);
+    border-color: var(--text-accent);
+    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+}
+
+.game-choice-btn:active {
+    background: var(--button-bg);
+}
+
+.game-choice-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.game-choice-btn:disabled:hover {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+}
+
+/* ── Game Modal Overlay ─────────────────────────────────────────── */
+
+.game-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    animation: fadeIn 0.25s ease;
+}
+
+.game-modal {
+    background: rgba(22, 33, 62, 0.92);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 2rem 2.2rem;
+    min-width: 360px;
+    max-width: 480px;
+    text-align: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+    animation: fadeIn 0.3s ease;
+}
+
+.game-modal-text {
+    font-family: var(--font-sans);
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    line-height: 1.6;
+    margin-bottom: 1.8rem;
+    white-space: pre-wrap;
+}
+
+.game-modal-actions {
+    display: flex;
+    gap: 0.8rem;
+    justify-content: center;
+}
+
+.game-modal-btn {
+    padding: 0.6rem 1.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.game-modal-btn:hover {
+    background: var(--button-hover);
+    border-color: var(--text-accent);
+    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+}
+
+.game-modal-btn.accent {
+    background: var(--text-accent);
+    color: var(--bg-primary);
+    border-color: var(--text-accent);
+}
+
+.game-modal-btn.accent:hover {
+    box-shadow: 0 0 12px rgba(78, 204, 163, 0.4);
+}
+
+/* ── In-game Settings Overlay ───────────────────────────────────── */
+
+.game-settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    animation: fadeIn 0.25s ease;
+}
+
+.game-settings-panel {
+    background: rgba(22, 33, 62, 0.92);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 2rem 2.2rem;
+    min-width: 360px;
+    max-width: 440px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+}
+
+.game-settings-panel h2 {
+    font-family: var(--font-mono);
+    color: var(--text-accent);
+    margin-bottom: 1.5rem;
+    text-align: center;
+    font-size: 1.1rem;
+}
+
+.game-setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.game-setting-label {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.game-setting-options {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.game-setting-opt {
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.game-setting-opt:hover {
+    background: var(--button-hover);
+    border-color: var(--text-accent);
+}
+
+.game-setting-opt.active {
+    background: var(--text-accent);
+    color: var(--bg-primary);
+    border-color: var(--text-accent);
+}
+
+.game-settings-close {
+    margin-top: 1.5rem;
+    width: 100%;
 }

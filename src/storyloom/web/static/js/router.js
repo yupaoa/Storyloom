@@ -68,6 +68,12 @@
             return;
         }
 
+        /* #game/{game_id} → narrative view */
+        if (view === "game" && gameId) {
+            renderGame(decodeURIComponent(gameId));
+            return;
+        }
+
         const render = routes[view] || routes[""];
         if (render) render();
     }
@@ -165,7 +171,7 @@
                     return;
                 }
                 const res = await API.post(
-                    `/api/saves/${encodeURIComponent(lp.game_id)}/load/${encodeURIComponent(lp.save_file)}`
+                    `/api/saves/${encodeURIComponent(lp.game_id)}/start/${encodeURIComponent(lp.save_file)}`
                 );
                 GameState.gameId = res.game_id;
                 GameState.roundCount = res.round_count || 0;
@@ -429,9 +435,11 @@
             navigate("menu");
         });
 
-        // Fetch story_config from the save file — the canonical source
+        // Fetch story_config from the save file AND store game server-side.
+        // Uses /start/ (not /load/) to ensure the GameLoop is in the session
+        // before "Begin Adventure" → POST /api/game/{id}/start.
         const filename = GameState.saveFile || "_init.json";
-        API.post(`/api/saves/${encodeURIComponent(gameId)}/load/${encodeURIComponent(filename)}`)
+        API.post(`/api/saves/${encodeURIComponent(gameId)}/start/${encodeURIComponent(filename)}`)
             .then(data => {
                 const config = data.story_config || {};
                 _renderPreviewContent(config);
@@ -461,9 +469,10 @@
             });
     }
 
-    /** Render the preview content with story label, setting, and a
-     *  silent (disabled) Begin Adventure button. */
+    /** Render the preview content with story label, setting, and
+     *  Begin Adventure button that starts the game. */
     function _renderPreviewContent(config) {
+        const gameId = GameState.gameId;
         app.innerHTML = `
             <div class="gp-view">
                 <div class="gp-header">
@@ -475,7 +484,7 @@
                     <h1 class="gp-label">${esc(config.label)}</h1>
                     <p class="gp-setting">${esc(config.setting || "")}</p>
 
-                    <button class="gp-start-btn" id="gp-start" disabled>
+                    <button class="gp-start-btn" id="gp-start">
                         ${esc(_("Begin Adventure"))}
                     </button>
                 </div>
@@ -486,25 +495,34 @@
             GameState.reset();
             navigate("menu");
         });
+
+        document.getElementById("gp-start").addEventListener("click", () => {
+            navigate(`game/${encodeURIComponent(gameId)}`);
+        });
     }
 
     /* ═══════════════════════════════════════════════════════════════
        View: Game (#game/{id}) — PLACEHOLDER
        ═══════════════════════════════════════════════════════════════ */
 
-    function renderGame() {
-        app.innerHTML = `
-            <div class="placeholder-view">
-                <h2>Game</h2>
-                <p class="text-muted">Gameplay view — coming soon.</p>
-                <button class="menu-btn" style="margin-top:1.5rem" id="btn-back-menu">
-                    ${esc(_("Back to Menu"))}
-                </button>
-            </div>
-        `;
-        document.getElementById("btn-back-menu").addEventListener("click", () => {
+    function renderGame(gameId) {
+        if (!gameId) {
             navigate("menu");
-        });
+            return;
+        }
+
+        GameState.gameId = gameId;
+        const label = (GameState.storyConfig && GameState.storyConfig.label)
+            || gameId;
+
+        /* Close any existing SSE connection before rendering */
+        if (typeof SSEClient !== "undefined" && SSEClient.close) {
+            SSEClient.close();
+        }
+
+        /* Clear the app shell — GameView builds its own DOM */
+        app.innerHTML = "";
+        GameView.render(app, gameId, label);
     }
 
     /* ═══════════════════════════════════════════════════════════════

@@ -6,9 +6,14 @@ Co-create store:
     store_co_create / get_co_create / remove_co_create
     store_co_create_result / get_co_create_result
 
-Game store (placeholder — Phase 2):
+Game store:
     store_game / get_game / remove_game
+    store_game_stream / pop_game_stream / get_game_stream
+    inject_choice / wait_for_choice
 """
+
+import queue
+import threading
 
 from storyloom.core.co_create import CoCreateFlow, CoCreationResult
 from storyloom.core.game_loop import GameLoop
@@ -49,7 +54,7 @@ def get_co_create_result() -> CoCreationResult | None:
     return _co_create_result
 
 
-# ── Game store (placeholder) ───────────────────────────────────────
+# ── Game store ─────────────────────────────────────────────────────
 
 _game_loops: dict[str, GameLoop] = {}
 
@@ -67,3 +72,68 @@ def get_game(game_id: str) -> GameLoop | None:
 def remove_game(game_id: str) -> None:
     """Remove a game from the store."""
     _game_loops.pop(game_id, None)
+    _game_streams.pop(game_id, None)
+    _game_choices.pop(game_id, None)
+    _game_choice_events.pop(game_id, None)
+
+
+# ── Game stream state ──────────────────────────────────────────────
+
+# Per-game event queues for SSE streaming.
+# Populated by the background thread; drained by the async SSE endpoint.
+_game_streams: dict[str, queue.Queue] = {}
+
+# Per-game choice injection state.
+# The background thread blocks on _game_choice_events[game_id] after
+# yielding an "options" event.  The POST /choice handler sets
+# _game_choices[game_id] and signals the event to unblock the thread.
+_game_choices: dict[str, str] = {}
+_game_choice_events: dict[str, threading.Event] = {}
+
+
+def store_game_stream(game_id: str) -> queue.Queue:
+    """Create and store an event queue for a game SSE stream."""
+    q: queue.Queue = queue.Queue()
+    _game_streams[game_id] = q
+    return q
+
+
+def pop_game_stream(game_id: str) -> queue.Queue | None:
+    """Remove and return a game stream queue."""
+    return _game_streams.pop(game_id, None)
+
+
+def get_game_stream(game_id: str) -> queue.Queue | None:
+    """Return a game stream queue without removing it."""
+    return _game_streams.get(game_id)
+
+
+def inject_choice(game_id: str, key: str) -> None:
+    """Inject a player choice, unblocking the background game thread.
+
+    Called from the POST /choice handler (any thread).  The background
+    game thread is blocked on wait_for_choice() after yielding an
+    "options" event.
+    """
+    _game_choices[game_id] = key
+    evt = _game_choice_events.get(game_id)
+    if evt is not None:
+        evt.set()
+
+
+def wait_for_choice(game_id: str, timeout: float = 300.0) -> str:
+    """Block until a choice is injected.  Returns the choice key.
+
+    Called from the background game thread after yielding an "options"
+    event.  Must be called from the same thread that iterates the
+    stream_round() generator so gen.send() works correctly.
+
+    Returns "1" as fallback if timeout is reached.
+    """
+    evt = threading.Event()
+    _game_choice_events[game_id] = evt
+    signaled = evt.wait(timeout=timeout)
+    _game_choice_events.pop(game_id, None)
+    if not signaled:
+        return "1"
+    return _game_choices.pop(game_id, "1")
