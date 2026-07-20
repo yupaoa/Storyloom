@@ -46,6 +46,7 @@
         "game": renderGame,
         "game-preview": renderGamePreview,
         "saves": renderSaveList,
+        "adventure-log": renderAdventureLog,
     };
 
     // ── Bootstrap ──────────────────────────────────────────────────
@@ -71,6 +72,12 @@
         /* #game/{game_id} → narrative view */
         if (view === "game" && gameId) {
             renderGame(decodeURIComponent(gameId));
+            return;
+        }
+
+        /* #adventure-log/{game_id} → post-ending adventure log */
+        if (view === "adventure-log" && gameId) {
+            renderAdventureLog(decodeURIComponent(gameId));
             return;
         }
 
@@ -729,6 +736,31 @@
             document.getElementById("sv-cp-list").innerHTML =
                 `<p class="text-error">${esc(err.message)}</p>`;
         });
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       View: Adventure Log (#adventure-log/{game_id})
+       ──────────────────────────────────────────────────────────────
+       Post-ending scrollable text page showing the generated
+       adventure log.  Delegates to AdventureLogView.render().
+
+       Layout:
+         header:  ← Back button (top-left) + story label + [Export] (disabled)
+         content: scrollable log text (no border, white)
+       ═══════════════════════════════════════════════════════════════ */
+
+    function renderAdventureLog(gameId) {
+        GameState.gameId = gameId;
+
+        /* Get story label from GameState (set during game session).
+           Falls back to gameId only when GameState has been reset —
+           the label is present in normal flow (coming from game.js
+           end modal, where GameState.storyConfig is still populated). */
+        const label = (GameState.storyConfig && GameState.storyConfig.label)
+            || gameId;
+
+        app.innerHTML = "";
+        AdventureLogView.render(app, gameId, label);
     }
 
     /* ── Confirm Popup (delete confirmation) ───────────────────────── */

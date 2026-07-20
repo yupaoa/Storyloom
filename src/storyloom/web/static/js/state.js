@@ -141,6 +141,10 @@ const T = {
         "Small": "小",
         "Medium": "中",
         "Large": "大",
+        /* Adventure Log */
+        "Export": "导出",
+        "Quit the game?": "确定退出游戏？",
+        "Adventure log timed out.": "冒险日志生成超时。",
     },
     "en": {
         /* English is the source language — identity map */

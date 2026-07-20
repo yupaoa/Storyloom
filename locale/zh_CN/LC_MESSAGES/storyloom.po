@@ -169,3 +169,26 @@ msgstr "个存档"
 
 msgid "Restart"
 msgstr "重新开始"
+
+# ── Web UI: adventure log ──
+
+msgid "Generating adventure log..."
+msgstr "正在生成冒险日志..."
+
+msgid "Story has ended. Generate adventure log?"
+msgstr "故事已结束。是否生成冒险日志？"
+
+msgid "View Log"
+msgstr "开始查看"
+
+msgid "Quit"
+msgstr "退出"
+
+msgid "Quit the game?"
+msgstr "确定退出游戏？"
+
+msgid "Export"
+msgstr "导出"
+
+msgid "Adventure log timed out."
+msgstr "冒险日志生成超时。"

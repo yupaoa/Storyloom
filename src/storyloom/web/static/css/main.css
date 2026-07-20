@@ -1554,3 +1554,227 @@ button.accent:hover, .btn-accent:hover {
     margin-top: var(--space-xl);
     width: 100%;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Adventure Log View — post-ending scrollable log display
+   Route: #adventure-log/{gameId}
+
+   Authority:
+     exec-flow.md §5.2-5.3 (adventure log display after ending)
+     User spec: no border, plain white text, scrollable, export button
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── View container (matches .sv-view / .gp-view pattern) ────────── */
+
+.al-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 4rem);   /* #app padding: 2rem top + 2rem bottom */
+    max-width: 960px;
+    margin: 0 auto;
+    animation: fadeIn 0.3s ease;
+}
+
+/* ── Header bar (matches .sv-header / .game-topbar pattern) ──────── */
+
+.al-header {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0.25rem;
+    flex-shrink: 0;
+    gap: 0.6rem;
+}
+
+/* ── Story label (matches .game-label pattern) ──────────────────── */
+
+.al-label {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--text-accent);
+    font-weight: normal;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Export button (top-right, disabled) ─────────────────────────── */
+
+.al-export-btn {
+    margin-left: auto;
+    padding: 0.35rem 0.9rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    flex-shrink: 0;
+}
+
+.al-export-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ── Scrollable content area (no border, hidden scrollbar) ───────── */
+
+.al-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem 0.25rem 4rem;
+    scroll-behavior: smooth;
+    /* No border — seamless with background */
+    scrollbar-width: none;          /* Firefox */
+    -ms-overflow-style: none;       /* IE / old Edge */
+    /* Top fade — older text near the top edge fades out */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 6%);
+    mask-image: linear-gradient(to bottom, transparent 0%, black 6%);
+}
+
+.al-content::-webkit-scrollbar {
+    display: none;                  /* Chrome / Safari */
+}
+
+/* ── Log text — base styles shared by Markdown + raw fallback ───── */
+
+.al-text {
+    max-width: 680px;
+    margin: 0 auto;
+    font-family: var(--font-sans);
+    font-size: 1.25rem;
+    line-height: 2.1;
+    color: var(--text-primary);     /* #e0e0e0 — terminal white */
+    word-break: break-word;
+    animation: fadeIn 0.4s ease;
+}
+
+/* Raw text fallback (marked.js unavailable) — preserve line breaks */
+.al-text--raw {
+    white-space: pre-wrap;
+}
+
+/* ── Markdown rendered elements (inside .al-text) ────────────────── */
+
+.al-text h1, .al-text h2, .al-text h3,
+.al-text h4, .al-text h5, .al-text h6 {
+    font-family: var(--font-sans);
+    color: var(--text-accent);
+    font-weight: normal;
+    line-height: 1.3;
+}
+
+.al-text h1 {
+    font-size: 1.75rem;
+    margin: 2.5rem 0 1.2rem;
+    text-align: center;
+    letter-spacing: 0.06em;
+}
+
+.al-text h2 {
+    font-size: 1.4rem;
+    margin: 2rem 0 0.8rem;
+}
+
+.al-text h3 {
+    font-size: 1.15rem;
+    margin: 1.5rem 0 0.6rem;
+}
+
+.al-text h4, .al-text h5, .al-text h6 {
+    font-size: 1.05rem;
+    margin: 1.2rem 0 0.5rem;
+}
+
+.al-text p {
+    margin: 0.8rem 0;
+    text-indent: 0;
+}
+
+/* First paragraph after heading — no extra top gap */
+.al-text h1 + p,
+.al-text h2 + p,
+.al-text h3 + p {
+    margin-top: 0.4rem;
+}
+
+.al-text ul, .al-text ol {
+    margin: 0.6rem 0 0.6rem 0.5rem;
+    padding-left: 1.2rem;
+}
+
+.al-text li {
+    margin: 0.3rem 0;
+}
+
+.al-text strong {
+    font-weight: bold;
+}
+
+.al-text em {
+    font-style: italic;
+}
+
+.al-text hr {
+    border: none;
+    text-align: center;
+    margin: 2rem 0;
+    /* Decorative centred divider: three dots */
+    overflow: visible;
+    height: 0;
+}
+
+.al-text hr::after {
+    content: "· · ·";
+    color: var(--text-secondary);
+    font-size: 1rem;
+    letter-spacing: 0.4em;
+}
+
+.al-text blockquote {
+    border-left: 2px solid rgba(78, 204, 163, 0.35);
+    margin: 1rem 0;
+    padding: 0.4rem 1.2rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.al-text code {
+    font-family: var(--font-mono);
+    background: var(--bg-secondary);
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+.al-text pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.8rem 1rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+}
+
+.al-text pre code {
+    background: none;
+    padding: 0;
+    font-size: 0.9rem;
+}
+
+/* ── Loading / error states ─────────────────────────────────────── */
+
+.al-loading {
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+    padding: 3rem 0;
+}
+
+.al-error {
+    color: var(--text-error);
+    text-align: center;
+    padding: 3rem 0;
+}
