@@ -8,8 +8,12 @@ msgstr ""
 
 # ── Co-creation: user-facing prompts ──
 
-msgid "Describe the story you'd like to play.\ne.g. 'A cyberpunk love story' or 'A wuxia adventure'"
-msgstr "请描述你想玩的故事。\n例如：'赛博朋克背景下的爱情故事'、'古代仙侠世界的冒险'"
+msgid ""
+"Describe the story you'd like to play.\n"
+"e.g. 'A cyberpunk love story' or 'A wuxia adventure'"
+msgstr ""
+"请描述你想玩的故事。\n"
+"例如：'赛博朋克背景下的爱情故事'、'古代仙侠世界的冒险'"
 
 msgid "Please share some thoughts to begin."
 msgstr "请输入一些想法来开始。"
