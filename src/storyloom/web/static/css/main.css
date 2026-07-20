@@ -1307,6 +1307,8 @@ button.accent:hover, .btn-accent:hover {
     gap: 0.5rem;
     animation: fadeInOpacity 0.3s ease;
     z-index: 50;
+    /* Gradient mask — fades story text out behind the button area */
+    background: linear-gradient(to top, var(--bg-primary) 60%, transparent 100%);
 }
 
 .game-choice-btn {
