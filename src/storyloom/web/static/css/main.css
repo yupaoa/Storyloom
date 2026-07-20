@@ -1038,7 +1038,7 @@ button.accent:hover, .btn-accent:hover {
 .game-view {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: calc(100vh - 4rem);   /* #app padding is 2rem top + 2rem bottom */
     max-width: 800px;
     margin: 0 auto;
     background: var(--bg-primary);

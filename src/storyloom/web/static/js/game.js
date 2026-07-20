@@ -338,11 +338,12 @@ const GameView = (function () {
                 return;
             }
 
-            /* Show loading then restart the display loop.
-               If post-choice segments have already arrived they will
-               be processed immediately; otherwise the polling state
-               (_isPolling) wakes on arrival. */
-            Display.showLoading();
+            /* Restart the display loop.  If post-choice segments have
+               already arrived they are processed immediately; otherwise
+               the empty-queue poll starts and the 500 ms debounce
+               controls when (if ever) the loading indicator appears.
+               Per exec-flow.md §4.3, bridge pre-fetch means post-choice
+               content is already buffered — loading should rarely show. */
             _displayTick();
         });
     }
