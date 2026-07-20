@@ -456,6 +456,8 @@ const GameView = (function () {
     function _showEndModal() {
         if (_endModalShown) return;
         _endModalShown = true;
+        _cancelLoading();
+        Display.hideLoading();
 
         const logHash = `adventure-log/${encodeURIComponent(_gameId)}`;
 
