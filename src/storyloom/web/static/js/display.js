@@ -102,16 +102,23 @@ const Display = (function () {
     function _buildDisabledReason(condition) {
         if (!condition || !condition.trim()) return "";
         /* Parse "var_name op value" to extract variable name */
+        /* \p{L} matches Unicode letters (including CJK) — JS \w does
+           not.  Python 3 \w handles this natively; we must use the u
+           flag here to match Chinese variable names like 理智值.  */
         const match = condition.match(
-            /^\s*(\w+)\s*(==|!=|>=|<=|>|<)\s*(.+?)\s*$/
+            /^\s*([\p{L}\p{N}_]+)\s*(==|!=|>=|<=|>|<)\s*(.+?)\s*$/u
         );
         if (match) {
             const varName = match[1];
             const current = GameState.stateVars[varName];
             if (current !== undefined) {
-                return _("Requires {cond}, current: {val}")
-                    .replace("{cond}", condition)
-                    .replace("{val}", String(current));
+                /* Single-pass replacement: avoids the (low-probability)
+                   edge case where `condition` itself contains "{val}". */
+                const tmpl = _("Requires {cond}, current: {val}");
+                return tmpl.replaceAll(
+                    /{cond}|{val}/g,
+                    (m) => m === "{cond}" ? condition : String(current)
+                );
             }
         }
         return _("Requires {cond}").replace("{cond}", condition);
@@ -182,7 +189,7 @@ const Display = (function () {
                 if (opt.disabledReason) {
                     btn.textContent += "（" + opt.disabledReason + "）";
                 } else {
-                    btn.textContent += " " + _("(unavailable)");
+                    btn.textContent += "（" + _("unavailable") + "）";
                 }
             }
             btn.addEventListener("click", () => {
