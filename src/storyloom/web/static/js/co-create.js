@@ -130,6 +130,13 @@ const CoCreateView = (function () {
     async function _handleStart() {
         if (_phase !== "chatting") return;
 
+        /* Require at least one user message before starting generation. */
+        const userMsgs = $("#cc-messages").querySelectorAll(".cc-message.user");
+        if (userMsgs.length === 0) {
+            showToast(_("Please send a message first."));
+            return;
+        }
+
         _phase = "generating";
         _setInputEnabled(false);
         _renderTransition();

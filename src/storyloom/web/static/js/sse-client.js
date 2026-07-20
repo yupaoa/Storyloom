@@ -99,6 +99,11 @@ const SSEClient = {
                 if (this._handlers.story_end) this._handlers.story_end({});
             });
 
+            this._es.addEventListener("save", (e) => {
+                const data = JSON.parse(e.data);
+                if (this._handlers.save) this._handlers.save(data);
+            });
+
             /* ── Stream complete — sent by server when round ends ── */
             this._es.addEventListener("stream_end", () => {
                 this._es.close();

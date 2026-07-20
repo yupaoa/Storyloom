@@ -101,6 +101,9 @@ msgstr "正在思考"
 msgid "Generating settings"
 msgstr "正在生成设定"
 
+msgid "Please send a message first."
+msgstr "请先发送消息。"
+
 # ── Web UI: game preview ──
 
 msgid "Begin Adventure"
@@ -137,6 +140,9 @@ msgstr "你可以关闭此标签页。"
 
 msgid "Something went wrong"
 msgstr "出了点问题"
+
+msgid "Saved"
+msgstr "存档已更新"
 
 # ── Web UI: save browser ──
 
@@ -175,12 +181,6 @@ msgstr "重新开始"
 msgid "Generating adventure log..."
 msgstr "正在生成冒险日志..."
 
-msgid "Story has ended. Generate adventure log?"
-msgstr "故事已结束。是否生成冒险日志？"
-
-msgid "View Log"
-msgstr "开始查看"
-
 msgid "Quit"
 msgstr "退出"
 
@@ -192,3 +192,6 @@ msgstr "导出"
 
 msgid "Adventure log timed out."
 msgstr "冒险日志生成超时。"
+
+msgid "The story has ended. View adventure log."
+msgstr "故事已结束，查看冒险日志"

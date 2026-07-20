@@ -118,9 +118,6 @@ const T = {
         "Restart": "重新开始",
         /* Game Narrative */
         "Generating adventure log...": "正在生成冒险日志...",
-        "Story has ended. Generate adventure log?": "故事已结束。是否生成冒险日志？",
-        "Generate adventure log?": "是否生成冒险日志？",
-        "View Log": "开始查看",
         "Quit": "退出",
         "Retry": "重试",
         "Loading": "加载中",
@@ -145,6 +142,9 @@ const T = {
         "Export": "导出",
         "Quit the game?": "确定退出游戏？",
         "Adventure log timed out.": "冒险日志生成超时。",
+        "The story has ended. View adventure log.": "故事已结束，查看冒险日志",
+        "Saved": "存档已更新",
+        "Please send a message first.": "请先发送消息。",
     },
     "en": {
         /* English is the source language — identity map */
