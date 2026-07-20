@@ -339,26 +339,22 @@ async def game_stream(game_id: str):
     if gl is None:
         raise HTTPException(404, f"Game '{game_id}' not found.")
 
-    q = sessions.store_game_stream(game_id)
+    q, stop_evt = sessions.store_game_stream(game_id)
 
     # ── Background thread: run game loop ──────────────────────────
     def run_loop() -> None:
         try:
             while True:
-                # Check stop signal before launching next round.
-                # This is the fast-path exit — most rounds spend
-                # their time inside stream_round(), so this check
-                # catches the case where stop was requested between
-                # rounds (or before the first round even started).
-                if sessions.is_game_stream_stopped(game_id):
+                # Check LOCAL stop event reference — never the global
+                # is_game_stream_stopped() lookup, which races with a
+                # new store_game_stream() overwriting the event.
+                if stop_evt.is_set():
                     return
 
                 gen = gl.stream_round()
                 for event in gen:
                     # Check stop signal after every yielded event.
-                    # Covers the case where the client disconnected
-                    # mid-round — the next yield point exits cleanly.
-                    if sessions.is_game_stream_stopped(game_id):
+                    if stop_evt.is_set():
                         return
 
                     q.put(event)
@@ -366,8 +362,9 @@ async def game_stream(game_id: str):
                         # Block until choice arrives via POST /choice
                         key = sessions.wait_for_choice(game_id)
                         # Stop may have been requested while we were
-                        # blocked — check before resuming the generator.
-                        if sessions.is_game_stream_stopped(game_id):
+                        # blocked — check local reference before
+                        # resuming the generator.
+                        if stop_evt.is_set():
                             return
                         try:
                             gen.send(key)

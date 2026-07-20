@@ -95,17 +95,19 @@ _game_choice_events: dict[str, threading.Event] = {}
 _game_stop_events: dict[str, threading.Event] = {}
 
 
-def store_game_stream(game_id: str) -> queue.Queue:
+def store_game_stream(game_id: str) -> tuple[queue.Queue, threading.Event]:
     """Create and store an event queue and stop signal for a game SSE stream.
 
-    Returns the queue so the caller can feed events into it.  A fresh
-    ``threading.Event`` is created as the stop signal — the daemon
-    thread polls ``is_game_stream_stopped()`` to know when to exit.
+    Returns ``(queue, stop_event)``.  The caller MUST use the local
+    ``stop_event`` reference for periodic stop checks — never the global
+    ``is_game_stream_stopped()`` lookup (which races with a new
+    ``store_game_stream()`` call overwriting the event).
     """
     q: queue.Queue = queue.Queue()
+    evt = threading.Event()
     _game_streams[game_id] = q
-    _game_stop_events[game_id] = threading.Event()
-    return q
+    _game_stop_events[game_id] = evt
+    return q, evt
 
 
 def request_stop_game_stream(game_id: str) -> None:
