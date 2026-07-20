@@ -689,6 +689,16 @@ async def exit_app():
 
 
 def main():
+    import threading
+    import webbrowser
+
+    def _open_browser():
+        import time
+        time.sleep(1.5)
+        webbrowser.open("http://127.0.0.1:8000")
+
+    threading.Thread(target=_open_browser, daemon=True).start()
+
     import uvicorn
     uvicorn.run("storyloom.web.server:app", host="127.0.0.1", port=8000)
 

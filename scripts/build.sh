@@ -12,12 +12,13 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
 VERSION=$($PYTHON -c "from storyloom import __version__; print(__version__)")
+PYI_FLAGS=""
 BIN_NAME="storyloom-web"
 OUTPUT_DIR="dist/storyloom-web-v${VERSION}"
 
 # Platform-specific binary extension
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*)  BIN_NAME="storyloom-web.exe" ;;
+    MINGW*|MSYS*|CYGWIN*)  BIN_NAME="storyloom-web.exe"; PYI_FLAGS="--noconsole" ;;
     Darwin)                ;;  # macOS: no extension
     Linux)                 ;;  # Linux: no extension
 esac
@@ -35,7 +36,7 @@ $PYTHON -m build --no-isolation
 
 # 3. PyInstaller single-file executable
 echo "[3/5] Building standalone executable..."
-$PYTHON -m PyInstaller --onefile \
+$PYTHON -m PyInstaller --onefile $PYI_FLAGS \
     --name "$BIN_NAME" \
     --add-data "locale:locale" \
     --add-data "src/storyloom/web/static:storyloom/web/static" \
