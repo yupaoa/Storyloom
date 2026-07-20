@@ -49,6 +49,11 @@ const GameView = (function () {
     let _ending = false;
     /* Track whether we've shown the end modal to avoid double-show */
     let _endModalShown = false;
+    /* Track whether any story content has arrived (vs. loading state).
+       Controls exit behavior — during loading there is no content to
+       generate an adventure log from, so we skip the confirmation modal
+       and exit immediately (analogous to co-create phase restrictions). */
+    let _contentStarted = false;
 
     /* ── DOM helpers ─────────────────────────────────────────────── */
     function $(sel) { return _container ? _container.querySelector(sel) : null; }
@@ -67,6 +72,9 @@ const GameView = (function () {
         _label = label;
         _ending = false;
         _endModalShown = false;
+        _contentStarted = false;
+        _eventQueue = [];
+        _optionsPending = null;
 
         _buildDOM();
 
@@ -153,6 +161,7 @@ const GameView = (function () {
             story_end: () => { /* silent */ },
             token: () => { /* silent — reserved for typewriter effect */ },
             segment: (data) => {
+                _contentStarted = true;
                 _eventQueue.push({ type: "segment", text: data.text });
                 _wakeDisplay();
             },
@@ -384,8 +393,25 @@ const GameView = (function () {
        Exit & End Modals (exec-flow.md §5.3)
        ═══════════════════════════════════════════════════════════════ */
 
-    /** User clicked exit button — show confirmation modal. */
+    /** User clicked exit button — show confirmation modal if content
+     *  has started, or exit immediately if still loading.
+     *
+     *  During loading (before the first segment arrives) there is no
+     *  story content to generate an adventure log from, and the modal
+     *  is meaningless.  Exiting immediately also eliminates the race
+     *  window where the user could re-enter before the server-side
+     *  daemon thread has finished cleaning up. */
     function _handleExit() {
+        if (!_contentStarted) {
+            // Loading state — no content yet.  Stop and exit immediately.
+            if (_gameId) {
+                API.post(`/api/game/${encodeURIComponent(_gameId)}/stop`).catch(() => {});
+            }
+            SSEClient.close();
+            Router.navigate("menu");
+            return;
+        }
+
         Display.showEndModal(
             _("Generate adventure log?"),
             /* Primary: view adventure log (stub — disabled below) */
