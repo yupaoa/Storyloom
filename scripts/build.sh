@@ -18,7 +18,7 @@ OUTPUT_DIR="dist/storyloom-web-v${VERSION}"
 
 # Platform-specific binary extension
 case "$(uname -s)" in
-    MINGW*|MSYS*|CYGWIN*)  BIN_NAME="storyloom-web.exe"; PYI_FLAGS="--noconsole" ;;
+    MINGW*|MSYS*|CYGWIN*)  BIN_NAME="storyloom-web.exe" ;;
     Darwin)                ;;  # macOS: no extension
     Linux)                 ;;  # Linux: no extension
 esac
