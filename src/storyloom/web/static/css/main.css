@@ -869,6 +869,13 @@ button.accent:hover, .btn-accent:hover {
     gap: 1.2rem;
     font-size: 0.82rem;
     color: var(--text-secondary);
+    overflow: hidden;
+}
+
+.sv-card-meta span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .sv-card-time {

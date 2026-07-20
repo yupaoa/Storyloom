@@ -545,7 +545,7 @@
                     <div class="sv-card-main">
                         <span class="sv-card-label">${esc(g.label)}</span>
                         <div class="sv-card-meta">
-                            <span>${esc(g.genre || "?")} · ${esc(g.tier || "?")}</span>
+                            <span>${esc(g.genre || "?")}</span>
                             <span>${g.save_count} ${esc(_("saves"))}</span>
                         </div>
                     </div>
