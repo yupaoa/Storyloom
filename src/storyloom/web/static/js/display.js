@@ -39,24 +39,23 @@ const Display = (function () {
 
     /* ── Story text ────────────────────────────────────────────────── */
 
-    /** Append a narrative segment paragraph to the story area.
-     *  New segment appears instantly large (.game-segment--active).
-     *  The previous segment shrinks with a transition. */
+    /** Append a narrative segment paragraph.
+     *  Newest segment gets 115 % font-size instantly (inline style,
+     *  no transition).  The previously-new segment loses the inline
+     *  size and shrinks via CSS transition on font-size. */
     function appendSegment(text) {
         const story = $("#game-story");
         if (!story) return;
-        /* Shrink previous active segment (animated) */
+        /* Shrink previous segment (animated via CSS transition) */
         const prev = story.querySelector(".game-segment--active");
         if (prev) {
             prev.classList.remove("game-segment--active");
-            prev.classList.add("game-segment--shrinking");
-            prev.addEventListener("transitionend", () => {
-                prev.classList.remove("game-segment--shrinking");
-            }, { once: true });
+            prev.style.fontSize = "";   // fall back to CSS, transition fires
         }
-        /* Append new — instantly large */
+        /* Append new — instantly 115 % */
         const p = document.createElement("p");
         p.className = "game-segment game-segment--active";
+        p.style.fontSize = "115%";
         p.textContent = text;
         story.appendChild(p);
         _scrollToCenter(p);
