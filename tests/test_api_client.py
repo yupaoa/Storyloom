@@ -30,9 +30,10 @@ def mock_http():
 
 @pytest.fixture
 def client(cfg, mock_http):
-    """ApiClient with mocked httpx.Client."""
-    with patch("storyloom.io.api_client.httpx.Client", return_value=mock_http):
-        c = ApiClient(cfg)
+    """ApiClient with mocked httpx.Client (injected after construction
+    since the real client is now created lazily on first API call)."""
+    c = ApiClient(cfg)
+    c._client = mock_http
     return c
 
 
@@ -65,8 +66,9 @@ class TestApiClientInit:
         monkeypatch.delenv("LLM_API_KEY", raising=False)
         c = UserConfig()
         c.api_key = ""
+        client = ApiClient(c)
         with pytest.raises(RuntimeError, match="API Key not found"):
-            ApiClient(c)
+            client.chat([{"role": "user", "content": "hi"}])
 
 
 # ── Non-streaming chat ───────────────────────────────────────────────

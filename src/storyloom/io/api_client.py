@@ -36,28 +36,43 @@ class ApiClient:
     CONNECT tunnels (through proxies) are reused across requests.
 
     Supports streaming (SSE) via stream_chat() and one-shot via chat().
+
+    Config values are read lazily from the UserConfig object on each
+    API call so that runtime config changes (e.g. via the settings page)
+    take effect without restarting.
     """
 
     def __init__(self, config: "UserConfig | None" = None):
         from storyloom.user_config import UserConfig
-        cfg = config if config is not None else UserConfig()
+        self._cfg = config if config is not None else UserConfig()
+        self._client: httpx.Client | None = None
 
-        self.api_key = os.environ.get("LLM_API_KEY") or cfg.api_key
-        self.base_url = (
-            os.environ.get("LLM_BASE_URL") or cfg.api_base_url
+    # ── lazy config accessors ───────────────────────────────────────
+
+    @property
+    def api_key(self) -> str:
+        return os.environ.get("LLM_API_KEY") or self._cfg.api_key
+
+    @property
+    def base_url(self) -> str:
+        return (
+            os.environ.get("LLM_BASE_URL") or self._cfg.api_base_url
         ).rstrip("/")
-        self.model = (
-            os.environ.get("LLM_MODEL") or cfg.api_model or DEFAULT_MODEL
+
+    @property
+    def model(self) -> str:
+        return (
+            os.environ.get("LLM_MODEL") or self._cfg.api_model or DEFAULT_MODEL
         )
 
-        self._validate_config()
-
-        # Connection pool — reused across all calls.
-        # httpx auto-reads HTTP_PROXY / HTTPS_PROXY / NO_PROXY from env.
-        self._client = httpx.Client(
-            timeout=httpx.Timeout(STREAM_STALL_TIMEOUT_SEC, connect=30.0),
-            follow_redirects=True,
-        )
+    def _get_client(self) -> httpx.Client:
+        """Return the shared httpx.Client, creating it on first use."""
+        if self._client is None:
+            self._client = httpx.Client(
+                timeout=httpx.Timeout(STREAM_STALL_TIMEOUT_SEC, connect=30.0),
+                follow_redirects=True,
+            )
+        return self._client
 
     def _validate_config(self) -> None:
         """Validate that required config is present."""
@@ -153,11 +168,12 @@ class ApiClient:
         Raises:
             ApiError: On network errors, HTTP errors, or malformed responses.
         """
+        self._validate_config()
         url = f"{self.base_url}/chat/completions"
         payload = self._build_payload(messages, stream=False, max_tokens=max_tokens)
 
         try:
-            response = self._client.post(
+            response = self._get_client().post(
                 url, json=payload, headers=self._build_headers()
             )
             response.raise_for_status()
@@ -194,13 +210,14 @@ class ApiClient:
         Raises:
             ApiError: On network errors, HTTP errors, or malformed responses.
         """
+        self._validate_config()
         url = f"{self.base_url}/chat/completions"
         payload = self._build_payload(messages, stream=True, max_tokens=max_tokens)
         t_start = time.perf_counter()
         ttft: float | None = None
 
         try:
-            with self._client.stream(
+            with self._get_client().stream(
                 "POST", url, json=payload, headers=self._build_headers()
             ) as response:
                 if response.status_code >= 400:
@@ -305,5 +322,5 @@ class ApiClient:
         self._client.close()
 
     def __del__(self) -> None:
-        if hasattr(self, "_client"):
+        if hasattr(self, "_client") and self._client is not None:
             self._client.close()
