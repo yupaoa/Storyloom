@@ -38,6 +38,7 @@ import asyncio
 import json
 import os
 import queue
+import sys
 import threading
 from pathlib import Path
 
@@ -58,10 +59,14 @@ from storyloom.web import sessions
 # ── App setup ──────────────────────────────────────────────────────
 
 _STATIC = Path(__file__).resolve().parent / "static"
-# Default to the repository root, not cwd, so config.json is always
-# at <repo>/config.json regardless of where the server is started.
-# server.py → web → storyloom → src → repo root  (4 levels up)
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+# App directory — where config.json / locale / saves live.
+# Dev: repo root (server.py → web → storyloom → src → repo root).
+# PyInstaller: next to the executable (sys.executable).
+if getattr(sys, 'frozen', False):
+    _PROJECT_ROOT = Path(sys.executable).parent
+else:
+    _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _APP_DIR = os.environ.get("STORYLOOM_APP_DIR", str(_PROJECT_ROOT))
 
 app = FastAPI(title="Storyloom", docs_url=None, redoc_url=None)
@@ -696,10 +701,14 @@ def main():
 
     # When running without a console (PyInstaller --noconsole), stdout/stderr
     # are None and uvicorn's log formatter crashes trying to call .isatty().
-    if sys.stdout is None:
-        sys.stdout = open(os.devnull, "w")
-    if sys.stderr is None:
-        sys.stderr = open(os.devnull, "w")
+    # Redirect to a log file next to the executable for debugging.
+    if sys.stdout is None or sys.stderr is None:
+        log_path = os.path.join(os.path.dirname(sys.executable), "storyloom.log")
+        f = open(log_path, "w")
+        if sys.stdout is None:
+            sys.stdout = f
+        if sys.stderr is None:
+            sys.stderr = f
 
     def _open_browser():
         import time
