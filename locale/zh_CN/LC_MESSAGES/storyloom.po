@@ -137,3 +137,38 @@ msgstr "你可以关闭此标签页。"
 
 msgid "Something went wrong"
 msgstr "出了点问题"
+
+# ── Web UI: save browser ──
+
+msgid "Delete this game?"
+msgstr "确定删除此游戏？"
+
+msgid "Delete this save?"
+msgstr "确定删除此存档？"
+
+msgid "This cannot be undone."
+msgstr "此操作无法撤销。"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "No"
+msgstr "否"
+
+msgid "No saves in this game."
+msgstr "此游戏暂无存档。"
+
+msgid "Game deleted."
+msgstr "游戏已删除。"
+
+msgid "Save deleted."
+msgstr "存档已删除。"
+
+msgid "Last played:"
+msgstr "上次游玩："
+
+msgid "saves"
+msgstr "个存档"
+
+msgid "Restart"
+msgstr "重新开始"

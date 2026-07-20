@@ -27,6 +27,16 @@
         return d.innerHTML;
     }
 
+    /** Trash can icon (Feather-style SVG, 16×16). */
+    const TRASH_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" `
+        + `fill="none" stroke="currentColor" stroke-width="2" `
+        + `stroke-linecap="round" stroke-linejoin="round">`
+        + `<polyline points="3 6 5 6 21 6"/>`
+        + `<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>`
+        + `<line x1="10" y1="11" x2="10" y2="17"/>`
+        + `<line x1="14" y1="11" x2="14" y2="17"/>`
+        + `</svg>`;
+
     // ── Route table ────────────────────────────────────────────────
 
     const routes = {
@@ -48,7 +58,16 @@
 
     function dispatch() {
         const hash = location.hash.replace("#", "") || "";
-        const [view] = hash.split("/");
+        const parts = hash.split("/");
+        const view = parts[0];
+        const gameId = parts[1] || null;
+
+        /* #saves/{game_id} → checkpoint list; #saves → game list */
+        if (view === "saves" && gameId) {
+            renderCheckpointList(decodeURIComponent(gameId));
+            return;
+        }
+
         const render = routes[view] || routes[""];
         if (render) render();
     }
@@ -376,8 +395,8 @@
        View: Game Preview (#game-preview)
        ──────────────────────────────────────────────────────────────
        Transition page between co-creation generate and game start.
-       Reads story_config from the save file (_init.json) so the
-       save is the canonical source of truth.
+       Reads story_config from the save file (GameState.saveFile or
+       ``_init.json``) so the save is the canonical source of truth.
 
        Layout:
          header:  ← Back button (top-left)
@@ -411,7 +430,8 @@
         });
 
         // Fetch story_config from the save file — the canonical source
-        API.post(`/api/saves/${encodeURIComponent(gameId)}/load/_init.json`)
+        const filename = GameState.saveFile || "_init.json";
+        API.post(`/api/saves/${encodeURIComponent(gameId)}/load/${encodeURIComponent(filename)}`)
             .then(data => {
                 const config = data.story_config || {};
                 _renderPreviewContent(config);
@@ -492,18 +512,250 @@
        ═══════════════════════════════════════════════════════════════ */
 
     function renderSaveList() {
+        GameState.reset();
+        if (typeof SSEClient !== "undefined" && SSEClient.close) {
+            SSEClient.close();
+        }
+
         app.innerHTML = `
-            <div class="placeholder-view">
-                <h2>${esc(_("Load Save"))}</h2>
-                <p class="text-muted">Save management view — coming soon.</p>
-                <button class="menu-btn" style="margin-top:1.5rem" id="btn-back-menu">
-                    ${esc(_("Back to Menu"))}
-                </button>
+            <div class="sv-view">
+                <div class="sv-header">
+                    <button class="cc-back-btn" id="sv-back"
+                            title="${esc(_("Back to Menu"))}">←</button>
+                    <span class="sv-title">${esc(_("Load Save"))}</span>
+                </div>
+                <div class="sv-list" id="sv-game-list">
+                    <p class="sv-card-empty">${esc(_("Loading..."))}</p>
+                </div>
             </div>
         `;
-        document.getElementById("btn-back-menu").addEventListener("click", () => {
+
+        document.getElementById("sv-back").addEventListener("click", () => {
             navigate("menu");
         });
+
+        API.get("/api/saves/games").then(games => {
+            const list = document.getElementById("sv-game-list");
+            if (!games.length) {
+                list.innerHTML = `<p class="sv-card-empty">${esc(_("No saves found"))}</p>`;
+                return;
+            }
+            list.innerHTML = games.map(g => `
+                <div class="sv-card" data-game-id="${esc(g.game_id)}">
+                    <div class="sv-card-main">
+                        <span class="sv-card-label">${esc(g.label)}</span>
+                        <div class="sv-card-meta">
+                            <span>${esc(g.genre || "?")} · ${esc(g.tier || "?")}</span>
+                            <span>${g.save_count} ${esc(_("saves"))}</span>
+                            ${g.last_played_at ? `<span>${esc(_("Last played:"))} ${formatDate(g.last_played_at)}</span>` : ""}
+                        </div>
+                    </div>
+                    <button class="sv-card-trash" title="${esc(_("Delete"))}">${TRASH_ICON}</button>
+                </div>
+            `).join("");
+
+            list.querySelectorAll(".sv-card").forEach(card => {
+                card.addEventListener("click", () => {
+                    navigate(`saves/${encodeURIComponent(card.dataset.gameId)}`);
+                });
+                card.querySelector(".sv-card-trash").addEventListener("click", e => {
+                    e.stopPropagation();
+                    showContextMenu(e.clientX, e.clientY,
+                        _("Delete this game?"),
+                        () => {
+                            API.del(`/api/saves/${encodeURIComponent(card.dataset.gameId)}`)
+                                .then(() => {
+                                    showToast(_("Game deleted."));
+                                    card.remove();
+                                    if (!list.querySelectorAll(".sv-card").length) {
+                                        list.innerHTML = `<p class="sv-card-empty">${esc(_("No saves found"))}</p>`;
+                                    }
+                                })
+                                .catch(err => showToast(err.message));
+                        });
+                });
+            });
+        }).catch(err => {
+            document.getElementById("sv-game-list").innerHTML =
+                `<p class="text-error">${esc(err.message)}</p>`;
+        });
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       View: Checkpoint List (#saves/{game_id}) — save file browser
+       ──────────────────────────────────────────────────────────────
+       Each card = one .json save file.  Sorted by saved_at descending.
+       Left-click loads the save into the game session and navigates to
+       #game-preview; right-click shows a delete confirmation popup.
+       ═══════════════════════════════════════════════════════════════════ */
+
+    function renderCheckpointList(gameId) {
+        if (typeof SSEClient !== "undefined" && SSEClient.close) {
+            SSEClient.close();
+        }
+
+        app.innerHTML = `
+            <div class="sv-view">
+                <div class="sv-header">
+                    <button class="cc-back-btn" id="sv-back"
+                            title="${esc(_("Back to Menu"))}">←</button>
+                    <span class="sv-title" id="sv-cp-title">${esc(_("Loading..."))}</span>
+                    <button class="sv-restart-btn" id="sv-restart">${esc(_("Restart"))}</button>
+                </div>
+                <div class="sv-list" id="sv-cp-list">
+                    <p class="sv-card-empty">${esc(_("Loading..."))}</p>
+                </div>
+            </div>
+        `;
+
+        document.getElementById("sv-back").addEventListener("click", () => {
+            navigate("saves");
+        });
+
+        document.getElementById("sv-restart").addEventListener("click", async () => {
+            try {
+                const data = await API.post(
+                    `/api/saves/${encodeURIComponent(gameId)}/start/_init.json`
+                );
+                GameState.gameId = data.game_id;
+                GameState.roundCount = data.round_count || 0;
+                GameState.currentNode = data.current_node || null;
+                GameState.storyConfig = data.story_config || {};
+                GameState.saveFile = "_init.json";
+                navigate("game-preview");
+            } catch (err) {
+                showToast(err.message);
+            }
+        });
+
+        /* Fetch saves + game metadata in parallel.
+           Saves come back in directory order; re-sort by saved_at
+           descending so the newest checkpoint is at the top. */
+        Promise.all([
+            API.get(`/api/saves/${encodeURIComponent(gameId)}`),
+            API.get("/api/saves/games"),
+        ]).then(([saves, games]) => {
+            const game = games.find(g => g.game_id === gameId);
+            document.getElementById("sv-cp-title").textContent =
+                game ? game.label : gameId;
+
+            saves.sort((a, b) => (b.saved_at || "").localeCompare(a.saved_at || ""));
+
+            /* Exclude _init.json — it is the initial save, not a checkpoint. */
+            const checkpoints = saves.filter(s => s.filename !== "_init.json");
+
+            const list = document.getElementById("sv-cp-list");
+            if (!checkpoints.length) {
+                list.innerHTML = `<p class="sv-card-empty">${esc(_("No saves in this game."))}</p>`;
+                return;
+            }
+
+            list.innerHTML = checkpoints.map(s => {
+                const label = s.checkpoint_title || s.filename;
+                return `
+                    <div class="sv-card" data-filename="${esc(s.filename)}">
+                        <div class="sv-card-main">
+                            <span class="sv-card-label">${esc(label)}</span>
+                            <div class="sv-card-meta">
+                                <span>${esc(s.saved_at ? formatDate(s.saved_at) : "")}</span>
+                                <span>${esc(s.current_node || "")}</span>
+                            </div>
+                        </div>
+                        <button class="sv-card-trash" title="${esc(_("Delete"))}">${TRASH_ICON}</button>
+                    </div>
+                `;
+            }).join("");
+
+            list.querySelectorAll(".sv-card").forEach(card => {
+                card.addEventListener("click", async () => {
+                    const filename = card.dataset.filename;
+                    try {
+                        const data = await API.post(
+                            `/api/saves/${encodeURIComponent(gameId)}/start/${encodeURIComponent(filename)}`
+                        );
+                        GameState.gameId = data.game_id;
+                        GameState.roundCount = data.round_count || 0;
+                        GameState.currentNode = data.current_node || null;
+                        GameState.storyConfig = data.story_config || {};
+                        GameState.saveFile = filename;
+                        navigate("game-preview");
+                    } catch (err) {
+                        showToast(err.message);
+                    }
+                });
+                card.querySelector(".sv-card-trash").addEventListener("click", e => {
+                    e.stopPropagation();
+                    showContextMenu(e.clientX, e.clientY,
+                        _("Delete this save?"),
+                        () => {
+                            API.del(`/api/saves/${encodeURIComponent(gameId)}/${encodeURIComponent(card.dataset.filename)}`)
+                                .then(() => {
+                                    showToast(_("Save deleted."));
+                                    card.remove();
+                                    if (!list.querySelectorAll(".sv-card").length) {
+                                        list.innerHTML = `<p class="sv-card-empty">${esc(_("No saves in this game."))}</p>`;
+                                    }
+                                })
+                                .catch(err => showToast(err.message));
+                        });
+                });
+            });
+        }).catch(err => {
+            document.getElementById("sv-cp-list").innerHTML =
+                `<p class="text-error">${esc(err.message)}</p>`;
+        });
+    }
+
+    /* ── Context Menu (right-click popup) ─────────────────────────── */
+
+    /** Show a positioned confirmation popup for delete actions.
+     *  @param {number} x - clientX of the right-click
+     *  @param {number} y - clientY of the right-click
+     *  @param {string} message - main question text (already translated)
+     *  @param {Function} onConfirm - called when user clicks "Yes"    */
+    function showContextMenu(x, y, message, onConfirm) {
+        const existing = document.querySelector(".ctx-menu");
+        if (existing) existing.remove();
+
+        const menu = document.createElement("div");
+        menu.className = "ctx-menu";
+        menu.innerHTML = `
+            <p class="ctx-menu-text">${esc(message)}</p>
+            <p class="ctx-menu-warn">${esc(_("This cannot be undone."))}</p>
+            <div class="ctx-menu-actions">
+                <button class="ctx-menu-btn" id="ctx-no">${esc(_("No"))}</button>
+                <button class="ctx-menu-btn danger" id="ctx-yes">${esc(_("Yes"))}</button>
+            </div>
+        `;
+        /* Keep within viewport bounds */
+        menu.style.left = Math.min(x, window.innerWidth - 240) + "px";
+        menu.style.top = Math.min(y, window.innerHeight - 140) + "px";
+        document.body.appendChild(menu);
+
+        const close = () => menu.remove();
+        menu.querySelector("#ctx-no").addEventListener("click", close);
+        menu.querySelector("#ctx-yes").addEventListener("click", () => {
+            close();
+            onConfirm();
+        });
+        /* Click outside to dismiss */
+        setTimeout(() => {
+            document.addEventListener("click", function handler(e) {
+                if (!menu.contains(e.target)) {
+                    close();
+                    document.removeEventListener("click", handler);
+                }
+            });
+        }, 0);
+    }
+
+    /** Format an ISO 8601 string for display (e.g. "2026-07-19 14:30"). */
+    function formatDate(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        const pad = n => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
 
     // ── Kick off ──────────────────────────────────────────────────

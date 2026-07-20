@@ -765,6 +765,206 @@ button.accent:hover, .btn-accent:hover {
     cursor: not-allowed;
 }
 
+/* ── Save Browser (game list + checkpoint list) ─────────────────── */
+/* Shared layout: back button header + scrollable card list.
+   Referenced by router.js renderSaveList() / renderCheckpointList(). */
+
+.sv-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 4rem);
+    max-width: 800px;
+    margin: 0 auto;
+    animation: fadeIn 0.3s ease;
+}
+
+/* ── Header (back button + title, matches co-create style) ────── */
+
+.sv-header {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 0.25rem;
+    flex-shrink: 0;
+    gap: 0.6rem;
+}
+
+.sv-title {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--text-accent);
+    font-weight: normal;
+    flex: 1;
+}
+
+.sv-restart-btn {
+    margin-left: auto;
+    padding: 0.35rem 0.9rem;
+    border: 1px solid var(--text-accent);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-accent);
+    font-family: var(--font-sans);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    flex-shrink: 0;
+}
+
+.sv-restart-btn:hover {
+    background: rgba(78, 204, 163, 0.1);
+    box-shadow: 0 0 8px rgba(78, 204, 163, 0.2);
+}
+
+/* ── Scrollable list (no border, hidden scrollbar) ────────────── */
+
+.sv-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem 0.25rem 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    scrollbar-width: none;          /* Firefox */
+    -ms-overflow-style: none;       /* IE / old Edge */
+}
+
+.sv-list::-webkit-scrollbar {
+    display: none;                  /* Chrome / Safari */
+}
+
+/* ── Save card ────────────────────────────────────────────────── */
+
+.sv-card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 0.9rem 1.2rem;
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s, transform 0.2s;
+    user-select: none;
+}
+
+.sv-card:hover {
+    background: var(--button-hover);
+    box-shadow: 0 0 10px rgba(78, 204, 163, 0.15);
+    transform: translateX(4px);
+}
+
+.sv-card-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.sv-card-label {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+}
+
+.sv-card-meta {
+    display: flex;
+    gap: 1.2rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+}
+
+.sv-card-trash {
+    display: none;
+    flex-shrink: 0;
+    width: 2rem;
+    height: 2rem;
+    margin-left: 0.8rem;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #c0392b;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    line-height: 1;
+}
+
+.sv-card:hover .sv-card-trash {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sv-card-trash:hover {
+    background: rgba(224, 85, 85, 0.15);
+    transform: scale(1.15);
+}
+
+.sv-card-empty {
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+    padding: 3rem 0;
+}
+
+/* ── Context Menu (right-click popup) ─────────────────────────── */
+
+.ctx-menu {
+    position: fixed;
+    z-index: 200;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    min-width: 220px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    animation: fadeIn 0.15s ease;
+}
+
+.ctx-menu-text {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    margin-bottom: 0.3rem;
+}
+
+.ctx-menu-warn {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.9rem;
+}
+
+.ctx-menu-actions {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: flex-end;
+}
+
+.ctx-menu-btn {
+    padding: 0.35rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--button-bg);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.ctx-menu-btn:hover {
+    background: var(--button-hover);
+    border-color: var(--text-accent);
+}
+
+.ctx-menu-btn.danger {
+    border-color: var(--text-error);
+    color: var(--text-error);
+}
+
+.ctx-menu-btn.danger:hover {
+    background: rgba(224, 85, 85, 0.15);
+    box-shadow: 0 0 8px rgba(224, 85, 85, 0.25);
+}
+
 /* ── Toast Notifications ─────────────────────────────────────────── */
 
 #toast-container {
