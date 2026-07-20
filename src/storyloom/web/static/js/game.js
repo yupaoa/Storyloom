@@ -202,10 +202,11 @@ const GameView = (function () {
         _startDisplayLoop();
 
         SSEClient.connect(_gameId, handlers).then(() => {
-            _stopDisplayLoop();
-            if (_ending && !_endModalShown) {
-                _showEndModal();
-            }
+            /* Stream ended — wake the display loop so it drains any
+               remaining bridge_text segments.  When the queue is
+               empty and _ending is true, _displayTick will show the
+               end modal naturally (exec-flow.md §5.2 step 4-5). */
+            _wakeDisplay();
         }).catch(() => {
             _stopDisplayLoop();
         });
@@ -253,6 +254,13 @@ const GameView = (function () {
                 const data = _optionsPending;
                 _optionsPending = null;
                 _handleOptions(data);
+                return;
+            }
+            /* Ending: all bridge_text displayed, show end modal
+               (exec-flow.md §5.2 step 4-5: bridge_text must finish
+               before adventure log prompt). */
+            if (_ending && !_endModalShown) {
+                _showEndModal();
                 return;
             }
             /* Debounced loading — only show after 500 ms of genuine
