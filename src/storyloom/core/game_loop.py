@@ -625,6 +625,7 @@ class GameLoop:
             ``{"type": "bridge"}``
             ``{"type": "options", "choices": [dict]}``
             ``{"type": "state", "vars": dict, "changes": [dict]}``
+            ``{"type": "save", "filename": str, "checkpoint_node": str}``
             ``{"type": "error", "message": str}``
             ``{"type": "ending", ...}``
             ``{"type": "done", "node": str, "state": dict}``

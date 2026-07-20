@@ -47,8 +47,8 @@ const GameView = (function () {
 
     /* Ending flag — set when ending event received */
     let _ending = false;
-    /* Track whether we've shown the end modal to avoid double-show */
-    let _endModalShown = false;
+    /* Track whether we've shown the end choice to avoid double-show */
+    let _endChoiceShown = false;
     /* Track whether any story content has arrived (vs. loading state).
        Controls exit behavior — during loading there is no content to
        generate an adventure log from, so we skip the confirmation modal
@@ -71,7 +71,7 @@ const GameView = (function () {
         _gameId = gameId;
         _label = label;
         _ending = false;
-        _endModalShown = false;
+        _endChoiceShown = false;
         _contentStarted = false;
         _eventQueue = [];
         _optionsPending = null;
@@ -261,11 +261,11 @@ const GameView = (function () {
                 _handleOptions(data);
                 return;
             }
-            /* Ending: all bridge_text displayed, show end modal
+            /* Ending: all bridge_text displayed, show end choice
                (exec-flow.md §5.2 step 4-5: bridge_text must finish
                before adventure log prompt). */
-            if (_ending && !_endModalShown) {
-                _showEndModal();
+            if (_ending && !_endChoiceShown) {
+                _showEndChoice();
                 return;
             }
             /* Debounced loading — only show after 500 ms of genuine
@@ -466,9 +466,9 @@ const GameView = (function () {
      *  Renders a single green-text option (same color as story label)
      *  in the same form as narrative choices.  Click navigates to
      *  #adventure-log/{gameId} which fetches from GET /api/game/{id}/adventure-log. */
-    function _showEndModal() {
-        if (_endModalShown) return;
-        _endModalShown = true;
+    function _showEndChoice() {
+        if (_endChoiceShown) return;
+        _endChoiceShown = true;
         _cancelLoading();
         Display.hideLoading();
 

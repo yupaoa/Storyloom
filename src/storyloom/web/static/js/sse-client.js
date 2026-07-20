@@ -5,7 +5,7 @@
    registered handlers.  Exports:
      SSEClient.connect(gameId, handlers) → Promise
        handlers: { segment, bridge, options, state, error,
-                   ending, done, story_begin, story_end, token }
+                   ending, done, story_begin, story_end, token, save }
      SSEClient.sendChoice(gameId, key)   → POST /choice
      SSEClient.retry(gameId)             → POST /retry
      SSEClient.close()                   → close EventSource
@@ -25,7 +25,7 @@ const SSEClient = {
     /** Connect to the game SSE stream.
      *  @param {string} gameId
      *  @param {object} handlers — { segment, bridge, options, state,
-     *      error, ending, done, story_begin, story_end, token }
+     *      error, ending, done, story_begin, story_end, token, save }
      *  @returns {Promise} resolves when stream closes normally or on error */
     connect(gameId, handlers) {
         /* Close any existing connection before opening a new one.
