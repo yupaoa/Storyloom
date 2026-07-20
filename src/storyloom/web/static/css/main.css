@@ -1039,7 +1039,7 @@ button.accent:hover, .btn-accent:hover {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 4rem);   /* #app padding is 2rem top + 2rem bottom */
-    max-width: 800px;
+    max-width: 960px;
     margin: 0 auto;
     background: var(--bg-primary);
     animation: fadeIn 0.3s ease;
@@ -1200,7 +1200,8 @@ button.accent:hover, .btn-accent:hover {
                                        can scroll to viewport centre */
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 1.8rem;                    /* ≈ one line-height → ~6 segments
+                                       fill half the viewport */
     /* No border — seamless with background */
     scrollbar-width: none;          /* Firefox */
     -ms-overflow-style: none;       /* IE / old Edge */
@@ -1212,44 +1213,39 @@ button.accent:hover, .btn-accent:hover {
 
 .game-segment {
     font-family: var(--font-sans);
-    font-size: 1.05rem;             /* Default: medium */
-    line-height: 1.6;               /* Default: 1.0 × 1.6 */
+    font-size: 1.15rem;             /* Default: medium */
+    line-height: 1.8;               /* Default: 1.0 spacing */
     color: var(--text-primary);
     text-align: center;
     animation: fadeIn 0.3s ease;
     white-space: pre-wrap;
     word-break: break-word;
-    transition: font-size 0.3s ease;   /* animated shrink when demoted */
-}
-
-/* Marker class — newest segment (font-size set inline, not here) */
-.game-segment--active {
 }
 
 /* Font size variants (applied to .game-story container) */
 .game-story.font-small .game-segment {
-    font-size: 0.9rem;
+    font-size: 1.0rem;
 }
 
 .game-story.font-medium .game-segment {
-    font-size: 1.05rem;
+    font-size: 1.15rem;
 }
 
 .game-story.font-large .game-segment {
-    font-size: 1.2rem;
+    font-size: 1.3rem;
 }
 
 /* Line spacing variants */
 .game-story.line-075 .game-segment {
-    line-height: calc(1.6 * 0.75);
+    line-height: calc(1.8 * 0.75);
 }
 
 .game-story.line-100 .game-segment {
-    line-height: 1.6;
+    line-height: 1.8;
 }
 
 .game-story.line-125 .game-segment {
-    line-height: calc(1.6 * 1.25);
+    line-height: calc(1.8 * 1.25);
 }
 
 /* Selected choice text — green highlight, same font/size as normal */
