@@ -129,7 +129,11 @@ const T = {
         "Switch to Auto": "切换至自动模式",
         "Switch to Manual": "切换至手动模式",
         "Settings": "设置",
-        "(unavailable)": "(不可用)",
+        "unavailable": "不可用",
+        /* Disabled option reason format (exec-flow.md §4.6).
+           {cond} = condition expression, {val} = current variable value */
+        "Requires {cond}, current: {val}": "需{cond}，当前：{val}",
+        "Requires {cond}": "需{cond}",
         "Choice send failed: ": "选项发送失败: ",
         "Game start failed: ": "游戏启动失败: ",
         "Retry failed: ": "重试失败: ",
