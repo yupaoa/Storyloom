@@ -198,6 +198,9 @@ msgstr "故事已结束，查看冒险日志"
 
 # ── Web UI: disabled options (exec-flow.md §4.6) ──
 
+msgid "unavailable"
+msgstr "不可用"
+
 msgid "Requires {cond}, current: {val}"
 msgstr "需{cond}，当前：{val}"
 
