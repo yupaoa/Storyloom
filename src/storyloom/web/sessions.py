@@ -73,6 +73,7 @@ def get_game(game_id: str) -> GameLoop | None:
 def remove_game(game_id: str) -> None:
     """Remove a game and all associated stream/choice/stop state."""
     _game_loops.pop(game_id, None)
+    _game_stream_loops.pop(game_id, None)
     pop_game_stream(game_id)
 
 
@@ -81,6 +82,12 @@ def remove_game(game_id: str) -> None:
 # Per-game event queues for SSE streaming.
 # Populated by the background thread; drained by the async SSE endpoint.
 _game_streams: dict[str, queue.Queue] = {}
+
+# Per-game GameLoop reference stored at stream creation time.
+# Used by pop_game_stream() / game_stream guard to cancel the *correct*
+# GameLoop — not whatever is currently in _game_loops (which may have
+# been replaced by a new save_start() call).
+_game_stream_loops: dict[str, "GameLoop"] = {}
 
 # Per-game choice injection state.
 # The background thread blocks on _game_choice_events[game_id] after
@@ -95,8 +102,14 @@ _game_choice_events: dict[str, threading.Event] = {}
 _game_stop_events: dict[str, threading.Event] = {}
 
 
-def store_game_stream(game_id: str) -> tuple[queue.Queue, threading.Event]:
+def store_game_stream(
+    game_id: str, gl: "GameLoop"
+) -> tuple[queue.Queue, threading.Event]:
     """Create and store an event queue and stop signal for a game SSE stream.
+
+    Also stores *gl* so that ``get_game_stream_loop()`` can retrieve the
+    correct GameLoop even after ``save_start()`` replaces the entry in
+    ``_game_loops``.
 
     Returns ``(queue, stop_event)``.  The caller MUST use the local
     ``stop_event`` reference for periodic stop checks — never the global
@@ -106,17 +119,27 @@ def store_game_stream(game_id: str) -> tuple[queue.Queue, threading.Event]:
     q: queue.Queue = queue.Queue()
     evt = threading.Event()
     _game_streams[game_id] = q
+    _game_stream_loops[game_id] = gl
     _game_stop_events[game_id] = evt
     return q, evt
+
+
+def get_game_stream_loop(game_id: str) -> "GameLoop | None":
+    """Return the GameLoop that was stored when the stream was created."""
+    return _game_stream_loops.get(game_id)
 
 
 def request_stop_game_stream(game_id: str) -> None:
     """Signal the background daemon thread to stop.
 
-    Sets the stop event, wakes up ``wait_for_choice()``, and injects a
-    cancellation sentinel into the GameLoop's active API queue so
-    ``stream_round()`` unblocks immediately (instead of hanging for up
-    to ``STREAM_STALL_TIMEOUT_SEC`` = 180 s).
+    Sets the stop event and wakes up ``wait_for_choice()`` so the thread
+    can observe the signal immediately instead of blocking for the full
+    300 s timeout.
+
+    Does NOT call ``gl.cancel()`` — the caller is responsible for
+    cancelling the GameLoop with the correct reference (either the
+    captured local ref in ``event_generator`` finally, or the per-stream
+    ref from ``get_game_stream_loop()``).
 
     Safe to call multiple times and from any thread.
     """
@@ -128,11 +151,6 @@ def request_stop_game_stream(game_id: str) -> None:
     choice_evt = _game_choice_events.get(game_id)
     if choice_evt is not None:
         choice_evt.set()
-    # Inject sentinel into the GameLoop's active/pending API queues
-    # so stream_round() unblocks from result_queue.get() immediately.
-    gl = _game_loops.get(game_id)
-    if gl is not None:
-        gl.cancel()
 
 
 def is_game_stream_stopped(game_id: str) -> bool:
@@ -170,6 +188,7 @@ def pop_game_stream(game_id: str, q: queue.Queue | None = None) -> queue.Queue |
     _game_stop_events.pop(game_id, None)
     _game_choices.pop(game_id, None)
     _game_choice_events.pop(game_id, None)
+    _game_stream_loops.pop(game_id, None)
     return _game_streams.pop(game_id, None)
 
 

@@ -339,7 +339,24 @@ async def game_stream(game_id: str):
     if gl is None:
         raise HTTPException(404, f"Game '{game_id}' not found.")
 
-    q, stop_evt = sessions.store_game_stream(game_id)
+    # ── Guard: wait for any existing stream to fully exit ──────────
+    # If the user exited mid-game and immediately re-entered, the old
+    # daemon thread and event_generator may still be running.  Cancel
+    # the old GameLoop via the per-stream stored reference (NOT the
+    # global _game_loops lookup — save_start() may have already
+    # replaced it with a new GameLoop), then poll until the old
+    # thread's finally block has run and _game_streams is cleared.
+    if sessions.get_game_stream(game_id) is not None:
+        old_gl = sessions.get_game_stream_loop(game_id)
+        if old_gl is not None:
+            old_gl.cancel()
+        sessions.request_stop_game_stream(game_id)
+        for _ in range(50):  # 5 s timeout (50 × 100 ms)
+            if sessions.get_game_stream(game_id) is None:
+                break
+            await asyncio.sleep(0.1)
+
+    q, stop_evt = sessions.store_game_stream(game_id, gl)
 
     # ── Background thread: run game loop ──────────────────────────
     def run_loop() -> None:
@@ -495,6 +512,11 @@ async def game_stop(game_id: str):
     Call when navigating away from the game view (exit button, browser
     back, etc.).  Idempotent — safe to call multiple times.
     """
+    # Cancel the GameLoop first (correct ref at this point — new game
+    # hasn't been loaded yet), then signal session-level state.
+    gl = sessions.get_game(game_id)
+    if gl is not None:
+        gl.cancel()
     sessions.request_stop_game_stream(game_id)
     return {"status": "ok"}
 
