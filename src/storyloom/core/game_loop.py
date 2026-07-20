@@ -467,6 +467,10 @@ class GameLoop:
         # identical — Round 1 is no exception (its Phase 5 also launches
         # the Round 2 API call).
         self._pending_queue: queue.Queue | None = None
+        # While stream_round() is draining the pending queue it keeps a
+        # reference here so cancel() can inject a sentinel and unblock
+        # the consumer thread immediately.
+        self._active_queue: queue.Queue | None = None
         self._pending_user_content: str = ""
         self._pending_messages: list[dict] = []
 
@@ -648,6 +652,10 @@ class GameLoop:
         self._pending_queue = None
         self._pending_user_content = ""
         self._pending_messages = []
+        # Expose the active queue so cancel() can inject a sentinel
+        # and unblock this thread when it's stuck waiting for the
+        # next API chunk (up to STREAM_STALL_TIMEOUT_SEC = 180 s).
+        self._active_queue = result_queue
 
         # ── Per-round state (fresh each round per block-spec.md §3) ─
         current_branch = "main"
@@ -674,6 +682,7 @@ class GameLoop:
                 # ── Severe error: save messages for retry ─────────
                 self._retry_messages = messages_sent
                 self._retry_user_content = user_content
+                self._active_queue = None
                 yield {
                     "type": "error",
                     "message": (
@@ -682,10 +691,20 @@ class GameLoop:
                 }
                 return
 
+            # ── Cancellation sentinel injected by cancel() ─────────
+            # When the user exits mid-game, request_stop_game_stream()
+            # calls cancel() which puts this sentinel into the queue.
+            # Exit immediately without yielding an error — the caller
+            # (run_loop) will see the stop signal and clean up.
+            if chunk.get("__cancel__"):
+                self._active_queue = None
+                return
+
             if chunk.get("__api_error__"):
                 # ── Severe error: save messages for retry ─────────
                 self._retry_messages = messages_sent
                 self._retry_user_content = user_content
+                self._active_queue = None
                 yield {
                     "type": "error",
                     "message": f"API error: {chunk['__api_error__']}",
@@ -894,6 +913,7 @@ class GameLoop:
             # ── Ending reached — clear retry state ────────────────
             self._retry_messages = None
             self._retry_user_content = ""
+            self._active_queue = None
 
             yield {
                 "type": "ending",
@@ -969,6 +989,7 @@ class GameLoop:
             ),
         ))
 
+        self._active_queue = None
         yield {
             "type": "done",
             "node": self.current_node,
@@ -1023,6 +1044,26 @@ class GameLoop:
                 "successfully or retry() was already called."
             )
         self._launch_api(self._retry_messages, self._retry_user_content)
+
+    def cancel(self) -> None:
+        """Inject a cancellation sentinel into the active API queue.
+
+        When the background daemon thread is blocked inside
+        ``stream_round()`` waiting for the next API chunk, a stop
+        signal alone cannot reach it — the check only happens at
+        generator yield points.  This method puts a ``__cancel__``
+        sentinel into both the active drain queue and the pending
+        queue, covering the narrow window where ``_launch_api`` has
+        set ``_pending_queue`` but ``stream_round()`` has not yet
+        captured it into ``_active_queue``.
+
+        Safe to call from any thread.  Idempotent — if no queue is
+        active the call is a no-op.
+        """
+        if self._active_queue is not None:
+            self._active_queue.put({"__cancel__": True})
+        if self._pending_queue is not None:
+            self._pending_queue.put({"__cancel__": True})
 
     # ── Save / Restore ─────────────────────────────────────────────
 

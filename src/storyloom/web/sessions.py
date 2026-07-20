@@ -113,9 +113,12 @@ def store_game_stream(game_id: str) -> tuple[queue.Queue, threading.Event]:
 def request_stop_game_stream(game_id: str) -> None:
     """Signal the background daemon thread to stop.
 
-    Sets the stop event and wakes up any ``wait_for_choice()`` call
-    that may be blocking the thread (otherwise it would hang for up to
-    300 s).  Safe to call multiple times and from any thread.
+    Sets the stop event, wakes up ``wait_for_choice()``, and injects a
+    cancellation sentinel into the GameLoop's active API queue so
+    ``stream_round()`` unblocks immediately (instead of hanging for up
+    to ``STREAM_STALL_TIMEOUT_SEC`` = 180 s).
+
+    Safe to call multiple times and from any thread.
     """
     evt = _game_stop_events.get(game_id)
     if evt is not None:
@@ -125,6 +128,11 @@ def request_stop_game_stream(game_id: str) -> None:
     choice_evt = _game_choice_events.get(game_id)
     if choice_evt is not None:
         choice_evt.set()
+    # Inject sentinel into the GameLoop's active/pending API queues
+    # so stream_round() unblocks from result_queue.get() immediately.
+    gl = _game_loops.get(game_id)
+    if gl is not None:
+        gl.cancel()
 
 
 def is_game_stream_stopped(game_id: str) -> bool:
@@ -141,25 +149,27 @@ def is_game_stream_stopped(game_id: str) -> bool:
 def pop_game_stream(game_id: str, q: queue.Queue | None = None) -> queue.Queue | None:
     """Remove a game stream queue, stop signal, and choice state.
 
-    If *q* is provided, the queue is only removed when the currently
-    stored queue is the same object (identity check).  This prevents
-    an old daemon thread from accidentally removing a new stream's
-    queue — the old thread's ``finally`` block calls this with the old
-    *q* reference, which no longer matches after a new
-    ``store_game_stream()`` overwrites the entry.
+    If *q* is provided, ALL state (queue, stop event, choice state)
+    is only removed when the currently stored queue is the same object
+    (identity check).  This prevents an old daemon thread from
+    accidentally removing a new stream's state — the old thread's
+    ``finally`` block calls this with the old *q* reference, which no
+    longer matches after a new ``store_game_stream()`` overwrites the
+    entry.
 
-    Always cleans up the stop event and choice state regardless of
-    the identity check — those should not persist once *any* stream
-    for this game has ended.
+    When *q* is None (forced cleanup, e.g. from ``remove_game``),
+    all state is removed unconditionally.
     """
-    _game_stop_events.pop(game_id, None)
-    _game_choices.pop(game_id, None)
-    _game_choice_events.pop(game_id, None)
-
+    # Identity check — old thread must not touch new stream's state.
     if q is not None:
         current = _game_streams.get(game_id)
         if current is not q:
             return None  # not our queue — new stream already started
+
+    # All-clear: this is our stream (or forced cleanup).
+    _game_stop_events.pop(game_id, None)
+    _game_choices.pop(game_id, None)
+    _game_choice_events.pop(game_id, None)
     return _game_streams.pop(game_id, None)
 
 

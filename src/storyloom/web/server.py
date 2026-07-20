@@ -433,9 +433,13 @@ async def game_stream(game_id: str):
                     break
         finally:
             # Client disconnected (or stream ended naturally) —
-            # signal the background daemon thread to stop so it
-            # doesn't keep consuming API tokens.
-            sessions.request_stop_game_stream(game_id)
+            # signal the background daemon thread to stop.  Use
+            # CAPTURED references (stop_evt, gl), NOT global lookups
+            # — a new stream for the same game_id may have already
+            # replaced the global state by the time this async
+            # generator is finalised.
+            stop_evt.set()
+            gl.cancel()
 
     return StreamingResponse(
         event_generator(),
