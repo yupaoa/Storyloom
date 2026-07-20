@@ -33,13 +33,16 @@ const GameView = (function () {
     /* Speed → delay mapping (1x = 2.0s base) */
     const SPEED_DELAY = { 1: 2000, 2: 1000, 4: 500 };
 
-    /* Queue buffer for paced display (exec-flow.md §4.5) */
+    /* Queue buffer for paced display (exec-flow.md §4.5).
+       Receiver (SSE) pushes; display loop drains one event per tick.
+       Pacing mode controls the inter-segment delay.  When options arrive
+       the display loop accelerates drain and shows choices when the
+       queue is empty — no synchronous _flushQueue() burst. */
     let _eventQueue = [];
     let _drainTimer = null;
-    let _advanceResolve = null;  // resolve when user clicks/keypresses in manual mode
-    let _pendingPoll = false;    // true when display loop is waiting for queue data
-                                 // (empty queue → 150ms poll).  SSE receiver
-                                 // calls _wakeDisplay() to break the poll early.
+    let _advanceResolve = null;  // resolve when user clicks / Space / Enter
+    let _loadingTimer = null;    // delayed loading indicator (500 ms debounce)
+    let _optionsPending = null;  // options event data awaiting display
 
     /* SSE event handlers — bound once per render */
     let _handlers = null;
@@ -129,8 +132,6 @@ const GameView = (function () {
         const storyEl = $("#game-story");
         if (storyEl) {
             storyEl.addEventListener("click", (e) => {
-                /* Only advance if user clicked the story area itself
-                   (not a child element like the continue hint) */
                 _advanceManual();
             });
         }
@@ -154,7 +155,6 @@ const GameView = (function () {
             story_end: () => { /* silent */ },
             token: () => { /* silent — reserved for typewriter effect */ },
             segment: (data) => {
-                /* ── Receiver: push then wake display if polling ── */
                 _eventQueue.push({ type: "segment", text: data.text });
                 _wakeDisplay();
             },
@@ -163,9 +163,11 @@ const GameView = (function () {
                 _wakeDisplay();
             },
             options: (data) => {
-                /* ── Inline: flush queue then handle options ── */
-                _flushQueue();
-                _handleOptions(data);
+                /* ── Defer: let display loop drain queue naturally,
+                   then show choices.  Accelerated 200 ms drain so the
+                   player sees context before deciding. ── */
+                _optionsPending = data;
+                _wakeDisplay();
             },
             state: (data) => {
                 if (data.vars) GameState.stateVars = data.vars;
@@ -199,14 +201,21 @@ const GameView = (function () {
 
     /* ═══════════════════════════════════════════════════════════════
        Queue Buffer & Paced Display (exec-flow.md §4.5)
+
+       Architecture (mirrors dev_cli game_driver.py run_game):
+         Receiver (SSE handlers) pushes to _eventQueue.
+         Display loop (_displayTick) is the SOLE consumer — it drains
+         one event per tick, paces by mode, and handles options
+         when the queue is naturally empty (no synchronous flush).
+
+       Loading indicator is debounced 500 ms — prevents flicker
+       during normal pacing gaps while still showing for TTFT /
+       inter-round waits (the only genuinely empty-queue states).
        ═══════════════════════════════════════════════════════════════ */
 
-    /* ── Independent display loop ──────────────────────────────────
-       Receiver (SSE) pushes to _eventQueue only — never triggers display.
-       Display loop runs on setTimeout, polls queue, paces output.
-       Queue empty → show loading indicator; queue has data → pop one, display, wait. */
-
     let _displayRunning = false;
+    let _isPolling = false;   // true only during empty-queue 150 ms poll
+                               // (not during pacing delays or manual waits)
 
     function _startDisplayLoop() {
         if (_displayRunning) return;
@@ -216,9 +225,8 @@ const GameView = (function () {
 
     function _stopDisplayLoop() {
         _displayRunning = false;
-        _pendingPoll = false;
-        Display.hideLoading();
-        Display.hideContinueHint();
+        _isPolling = false;
+        _cancelLoading();
         if (_advanceResolve) { _advanceResolve(); _advanceResolve = null; }
         if (_drainTimer) { clearTimeout(_drainTimer); _drainTimer = null; }
     }
@@ -226,14 +234,32 @@ const GameView = (function () {
     function _displayTick() {
         if (!_displayRunning) return;
 
+        /* ── Queue empty ────────────────────────────────────────── */
         if (_eventQueue.length === 0) {
-            Display.showLoading();
-            _pendingPoll = true;
+            /* Options pending + queue drained → show choices now. */
+            if (_optionsPending) {
+                const data = _optionsPending;
+                _optionsPending = null;
+                _handleOptions(data);
+                return;
+            }
+            /* Debounced loading — only show after 500 ms of genuine
+               wait (TTFT / inter-round), not pacing gaps. */
+            if (!_loadingTimer) {
+                _loadingTimer = setTimeout(() => {
+                    if (_displayRunning && _eventQueue.length === 0) {
+                        Display.showLoading();
+                    }
+                }, 500);
+            }
+            _isPolling = true;
             _drainTimer = setTimeout(_displayTick, 150);
             return;
         }
 
-        _pendingPoll = false;
+        /* ── Queue has data ─────────────────────────────────────── */
+        _isPolling = false;
+        _cancelLoading();
         Display.hideLoading();
         const event = _eventQueue.shift();
 
@@ -241,18 +267,18 @@ const GameView = (function () {
             Display.appendSegment(event.text);
         }
 
-        if (_mode === "auto") {
-            _drainTimer = setTimeout(_displayTick, SPEED_DELAY[_speed] || 2000);
+        /* ── Pacing (after segment display, per dev_cli pattern) ─── */
+        if (_mode === "auto" || _optionsPending) {
+            /* Options-pending: accelerated 200 ms drain so context
+               appears before choices.  Normal auto: full delay. */
+            const delay = _optionsPending ? 200 : (SPEED_DELAY[_speed] || 2000);
+            _drainTimer = setTimeout(_displayTick, delay);
         } else {
-            /* Manual: wait for user click / Space / Enter */
-            Display.showContinueHint();
-            _drainTimer = setTimeout(() => {
-                _waitForUserAdvance().then(() => {
-                    if (!_displayRunning) return;
-                    Display.hideContinueHint();
-                    _displayTick();
-                });
-            }, 0);
+            /* Manual mode — wait for click / Space / Enter. */
+            _waitForUserAdvance().then(() => {
+                if (!_displayRunning) return;
+                _displayTick();
+            });
         }
     }
 
@@ -264,26 +290,21 @@ const GameView = (function () {
         if (_advanceResolve) { _advanceResolve(); _advanceResolve = null; }
     }
 
-    /** Wake the display loop when new data arrives while polling.
-     *  Called by SSE receiver handlers after pushing to _eventQueue.
-     *  Only interrupts a pending poll — does not disturb auto-mode
-     *  pacing or manual-mode waits. */
+    /** Wake the display loop when SSE delivers new data.
+     *  Only interrupts the empty-queue poll — never disturbs
+     *  auto-mode pacing delays or manual-mode waits. */
     function _wakeDisplay() {
-        if (_pendingPoll && _displayRunning) {
-            _pendingPoll = false;
+        if (!_displayRunning) return;
+        if (_isPolling) {
+            _isPolling = false;
             if (_drainTimer) { clearTimeout(_drainTimer); _drainTimer = null; }
             _displayTick();
         }
     }
 
-    function _flushQueue() {
-        Display.hideLoading();
-        Display.hideContinueHint();
-        if (_advanceResolve) { _advanceResolve(); _advanceResolve = null; }
-        while (_eventQueue.length > 0) {
-            const event = _eventQueue.shift();
-            if (event.type === "segment") Display.appendSegment(event.text);
-        }
+    /** Cancel the debounced loading timer without showing loading. */
+    function _cancelLoading() {
+        if (_loadingTimer) { clearTimeout(_loadingTimer); _loadingTimer = null; }
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -436,17 +457,21 @@ const GameView = (function () {
         _mode = (_mode === "manual") ? "auto" : "manual";
         _updateModeButton();
 
-        /* Release any pending manual-mode wait and re-tick immediately */
+        _isPolling = false;
+        if (_drainTimer) { clearTimeout(_drainTimer); _drainTimer = null; }
+
+        /* Release any pending manual-mode wait.  The .then() microtask
+           will call _displayTick() — do NOT call it here, or the
+           segment after the released wait AND the next segment would
+           both fire in the same tick (burst). */
+        const hadPending = !!_advanceResolve;
         if (_advanceResolve) {
             _advanceResolve();
             _advanceResolve = null;
         }
-        if (_drainTimer) {
-            clearTimeout(_drainTimer);
-            _drainTimer = null;
+        if (_displayRunning && !hadPending) {
+            _displayTick();
         }
-        Display.hideContinueHint();
-        if (_displayRunning) _displayTick();
     }
 
     function _updateModeButton() {

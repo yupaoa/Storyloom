@@ -10,6 +10,7 @@
      appendSegment(text)           — add <p> to story area
      appendChoiceText(text)        — add selected choice (green) to story
      showChoices(choices) → Promise<key> — render choice buttons, resolve on click
+     flattenChoices(choices) → Array — flatten engine choice objects
      clearChoices()                — remove choice panel
      showLoading()                 — show loading indicator with bouncing dots
      hideLoading()                 — remove loading indicator
@@ -78,27 +79,6 @@ const Display = (function () {
     /** Remove the loading indicator. */
     function hideLoading() {
         const el = $("#game-loading-indicator");
-        if (el) el.remove();
-    }
-
-    /* ── Manual-mode continue hint ──────────────────────────────────── */
-
-    /** Show continue hint at the bottom of the story area. */
-    function showContinueHint() {
-        hideContinueHint();
-        const story = $("#game-story");
-        if (!story) return;
-        const el = document.createElement("div");
-        el.className = "game-continue-hint";
-        el.id = "game-continue-hint";
-        el.innerHTML = `<span>${_("Click or press Space to continue")}</span><span class="cc-dots"><span>.</span><span>.</span><span>.</span></span>`;
-        story.appendChild(el);
-        scrollToBottom();
-    }
-
-    /** Remove the continue hint. */
-    function hideContinueHint() {
-        const el = document.getElementById("game-continue-hint");
         if (el) el.remove();
     }
 
@@ -413,8 +393,6 @@ const Display = (function () {
         clearChoices,
         showLoading,
         hideLoading,
-        showContinueHint,
-        hideContinueHint,
         showErrorModal,
         showEndModal,
         closeModal,

@@ -1273,25 +1273,6 @@ button.accent:hover, .btn-accent:hover {
     color: var(--text-secondary);
 }
 
-/* ── Manual-mode continue hint ───────────────────────────────── */
-
-.game-continue-hint {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.15rem;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-    padding: 1rem 0 0.5rem;
-    animation: fadeIn 0.3s ease;
-    cursor: pointer;
-    user-select: none;
-}
-
-.game-continue-hint:hover {
-    color: var(--text-primary);
-}
-
 /* ── Choices Panel ──────────────────────────────────────────────── */
 
 .game-choices {

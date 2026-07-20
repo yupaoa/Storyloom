@@ -137,7 +137,6 @@ const T = {
         "Game start failed: ": "游戏启动失败: ",
         "Retry failed: ": "重试失败: ",
         "Unknown error": "未知错误",
-        "Click or press Space to continue": "点击或按空格继续",
         "OK": "确定",
         "Small": "小",
         "Medium": "中",
