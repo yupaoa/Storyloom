@@ -53,6 +53,7 @@ echo "[5/6] Assembling release directory..."
 mkdir -p "$OUTPUT_DIR"
 cp "dist/$BIN_NAME" "$OUTPUT_DIR/"
 cp -r locale "$OUTPUT_DIR/"
+cp config.example.json "$OUTPUT_DIR/"
 cp dist/*.whl dist/*.tar.gz "$OUTPUT_DIR/"
 
 # 6. Create zip for GitHub Release upload
