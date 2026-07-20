@@ -334,6 +334,7 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 010| <branch name="path_a">
 011| <seg>local variant — merges back after</seg>
 012| </branch>
+...
 013| <!-- main interaction — not every choice needs consequences -->
 014| <choice id="variable_name">
 015|   <opt key="1">option text</opt>
@@ -599,6 +600,7 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 010| <branch name="path_a">
 011| <seg>local variant — merges back after</seg>
 012| </branch>
+...
 013| <!-- main interaction — not every choice needs consequences -->
 014| <choice id="variable_name">
 015|   <opt key="1">option text</opt>
