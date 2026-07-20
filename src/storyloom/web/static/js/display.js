@@ -87,27 +87,70 @@ const Display = (function () {
 
     let _choiceResolve = null;
 
+    /** Build human-readable reason text for a disabled option.
+     *
+     *  Per exec-flow.md §4.6: disabled options must show the condition
+     *  that failed and the current variable value, e.g.
+     *  "需理智值 >= 30，当前：20".
+     *
+     *  Uses the condition string the engine already includes in the
+     *  ``conditions`` dict of choice data, plus the current variable
+     *  values tracked in ``GameState.stateVars``.
+     *
+     *  @param {string} condition — raw condition from engine (e.g. "理智值 >= 30")
+     *  @returns {string} display-ready reason, or "" if no condition */
+    function _buildDisabledReason(condition) {
+        if (!condition || !condition.trim()) return "";
+        /* Parse "var_name op value" to extract variable name */
+        const match = condition.match(
+            /^\s*(\w+)\s*(==|!=|>=|<=|>|<)\s*(.+?)\s*$/
+        );
+        if (match) {
+            const varName = match[1];
+            const current = GameState.stateVars[varName];
+            if (current !== undefined) {
+                return _("Requires {cond}, current: {val}")
+                    .replace("{cond}", condition)
+                    .replace("{val}", String(current));
+            }
+        }
+        return _("Requires {cond}").replace("{cond}", condition);
+    }
+
     /** Flatten engine-evaluated choices into 1-indexed options.
      *  Shared by showChoices() (rendering) and game.js (label lookup).
      *  Matches dev_cli game_driver.py _show_choices() flat-indexing.
      *
      *  @param {Array} choices — engine-evaluated choice objects:
      *    [{ id, branches: ["branch_name"], labels: ["option text"],
-     *       conditions: ["condition_str"], enabled: [true, false] }]
-     *  @returns {Array} flat options with { key, label, enabled, branch } */
+     *       conditions: {"branch": "condition_str"}, enabled: [true, false] }]
+     *  @returns {Array} flat options with
+     *    { key, label, enabled, disabledReason, branch } */
     function flattenChoices(choices) {
         const result = [];
         let idx = 0;
         for (const c of choices) {
             const labels = c.labels || [];
             const enabled = c.enabled || labels.map(() => true);
+            const branches = c.branches || [];
+            const conditions = c.conditions || {};
             for (let i = 0; i < labels.length; i++) {
                 idx++;
+                const isEnabled = i < enabled.length ? enabled[i] : true;
+                /* Build disabled reason from engine-provided condition
+                   string + current state var value (exec-flow.md §4.6). */
+                let disabledReason = "";
+                if (!isEnabled) {
+                    const branch = branches[i] || "";
+                    const cond = conditions[branch] || "";
+                    disabledReason = _buildDisabledReason(cond);
+                }
                 result.push({
                     key: String(idx),
                     label: labels[i],
-                    enabled: i < enabled.length ? enabled[i] : true,
-                    branch: (c.branches && c.branches[i]) || null,
+                    enabled: isEnabled,
+                    disabledReason: disabledReason,
+                    branch: (branches[i]) || null,
                 });
             }
         }
@@ -133,7 +176,14 @@ const Display = (function () {
             btn.textContent = opt.label;
             if (!opt.enabled) {
                 btn.disabled = true;
-                btn.textContent += " " + _("(unavailable)");
+                /* Per exec-flow.md §4.6: show specific condition reason
+                   (e.g. "需理智值 >= 30，当前：20"), fall back to generic
+                   label only when no condition info is available. */
+                if (opt.disabledReason) {
+                    btn.textContent += "（" + opt.disabledReason + "）";
+                } else {
+                    btn.textContent += " " + _("(unavailable)");
+                }
             }
             btn.addEventListener("click", () => {
                 if (!opt.enabled) return;
