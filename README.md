@@ -45,6 +45,24 @@ Any OpenAI-compatible API works — DeepSeek, OpenAI, local llama.cpp, etc. Set 
 
 See [`src/storyloom/dev_cli/README.md`](./src/storyloom/dev_cli/README.md) for CLI controls and observer mode.
 
+### Packaging (Web UI)
+
+Build a standalone executable + pip wheel for distribution:
+
+```bash
+./scripts/build.sh
+```
+
+Output in `dist/storyloom-web-v{VERSION}/`:
+
+| File | Use |
+|------|-----|
+| `storyloom-web` | Standalone binary — download and run (no Python needed) |
+| `locale/` | i18n files — keep next to the binary |
+| `*.whl` | pip package — `pip install storyloom-*.whl` → `storyloom-web` command |
+
+Requires `build` + `pyinstaller` (installed automatically by the script).
+
 ## Architecture
 
 Storyloom is a **single Python application** — not a client-server system. The core engine is UI-agnostic, exposing a generator-based event stream consumed by any presentation layer through `GameSession`.
