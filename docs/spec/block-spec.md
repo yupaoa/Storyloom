@@ -25,7 +25,7 @@ LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `StreamingXm
 | 叙事段 | `<seg>` | 任意 | 0-N | 每个叙事段。text node 为内容。行号通过 `NNN\| ` 行前缀标注（非 XML 属性） |
 | 分支容器 | `<branch>` | 任意 | 0-N | 分支叙事容器。name 属性标识分支名。内含 `<seg>` 子元素 |
 | 选项 | `<choice>` | 仅 bridge 前 | 0-1 | 玩家选项列表。id 属性为变量名。内含 `<opt>` 子元素 |
-| 选项项 | `<opt>` | 含在 `<choice>` 内 | 2-5 | 单个选项。key 为数字键（1/2/3/4），branch 为分支名 |
+| 选项项 | `<opt>` | 含在 `<choice>` 内 | 2-4 | 单个选项。key 为数字键（1/2/3/4），branch 为分支名 |
 | 状态变更 | `<set>` | 仅 bridge 前 | 0-N | 状态变量变更。var/op/val 属性为必填，if 属性可选 |
 | 检查点 | `<checkpoint>` | 仅 bridge 前 | 0-1 | 大纲路由。node/summary 属性。内含 `<route>` 子元素 |
 | 路由 | `<route>` | 含在 `<checkpoint>` 内 | 0-N | 分支路由。if 属性可选，target 指定目标节点 |
@@ -93,22 +93,6 @@ LLM 输出使用 XML 格式，根元素为 `<story>`。程序通过 `StreamingXm
 - 剥离 `NNN| ` 行号前缀——不是 XML 的一部分
 - 每行是自包含的 XML 片段，逐行正则匹配，不等完整文档
 - 解析过程中同步累积结构化数据到 `ParsedOutput`
-
-**对话段识别**（可复用旧逻辑，XML 文本节点保持相同格式）：
-
-```python
-def classify_segment(text: str) -> tuple[str, str | None, str]:
-    """Return (type, speaker_name | None, content).
-    
-    Dialogue format: 角色名: 对话内容
-    - English colon ':' (U+003A), one space after colon, no quotes.
-    - Program accepts both '：' (U+FF1A) and ':' (U+003A) as delimiter.
-    """
-    m = re.match(r'^([一-鿿\w\[\]·.]{1,12})[：:]\s?(.*)', text)
-    if m:
-        return ("dialogue", m.group(1), m.group(2))
-    return ("narration", None, text)
-```
 
 ### 2.4 行号校验
 
@@ -196,7 +180,7 @@ def classify_segment(text: str) -> tuple[str, str | None, str]:
 
 ### `<choice>`
 
-选项列表。`id` 属性为变量名（中文，2-5 字）。内含 2-5 个 `<opt>` 子元素：
+选项列表。`id` 属性为变量名（中文，2-5 字）。内含 2-4 个 `<opt>` 子元素：
 
 ```xml
 <choice id="chip_choice">

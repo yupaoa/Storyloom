@@ -169,7 +169,7 @@
 #### 规范
 
 - **输入**：story_config + 可用变量名列表（来自 §3.3）。
-- **输出**：`=== outline ===` 后的大纲树，使用 `[node]` block 格式。节点数 short 3-5 / medium 5-8 / long 8-15。
+- **输出**：`=== outline ===` 后的大纲树，使用 `[node]` block 格式。节点数 short 5-10 / medium 10-20 / long 20-30。
 - **格式**：node_id 为 `ch{序号}_{英文缩写}`。分支条件只能引用已声明变量。结局节点 routes 为空（无文本），系统通过空 routes 判定结局。
 - **程序校验**：route 目标存在、变量引用合法、最后节点 routes 为空。失败 → 重试。
 
@@ -789,18 +789,26 @@ You are an adventure log author. Write a player-facing recap for a completed tex
 
 Use Markdown format. Write in the story's language ({language}).
 
+## Story Background
+{background_text}
+
+## Story Outline
+{outline_text}
+
+(The outline shows the story structure with status markers. [completed] nodes include
+a ↳ summary of what actually happened — use these as the basis for each chapter recap.
+[active] is the final node. [pending] nodes were skipped due to branching.)
+
 ## Adventure Recap: {story_label}
 
-### Chapter 1: {title}
-(Expand based on this summary: {summary})
-
-...
+Write a chapter-by-chapter recap based on the outline and summaries above.
 
 ## Ending
-(Write a warm, satisfying conclusion based on the chapter summaries above.)
+(Write a warm, satisfying conclusion. Reference specific events from the summaries
+above — do not fabricate.)
 
 ## Final State
-{state_vars}
+{state_text}
 (For each variable, write a brief one-sentence reflection.)
 
 Requirements:
@@ -816,28 +824,44 @@ You are an adventure log author. Write a player-facing recap for a completed tex
 
 Use Markdown format. Write in the story's language (zh-CN).
 
+## Story Background
+Genre: 赛博朋克冒险
+Setting: 2087年新东京地下城，霓虹与钢铁的深渊
+Protagonist: 林焰 — 前荒坂安全顾问，现自由佣兵 (冷静、道德灰色)
+Tone: 黑暗冷峻
+Conflict: 一枚从企业R&D部门流出的神秘芯片正在寻找宿主
+Characters:
+耗子（地下情报贩子，亦敌亦友）、美智子（荒坂安全主管，前上司）
+
+## Story Outline
+ch1_bar [completed] — 霓虹深渊：在酒吧获取情报
+  ↳ 在霓虹深渊酒吧与耗子接头，选择了直截了当的接触方式
+  → ch2_confrontation [completed]
+ch2_confrontation [completed] — 地下交易：与耗子会面
+  ↳ 完成芯片交易，耗子透露芯片来自荒坂R&D
+  ├→ ch3_ally [completed]
+  └→ ch3_betrayal [pending]
+ch3_ally [completed] — 盟友之路：通过地下网络逃离
+  ↳ 通过地下网络逃离追捕，加入抵抗组织
+ch4_safehouse [completed] — 安全屋：揭开芯片秘密（结局）
+  ↳ 揭开芯片秘密，决定摧毁企业服务器
+
+(The outline shows the story structure with status markers. [completed] nodes include
+a ↳ summary of what actually happened — use these as the basis for each chapter recap.
+[active] is the final node. [pending] nodes were skipped due to branching.)
+
 ## Adventure Recap: 霓虹深渊
 
-### Chapter 1: 霓虹深渊
-(Expand based on this summary: 在霓虹深渊酒吧与耗子接头)
-
-### Chapter 2: 地下交易
-(Expand based on this summary: 完成芯片交易)
-
-### Chapter 3: 盟友之路
-(Expand based on this summary: 通过地下网络逃离追捕)
-
-### Chapter 4: 安全屋
-(Expand based on this summary: 揭开芯片秘密，加入抵抗组织)
+Write a chapter-by-chapter recap based on the outline and summaries above.
 
 ## Ending
-(Write a warm, satisfying conclusion based on the chapter summaries above.)
+(Write a warm, satisfying conclusion. Reference specific events from the summaries
+above — do not fabricate.)
 
 ## Final State
 - 体力: 25
 - 理智值: 50
 - 信任度: 20
-- 线索: 神秘芯片
 - 所属势力: 抵抗组织
 (For each variable, write a brief one-sentence reflection.)
 
