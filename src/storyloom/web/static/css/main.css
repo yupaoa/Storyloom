@@ -852,6 +852,12 @@ button.accent:hover, .btn-accent:hover {
     transform: translateX(4px);
 }
 
+.sv-card:hover .sv-card-meta span {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+}
+
 .sv-card-main {
     flex: 1;
     min-width: 0;
