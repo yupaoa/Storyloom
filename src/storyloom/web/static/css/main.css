@@ -506,7 +506,6 @@ button.accent:hover, .btn-accent:hover {
     background: transparent;
     color: var(--text-secondary);
     line-height: 1;
-    transform: translateY(-2px);
     cursor: pointer;
     border-radius: var(--radius-md);
     transition: color var(--trans-normal), background var(--trans-normal);
