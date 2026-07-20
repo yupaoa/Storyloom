@@ -689,8 +689,17 @@ async def exit_app():
 
 
 def main():
+    import os
+    import sys
     import threading
     import webbrowser
+
+    # When running without a console (PyInstaller --noconsole), stdout/stderr
+    # are None and uvicorn's log formatter crashes trying to call .isatty().
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
 
     def _open_browser():
         import time
@@ -700,7 +709,12 @@ def main():
     threading.Thread(target=_open_browser, daemon=True).start()
 
     import uvicorn
-    uvicorn.run("storyloom.web.server:app", host="127.0.0.1", port=8000)
+    uvicorn.run(
+        "storyloom.web.server:app",
+        host="127.0.0.1",
+        port=8000,
+        log_level="warning",
+    )
 
 
 if __name__ == "__main__":
