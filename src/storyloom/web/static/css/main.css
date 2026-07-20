@@ -858,6 +858,10 @@ button.accent:hover, .btn-accent:hover {
     text-overflow: clip;
 }
 
+.sv-card:hover .sv-card-time {
+    display: none;
+}
+
 .sv-card-main {
     flex: 1;
     min-width: 0;
