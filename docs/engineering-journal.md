@@ -110,6 +110,289 @@ src/storyloom/web/
 
 ---
 
+## 2026-07-20（周一）
+
+> **概述**：Storyloom 历史上最密集的开发日——60+ 次提交，跨越 Web 游戏界面、打包发布、引擎线程安全、提示词系统、存档浏览器、UX 打磨六大领域。版本号从 0.1.0 跃升至 1.0.0，标志着首个可分发版本诞生。Web UI 从主菜单+共创的"半成品"进化为完整的端到端游戏体验。
+
+### Web UI 叙事游戏界面 —— 核心玩法循环与 SSE 流式集成
+
+**背景**：Web UI 此前仅有主菜单、共创聊天和过渡页面——缺少核心的"玩游戏"能力。需从零搭建完整的叙事游戏界面：流式接收引擎事件 → 按节奏逐段展示故事 → 渲染选择项 → 处理玩家交互 → 结局流程。架构上需对齐 CLI 的 `game_driver.py` 模式（事件队列 + 单消费者显示循环），同时适配 Web 端的异步特性。
+
+**决策**：四层架构——服务端 daemon 线程运行 `GameLoop.stream_round()` → `queue.Queue` 缓冲 → async SSE generator 轮询出队 → 前端 `game.js` 事件队列 + 单消费者 `_displayTick()` 显示循环。
+
+**服务端线程桥接**（`server.py` + `sessions.py`）：
+- `store_game_stream()` 创建每游戏 ID 独立的 `queue.Queue` + `threading.Event` stop 信号
+- daemon 线程重复调用 `gl.stream_round()`，迭代生成器，将每个事件 push 入队
+- 遇 `options` 事件时阻塞在 `wait_for_choice()`（`threading.Event.wait(timeout=300)`）
+- `POST /choice` 端点接收玩家选择 → `gen.send(key)` → 生成器恢复，产出 post-choice 事件
+- async `event_generator()` 每 100ms 轮询队列，产出 SSE 格式消息；队列空时每 15s 发 `: keepalive` 注释防代理超时
+
+**前端显示循环**（`game.js`，637 行）——完全对齐 CLI `game_driver.py` 的单消费者模式：
+- SSE 事件处理器纯做"接收"——push 事件到 `_eventQueue` + 调 `_wakeDisplay()`
+- 单消费者 `_displayTick()` 每次取一个事件显示，按节奏模式决定何时取下一个
+- 状态机：队列有数据 → pop + 显示 + 进入节奏等待 → 队列空 → 检查 `_optionsPending`（展示选择）→ 检查 `_ending`（展示结局）→ 进入 150ms 轮询 + 500ms 防抖 loading 指示器
+- 节奏模式：auto（`setTimeout` 按速度档位 2667/2000/1000/667ms）vs manual（`_waitForUserAdvance()` Promise，由 click/Space/Enter resolve）
+
+**显示循环节奏演变**（5 次迭代修复）：
+1. `593b9d5`：分离 mode 检查与 options-pending 检查——修复 manual 模式下选择后被 auto 逻辑覆盖的 bug
+2. `a40bb4d`：移除 options-pending 时的 200ms 加速——选择始终在队列自然排空后出现
+3. `9e0dbd4`：post-choice 内容从未显示——`_handleOptions()` 返回后未重启显示循环
+4. `72f219c`：修复 auto→manual 切换时额外消耗一个 segment 的 bug
+5. `3235c4d`：修复 auto 模式 burst、loading 闪烁、移除 manual 模式"按空格继续"提示——loading 指示器 500ms 防抖
+
+**SSE 关键修复**（`cc80ad6`）：原 keepalive 路径使用 `asyncio.sleep(15)`——在 options 事件后队列排空，generator 进入 15s sleep，post-choice 事件延迟达 15s 才送达前端。改为 100ms 短轮询后事件在 100ms 内送达，loading 闪烁问题一并解决。
+
+**选择面板**（`display.js` + `game.js`）：
+- 扁平化引擎评估后的选择对象 → 构建按钮，禁用项显示条件原因（如"需理智值 >= 30，当前：20"）
+- 居中绝对定位面板（`a3c11cd`）：max-width 420px、`scale(1.02)` hover 动画、速度设置面板、生成失败时返回按钮
+- 渐变遮罩防文字穿透（`746ec6d`）、移除 CLI 遗留的 `[1] [2]` 编号前缀（`f90fec8`）
+- 选择后追加绿色选择文本 → 清空面板 → `sendChoice()` 到服务端 → 重启显示循环（含节奏）
+
+**创建验证**（`078c702`）：至少一条用户消息存在才允许点击 Start 进入生成——防止空白共创。
+
+**依据**：commits `2b345f6`, `fba64a5`, `3235c4d`, `593b9d5`, `9e0dbd4`, `a40bb4d`, `079bab0`, `cc80ad6`, `a3c11cd`, `746ec6d`, `f90fec8`, `5fd12ae`；`src/storyloom/web/static/js/game.js` (637 行)、`display.js` (473 行)、`sse-client.js` (146 行)；`exec-flow.md` §4.5 完整实现。
+
+### 游戏退出与线程安全 —— 6 次迭代消除全部竞态
+
+**背景**：最初的游戏流实现没有任何停止机制——用户导航离开后 daemon 线程无限运行，持续消耗 API token。更复杂的是，daemon 线程可能在 3 个不同位置被阻塞：(1) `stream_round()` 内 `result_queue.get(timeout=180)` 等待 API 块；(2) `wait_for_choice()` 的 `Event.wait(timeout=300)`；(3) `stream_round()` 生成器 yield 点之间。
+
+**决策**：三级解除阻塞机制 + 引用隔离 + 防御性清理——6 个 commit 逐步推进：
+
+1. **`5cc1187`**——引入 `_game_stop_events` 字典（每 game ID 一个 `threading.Event`）：
+   - `request_stop_game_stream()` 设置 stop event + 唤醒 `wait_for_choice()`
+   - daemon 线程 `run_loop()` 在 3 个检查点读 stop 信号：`stream_round()` 前、每个事件 yield 后、`wait_for_choice()` 返回后
+   - `pop_game_stream()` 增加队列身份检查——旧线程的 `finally` 不能移除新流的 queue
+
+2. **`ca7abac`**——局部 stop-event 引用防覆盖竞态：
+   - `store_game_stream()` 返回 `(queue, stop_event)` 元组
+   - daemon 线程捕获局部 `stop_evt` 引用，直接读 `stop_evt.is_set()`，免疫全局字典覆盖
+
+3. **`d5313ff`**（引擎层核心修复）——`GameLoop.cancel()` sentinel：
+   - 问题：daemon 线程卡在 `stream_round()` 内部 `.get(timeout=180)` 时 stop 信号无法到达（只在生成器 yield 点检查）
+   - 解决：`cancel()` 向 `_active_queue` 和 `_pending_queue` 同时注入 `__cancel__` sentinel——覆盖 `_launch_api()` 设置 pending queue 与 `stream_round()` 捕获它之间的窄窗口
+   - `stream_round()` 在 `.get()` 后立即检查 sentinel → 返回而不 yield 错误事件
+   - `request_stop_game_stream()` 三重并行：`gl.cancel()` + set stop event + wake `wait_for_choice()`
+
+4. **`eea1582`**——渲染时清空 `_eventQueue` 和 `_optionsPending`：用户中途退出后立即继续 → 上次 session 残留事件仍在队列 → 显示循环直接消费 → loading 被跳过
+
+5. **`22e071d`**——loading 退出时显式停止显示循环：loading 期间退出（SSE 尚未建立）→ EventSource CONNECTING → 浏览器不触发 `onerror` → SSEClient Promise 永不 resolve → `_stopDisplayLoop()` 永不运行。在 loading 退出路径显式调用 + `render()` 防御性调用
+
+6. **`784e054`**——per-stream GameLoop 引用防 cancel 错目标：`request_stop_game_stream()` 通过全局 `_game_loops` 字典调 `gl.cancel()`——在 `game_stream` guard 中错误（`save_start` 已存储新 GameLoop）。新增 `_game_stream_loops` 字典，在流创建时捕获引用；guard 使用 `get_game_stream_loop()` cancel 旧 GameLoop → 轮询最多 5s 等旧线程 `finally` 执行完毕
+
+**依据**：commits `5cc1187`, `ca7abac`, `d5313ff`, `eea1582`, `22e071d`, `784e054`；`src/storyloom/core/game_loop.py` `cancel()` 方法、`src/storyloom/web/sessions.py` 三级状态管理。
+
+### 结局流程与冒险日志
+
+**背景**：最初结局使用 modal 弹窗（"查看日志"/"退出"两个按钮）——中断叙事沉浸感。冒险日志在半途主动退出时也生成——但未完成的故事弧不应该有"完结"日志。结局 modal 的时机也有 bug：在 bridge_text 段还在队列中排队时就弹出。
+
+**决策**：三个层面的重构：
+
+1. **Inline 绿色结局选项**（`078c702`）——替换 modal：
+   - 结局选择渲染为单个绿色文字按钮，inline 在选择面板中，与叙事选择保持一致的视觉风格
+   - 文案："The story has ended. View adventure log." → 点击直达 `#adventure-log/{gameId}`
+   - 同步加入 SSE `save` 事件监听 → checkpoint 自动存档时弹 "Saved" toast
+
+2. **冒险日志页面**（`3898e0a`）——新增 `adventure-log.js`（160 行）：
+   - `#adventure-log/{gameId}` 路由，轮询 `GET /api/game/{id}/adventure-log`（1s 间隔，最大 30 次 = 30s 超时）
+   - Markdown 渲染（CDN `marked.js`），纯文本 fallback（`white-space: pre-wrap`）；统一游戏字体、max-width 680px、顶部渐变遮罩
+
+3. **主动退出简化**（`976777d`）：
+   - 半途退出不再生成冒险日志——日志语义是"完结故事弧的收尾"，中断游戏不满足
+   - 存档保留，玩家可恢复游戏并在自然结局获取完整日志
+   - `exec-flow.md` 流程图简化："确认退出 → 返回主菜单"（移除"确认日志 → 显示日志"）
+
+4. **时机修复**（3 个 commit）：
+   - `34bc011`：延迟结局展示到 bridge_text 队列排空——将结局检测移入显示循环的空队列分支
+   - `857432a`：展示选择时隐藏 loading 指示器
+   - `08f567c`：展示结局时隐藏 loading 指示器
+   - `fc8d20f`：post-choice 第一个 segment 也遵守当前节奏模式
+
+**依据**：commits `078c702`, `3898e0a`, `976777d`, `34bc011`, `857432a`, `08f567c`, `fc8d20f`；`src/storyloom/web/static/js/adventure-log.js`（新文件）。
+
+### 存档浏览器
+
+**背景**：Web UI 需要完整的存档管理能力——浏览游戏列表、查看存档点、加载/删除存档。
+
+**决策**：两页面存档浏览器——`#saves`（游戏列表）+ `#saves/{game_id}`（存档点列表）。
+
+1. **初始实现**（`3fba026` / `54b5354`）：
+   - `#saves`：按最后游玩时间降序列出游戏文件夹，显示 label、genre、存档数、最后游玩日期
+   - `#saves/{game_id}`：列出 checkpoint 存档（排除 `_init.json`），按 `saved_at` 降序；左键加载→游戏预览页；Restart 按钮加载 `_init.json` 全新开始
+   - 删除：hover 触发垃圾桶图标 → 确认弹窗（Yes/No + 不可撤销警告）
+   - 服务端：`GET /api/saves/games` 增加 `last_played_at` 富化与排序；新端点 `POST /api/saves/{game_id}/start/{filename}`
+   - 11 条新 i18n 字符串
+
+2. **架构违规修复**（`f1ab53b`）——修复 PR #16 审查中的三个问题：
+   - **P1 #1**：`last_played_at` 富化从 `server.py`（直接访问私有 `_saves_root` + 原始 JSON I/O）移入 `SaveManager.list_games(enrich=True)` → `GameSession.list_games(enrich_last_played=True)`
+   - **P1 #2**：`GameSession.load_game()` 拆分为公开方法 + 内部 `_load_from_data()`——消除冗余的双重读取+校验
+   - **P2 #3**：`showContextMenu` → `showConfirmPopup`（函数是垃圾桶点击确认弹窗，不是右键菜单）
+
+3. **卡片打磨**（4 次迭代）：
+   - `81b40e5`：checkpoint 卡片显示截断的 checkpoint summary 而非 node ID；时间右对齐
+   - `9d824c6`：移除游戏卡片 tier；长文本截断防碰撞
+   - `8422b63`：hover 时展开截断文本
+   - `3bb77dc` + `ff50850`：hover 时隐藏时间 + 限定作用域到 checkpoint 卡片
+
+**依据**：commits `3fba026`, `54b5354`, `f1ab53b`, `81b40e5`, `9d824c6`, `8422b63`, `3bb77dc`, `ff50850`。
+
+### UX 打磨迭代 —— 居中、字号、渐变、设计 Token
+
+**背景**：游戏画面的阅读体验需要从"功能可用"打磨到"沉浸舒适"。一天内执行了 10+ 次快速 CSS/布局迭代。
+
+**决策**：逐次微调，每次解决一个具体问题。关键改动：
+
+| Commit | 改动 | 效果 |
+|--------|------|------|
+| `079bab0` | `.game-view` 高度 `100vh` → `calc(100vh - 4rem)` | 消除 body 级滚动条，修复三个 UX 问题 |
+| `93ed665` | `text-align: center`；`_scrollToCenter()` 替代 `scrollToBottom()` | 内容居中；新段滚动到视口中央 |
+| `8101850` | `padding-bottom: 50vh` | 视口可滚过最后一个元素 |
+| `85d97e6` | max-width 800→960px；font-size 1.05→1.15rem；line-height 1.6→1.8；移除 pop 动效 | 更宽、更大、更舒适的阅读体验 |
+| `8977524` | gap 1.8→1.2rem；顶部 `mask-image` 渐变遮罩 | 段落间距适中；顶部旧文字渐隐 |
+| `5cf21be` | loading 居中；`.game-segment--active` `scale(1.06)` | 最新段微微放大 |
+| `f3a8948` + `dd74299` | 新段立即放大，旧段平滑缩小 | 视觉焦点引导 |
+| `b44060c` | 共创聊天宽度→960px；文字放大 | 与游戏画面一致 |
+| `5fd12ae` | 提取 52 个 CSS 自定义属性 | 设计 token 体系——颜色/排版/间距/布局/圆角/过渡/阴影；统一 `--content-width: 960px`、font-size scale（`--font-xs`~`--font-4xl`）、spacing scale（`--space-xs`~`--space-3xl`） |
+| `3537504` | 渐变阈值微调：story 顶部 8→10%、底部 60→72%、日志顶部 6→10% | 可读性优化 |
+
+**依据**：commits 如上表；`src/storyloom/web/static/css/main.css` 52 个 CSS 设计 token。
+
+### 提示词系统改进
+
+**背景**：多项 Prompt 质量问题——LLM 倾向于在目标未达成时提前触发 checkpoint、选择与剧情分支过度耦合、Structure 模板过于复杂。
+
+**决策**：四项独立改进：
+
+1. **Checkpoint 门控规则**（`d086a85`）——双重覆盖（正面规则 + 负面禁止）：
+   - 正面：Checkpoint 节增加 "If the goal has NOT been reached, omit `<checkpoint>` entirely. The node may take several rounds."
+   - 负面：Prohibited 节增加 "`<checkpoint>` when the active node's goal has not been reached."
+   - 同时应用于 Structure 模板和 Format Example 两个区域，遵循 `prompt-design.md` §1.2 双重覆盖原则
+
+2. **Structure 模板简化**（`837a1eb`）：
+   - 移除多分支 `<branch>` 块——改为纯 `<choice>` + 非分支 `<opt>` + 内联注释 "node still in progress -- no `<checkpoint>` yet"
+   - Format Example 中插入轻量级 "drink" 选择——无 branch、无 set、无 checkpoint——示范"不是每个选择都需要剧情后果"
+   - 统一去除所有 `<seg>` 文本末尾句号
+
+3. **选择之间叙事间隙**（`86fc624`）：在 Structure 模板的微型分支块与主要交互选择之间插入 `...`（叙事停顿行）
+
+4. **Choice-as-Play 引导**（`0fe3ff5`）：`ROUND_TEMPLATE` 增加 "Choices aren't just for branching -- place them freely as moments of play and interaction."——解耦选择与剧情分支，鼓励更轻量、更高频的玩家交互
+
+**依据**：commits `d086a85`, `837a1eb`, `86fc624`, `0fe3ff5`；`docs/spec/prompt-design.md` §1.2。
+
+### 共创管线修复
+
+**背景**：三项独立问题——LLM 输出格式漂移导致解析失败、example_goal 叙事范围过窄、setting 字段语义不清。
+
+**决策**：
+
+1. **灵活块分隔符**（`930ecf4`）：
+   - `CoCreateParser.split_blocks()` 的 `BLOCK_DELIMITER` 正则放宽——匹配 `===story_config===`（无空格）、`=== story config ===`（空格替代下划线）及任意混合
+   - 块名归一化（空格→下划线），downstream key 不变；4 个新测试用例
+
+2. **Setting 字段语义转变**（`6c74d37`）：
+   - LLM 提示从 "era, location, key world facts" → "a story blurb that hooks the reader -- introduce the world, protagonist, and what's at stake"
+   - 字段名不变（`setting` / `世界观`），只改变 Prompt 语义——LLM 写出吸引人的故事简介
+
+3. **Example Goal 扩展**（`3b19415`）：中英文 `example_goal` 重写为多节拍弧线——相遇、调查、背叛、高潮抉择——替代原单场景设定
+
+**依据**：commits `930ecf4`, `6c74d37`, `3b19415`；`tests/test_co_create.py` 新增 4 个测试。
+
+### Web UI 打包 —— wheel + PyInstaller + 版本 1.0.0
+
+**背景**：Storyloom 需要两种分发格式——面向开发者的 pip wheel、面向终端用户的独立可执行文件。此前无任何打包基础设施。
+
+**决策**：设计先行——spec → plan → 实现的三步走自动化构建管线。
+
+**设计文档**：
+- `docs/superpowers/specs/2026-07-20-web-packaging-design.md`（138 行）——两种分发格式、发布目录布局、平台检测策略
+- `docs/superpowers/plans/2026-07-20-web-packaging.md`（361 行）——详细实现计划
+
+**构建脚本**（`scripts/build.sh`）——五步自动化：
+1. 安装项目 + 构建工具（`pip install -e . build pyinstaller wheel`，`--break-system-packages` fallback）
+2. 构建 pip 包（`python -m build --no-isolation`）→ `.whl` + `.tar.gz`
+3. 构建独立可执行文件（`python -m PyInstaller --onefile`，`--add-data` 打包 locale/static，`--hidden-import` 覆盖 uvicorn 动态子模块）
+4. 组装发布目录（binary + `locale/` + `.whl` + `.tar.gz` → `dist/storyloom-web-v{VERSION}/`）
+5. 创建 zip 归档（`shutil.make_archive` → `dist/storyloom-web-v{VERSION}-{OS}.zip`）
+
+**包配置变更**：
+- `pyproject.toml`：web 依赖（fastapi, uvicorn）提升为顶层依赖；新增 `storyloom-web` 入口点；`[tool.setuptools.package-data]` 打包 static 文件
+- `MANIFEST.in`：`graft src/storyloom/web/static`——确保 sdist 包含静态文件
+- `src/storyloom/__init__.py`：新增 `__version__ = "1.0.0"`——从 0.1.0 跃升至 1.0.0
+
+**PyInstaller 适配**（2 个文件的路径检测逻辑）：
+- `i18n.py` `_get_locale_dir()`：`sys.frozen` → `sys.executable.parent / "locale"`；否则 → `Path(__file__).resolve().parents[3] / "locale"`；显式 `locale_dir` 优先
+- `server.py` `_PROJECT_ROOT`：同模式；环境变量 `STORYLOOM_APP_DIR` 可覆盖
+
+**Windows 特殊处理**（4 次迭代）：
+| Commit | 问题 | 修复 |
+|--------|------|------|
+| `2ad86eb` | Windows 无 `python3` 命令 | 自动 fallback 到 `python` |
+| `c90d882` | `wheel` 未安装（`build` 需要） | 添加到 pip install |
+| `eeb8ecb` | PyInstaller 无法解析导入（依赖未安装） | `pip install -e .` 先于 PyInstaller |
+| `e2b12d2` | `pyinstaller` 命令不在 PATH | `$PYTHON -m PyInstaller` |
+
+**控制台可见性**（`742871b`）：最初添加了 `--noconsole` 标志隐藏 Windows 控制台——但无控制台则用户无法 Ctrl+C 关闭服务器，最终**回退**此修改。保留控制台可见。
+
+**None stdout/stderr 处理**（`3197525` + `fef4984`）：无控制台时 `sys.stdout` 和 `sys.stderr` 为 `None` → uvicorn 日志格式化器在 `.isatty()` 上崩溃 → 重定向到 `storyloom.log` 文件（位于 executable 旁）
+
+**浏览器自动打开**（`0c0a8a2`）：`main()` 中 daemon 线程等 1.5s 后 `webbrowser.open("http://127.0.0.1:8000")`
+
+**API 配置延迟校验**（`3824034`）：
+- `ApiClient` 不再在构造时校验——`api_key`/`base_url`/`model` 改为惰性属性（每次读 `UserConfig`）；`httpx.Client` 延迟到首次 API 调用创建；`_validate_config()` 在 `chat()`/`stream_chat()` 入口调用
+- 服务器可在无 API key 时启动——只在用户尝试生成文本时才报错；运行时设置页修改配置无需重启
+
+**依据**：commits `262ff6e`, `fd2b53f`, `d2f79d4`, `5799406`, `96bcf95`, `9598573`, `eb23725`, `ba3fc2e`, `7f98af0`, `2ad86eb`, `c90d882`, `eeb8ecb`, `e2b12d2`, `0c0a8a2`, `3197525`, `fef4984`, `742871b`, `3824034`；`scripts/build.sh`（104 行）；`docs/superpowers/specs/2026-07-20-web-packaging-design.md` + `plans/2026-07-20-web-packaging.md`。
+
+### 图标 SVG 化与 i18n 修复
+
+**背景**：Web UI 使用硬编码 Unicode 字符（`<-`、`^`、`✏`、`✓`）作为图标——在不同平台/字体下渲染不一致。i18n 方面，disabled 选项的 `(unavailable)` 标签缺乏有用信息。共创 Prompt 的多行 msgid 与 gettext 解析器存在兼容问题。
+
+**决策**：
+
+1. **Inline SVG 图标**（`ece433e` + `f067798`）：
+   - 新增共享 `icons.js` 模块——`Icons.arrowLeft()`、`arrowUp()`、`pencil()`、`checkmark()`、`gear()` 五个 SVG 工厂函数
+   - 替换 4 个 JS 文件中的 Unicode 字符
+   - 统一风格：`const` 声明（匹配其他 JS 模块）、全部 fill-based（非 stroke）、gear 图标从 `game.js` 私有方法迁移到共享模块
+
+2. **Disabled 选项显示条件原因**（`314d67c`）：
+   - `_buildDisabledReason()` 解析引擎条件字符串 → 提取变量名 → 查找当前值 → 格式化 "需理智值 >= 30，当前：20"
+   - 无变量值时 fallback 到 `"Requires {cond}"` 模板；新增 2 条 i18n 字符串
+
+3. **缺失 `unavailable` msgid**（`d139af4`）：PR #22 改了 JS key 但未同步 `.po` 文件——补充 `"unavailable" → "不可用"` 条目
+
+4. **共创 Prompt 中文翻译——已回退**（6 个 commit 的尝试→回退循环）：
+   - `fa5ae6f`：添加共创 Prompt 中译到 `.po`
+   - `d19bbfe`：构建脚本增加 `.po→.mo` 编译并更新译文
+   - `e5cf481`：多行 msgid 压缩为单行（避免 gettext 换行歧义）
+   - `de03441` → `6ca2220` → `61a542f`：三次全部回退
+   - **最终状态**：`.po` 文件保持原样，`.mo` 编译步骤未加入构建脚本，翻译被放弃
+   - **根因**：共创 Prompt 是多行长文本 msgid，gettext 的 `xgettext` 解析器对嵌入式换行敏感，单行/多行格式在 `.po`→`.mo` 编译时产生匹配不一致
+
+**依据**：commits `ece433e`, `f067798`, `314d67c`, `d139af4`, `fa5ae6f`, `d19bbfe`, `e5cf481`, `de03441`, `6ca2220`, `61a542f`；`src/storyloom/web/static/js/icons.js`（新文件，78 行）。
+
+### 规范与文档同步
+
+**背景**：代码演进后规范文档滞后——常量值过时、元素数量不匹配、未实现功能残留、命名不一致。
+
+**决策**：全量文档审计与同步（`ef04ead` + `26809d1` + `4d32fab`）：
+
+1. **`ef04ead`**——规范批量同步：
+   - `data-model.md` §A：`OUTLINE_NODE_RANGES` 更新为当前 `config.py` 值（short: 3-5→5-10, medium: 5-8→10-20, long: 8-15→20-30），加注"仅 Prompt 参考，非引擎强制"
+   - `block-spec.md`：`<opt>` 数量 2-5→2-4（匹配 `ROUND1_PREFIX`）；移除未实现的 `classify_segment()` Python 代码示例
+   - `prompt-design.md`：冒险日志模板重写——新增 Story Background（genre/setting/protagonist/tone/conflict/characters）+ Story Outline（每节点 `[completed]`/`[active]`/`[pending]` 状态 + 摘要）；Ending 指令收紧："Reference specific events from the summaries above -- do not fabricate"；zh-CN 示例同步更新
+
+2. **`26809d1`**——修复 PR #20 审查中的三个 P2 命名/文档不一致：
+   - `_showEndModal`/`_endModalShown` → `_showEndChoice`/`_endChoiceShown`（已不是 modal）
+   - SSE handler 列表注释 + `stream_round()` docstring 增加 `save` 事件类型
+
+3. **`4d32fab`**——`game_driver.py` 增加队列深度文档注释：
+   - CLI 的 `event_queue` deque 任何时候只存 0-1 个事件（同步 drain）
+   - 真正的缓冲在引擎层（daemon 线程 → `queue.Queue` → `stream_round`）
+   - 确认 Web UI 正确实现了 `exec-flow.md` §4.5 全部 14 项 + §4.6 全部要求
+
+**依据**：commits `ef04ead`, `26809d1`, `4d32fab`；`docs/spec/data-model.md` §A、`block-spec.md`、`prompt-design.md` §3.4、`exec-flow.md` §4.5-4.6。
+
+---
+
 ## 2026-07-18（周六）
 
 ### Co-Create 大纲 goal 提示词优化 + 示例数据语言感知
