@@ -412,22 +412,15 @@ const GameView = (function () {
      *  has started, or exit immediately if still loading.
      *
      *  During loading (before the first segment arrives) there is no
-     *  story content to generate an adventure log from, and the modal
-     *  is meaningless.  Exiting immediately also eliminates the race
-     *  window where the user could re-enter before the server-side
-     *  daemon thread has finished cleaning up.
+     *  story content yet, so exit immediately without confirmation.
      *
-     *  Per exec-flow.md §5.3: active exit → UI confirms → optionally
-     *  view adventure log → return to menu.  The "View Log" button
-     *  navigates to #adventure-log/{gameId}; the page fetches the log
-     *  from GET /api/game/{id}/adventure-log. */
+     *  Per exec-flow.md §5.3 (2026-07-20): active exit → confirm →
+     *  return to menu.  No adventure log — that only applies to
+     *  natural endings (§5.2).  The save is retained; the player can
+     *  "Continue" to resume from the last checkpoint. */
     function _handleExit() {
         if (!_contentStarted) {
             // Loading state — no content yet.  Stop and exit immediately.
-            // Must call _stopDisplayLoop() explicitly — the EventSource
-            // may still be in CONNECTING state, in which case close()
-            // does NOT fire onerror and the Promise _stopDisplayLoop
-            // callback never runs, leaving _displayRunning = true.
             _stopDisplayLoop();
             if (_gameId) {
                 API.post(`/api/game/${encodeURIComponent(_gameId)}/stop`).catch(() => {});
@@ -437,28 +430,21 @@ const GameView = (function () {
             return;
         }
 
-        const logHash = `adventure-log/${encodeURIComponent(_gameId)}`;
-
         Display.showEndModal(
-            _("Generate adventure log?"),
-            /* Primary: view adventure log */
+            _("Quit the game?"),
+            /* Primary: quit */
             () => {
                 _stopDisplayLoop();
-                SSEClient.close();
-                Router.navigate(logHash);
-            },
-            /* Secondary: quit */
-            () => {
-                // Best-effort stop server-side stream before leaving.
-                // Fire-and-forget — don't block navigation on the response.
                 if (_gameId) {
                     API.post(`/api/game/${encodeURIComponent(_gameId)}/stop`).catch(() => {});
                 }
                 SSEClient.close();
                 Router.navigate("menu");
             },
-            _("View Log"),
-            _("Quit")
+            /* Secondary: cancel — modal auto-closes, resume game */
+            () => {},
+            _("Quit"),
+            _("Cancel")
         );
     }
 
@@ -483,6 +469,7 @@ const GameView = (function () {
             },
             /* Secondary: quit */
             () => {
+                _stopDisplayLoop();
                 SSEClient.close();
                 Router.navigate("menu");
             },

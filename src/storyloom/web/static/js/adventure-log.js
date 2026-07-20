@@ -24,6 +24,8 @@ const AdventureLogView = (function () {
     let _container = null;
     let _gameId = null;
     let _pollTimer = null;
+    let _pollCount = 0;
+    const MAX_POLL_RETRIES = 30;    // 30 s timeout — matches dev_cli 30 s
 
     /** HTML entity escape (same pattern as display.js, router.js). */
     function escHtml(s) {
@@ -118,9 +120,16 @@ const AdventureLogView = (function () {
             }
 
             if (data.status === "pending") {
-                /* Still generating — show progress and retry.
+                /* Still generating — retry with backstop.
                    Matches dev_cli "[Adventure log still generating...]"
-                   followed by another get_adventure_log() call. */
+                   followed by another get_adventure_log() call.
+                   MAX_POLL_RETRIES prevents infinite polling if the
+                   LLM API hangs. */
+                if (_pollCount >= MAX_POLL_RETRIES) {
+                    content.innerHTML = `<p class="al-error">${_("Adventure log timed out.")}</p>`;
+                    return;
+                }
+                _pollCount++;
                 content.innerHTML = `<p class="al-loading">${_("Generating adventure log...")}</p>`;
                 _pollTimer = setTimeout(_fetchLog, 1000);
                 return;
@@ -129,7 +138,7 @@ const AdventureLogView = (function () {
             /* data.status === "error" */
             content.innerHTML = `<p class="al-error">${escHtml(data.message || _("Something went wrong"))}</p>`;
         } catch (err) {
-            content.innerHTML = `<p class="al-error">${escHtml(err.message)}</p>`;
+            content.innerHTML = `<p class="al-error">${escHtml(err?.message || String(err))}</p>`;
         }
     }
 
@@ -143,6 +152,7 @@ const AdventureLogView = (function () {
             clearTimeout(_pollTimer);
             _pollTimer = null;
         }
+        _pollCount = 0;
     }
 
     /* ── Export ──────────────────────────────────────────────────── */
