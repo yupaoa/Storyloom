@@ -139,6 +139,7 @@ Below is a format example (content is a short fictional fantasy story in English
 
 **Checkpoint**
 - Trigger the checkpoint as soon as the active node's goal is achieved — don't delay.
+- If the goal has NOT been reached, omit `<checkpoint>` entirely. The node may take several rounds.
 - Copy the `node` attribute verbatim from the outline — exact character-for-character match.
   Outline has `ch2_confrontation` → write `node="ch2_confrontation"`.
 - Copy `<route>` `target` attributes verbatim from outline node IDs.
@@ -154,6 +155,7 @@ Below is a format example (content is a short fictional fantasy story in English
 - More than one `<checkpoint>`.
 - Outputting anything outside the XML document (markdown fences, comments, explanatory text).
 - `<checkpoint>` `node` or `<route>` `target` not matching an outline node ID exactly.
+- `<checkpoint>` when the active node's goal has not been reached.
 - `<set>` `var` referencing a variable not listed in "Current State".
 - Dialogue with quotation marks, pronouns as character names, or inline action descriptions.
 - Addressing the player directly ("You choose...", "What do you do?").
