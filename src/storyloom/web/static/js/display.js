@@ -368,19 +368,14 @@ const Display = (function () {
 
     /* ── Helpers ───────────────────────────────────────────────────── */
 
-    /** Scroll so that *el* is vertically centered in the story area.
-     *  Called after appending a new segment / choice-text / choices
-     *  panel / loading indicator.  The newest content always appears
-     *  at the viewport centre; older content scrolls up naturally. */
-    function _scrollToCenter(el) {
+    /** Scroll so the newest content sits at the viewport centre.
+     *  Relies on .game-story { padding-bottom: 50vh } which provides
+     *  scroll room below the last element.  Simply scrolling to max
+     *  puts the last segment roughly at the vertical midpoint. */
+    function _scrollToCenter(_el) {
         const story = $("#game-story");
         if (!story) return;
-        const sTop = story.getBoundingClientRect().top;
-        const eTop = el.getBoundingClientRect().top;
-        const eH = el.offsetHeight;
-        const elCenter = eTop - sTop + story.scrollTop + eH / 2;
-        const target = elCenter - story.clientHeight / 2;
-        story.scrollTop = Math.max(0, target);
+        story.scrollTop = story.scrollHeight;
     }
 
     /** HTML entity escape. */

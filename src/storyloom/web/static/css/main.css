@@ -1196,7 +1196,8 @@ button.accent:hover, .btn-accent:hover {
 .game-story {
     flex: 1;
     overflow-y: auto;
-    padding: 1rem 0.25rem 0.5rem;
+    padding: 1rem 0.25rem 50vh;     /* 50vh bottom pad → last segment
+                                       can scroll to viewport centre */
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
