@@ -253,6 +253,8 @@ const GameView = (function () {
             if (_optionsPending) {
                 const data = _optionsPending;
                 _optionsPending = null;
+                _cancelLoading();
+                Display.hideLoading();
                 _handleOptions(data);
                 return;
             }
