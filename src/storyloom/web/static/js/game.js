@@ -458,7 +458,8 @@ const GameView = (function () {
        ═══════════════════════════════════════════════════════════════ */
 
     function _toggleMode() {
-        _mode = (_mode === "manual") ? "auto" : "manual";
+        const wasManual = _mode === "manual";
+        _mode = wasManual ? "auto" : "manual";
         _updateModeButton();
 
         _isPolling = false;
@@ -473,8 +474,18 @@ const GameView = (function () {
             _advanceResolve();
             _advanceResolve = null;
         }
+
         if (_displayRunning && !hadPending) {
-            _displayTick();
+            if (wasManual) {
+                /* manual→auto: start auto-paced drain */
+                _displayTick();
+            } else {
+                /* auto→manual: enter wait without popping a segment */
+                _waitForUserAdvance().then(() => {
+                    if (!_displayRunning) return;
+                    _displayTick();
+                });
+            }
         }
     }
 
