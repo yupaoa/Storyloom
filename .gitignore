@@ -37,3 +37,8 @@ tests/prompt_lab/data/prompts/seg-test-manifest*.json
 
 # Dev CLI output
 dev_output/
+
+# Build artifacts
+build/
+storyloom-web.spec
+dist/
