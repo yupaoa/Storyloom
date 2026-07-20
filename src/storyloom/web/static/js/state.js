@@ -30,6 +30,10 @@ const GameState = {
      *  Populated by _handleStart() in co-create.js after generate(). */
     storyConfig: null,
 
+    /** Save file selected from checkpoint list.  When set, game-preview
+     *  loads this file instead of ``_init.json``. */
+    saveFile: null,
+
     /** Reset all per-game state.  Called on menu entry. */
     reset() {
         this.gameId = null;
@@ -39,6 +43,7 @@ const GameState = {
         this.outlineNodes = [];
         this.stateVars = {};
         this.storyConfig = null;
+        this.saveFile = null;
     },
 
     /** Set language and persist to localStorage. */
@@ -100,6 +105,18 @@ const T = {
         "Goodbye": "再见",
         "You may close this tab.": "你可以关闭此标签页。",
         "Something went wrong": "出了点问题",
+        /* Save Browser */
+        "Delete this game?": "确定删除此游戏？",
+        "Delete this save?": "确定删除此存档？",
+        "This cannot be undone.": "此操作无法撤销。",
+        "Yes": "是",
+        "No": "否",
+        "No saves in this game.": "此游戏暂无存档。",
+        "Game deleted.": "游戏已删除。",
+        "Save deleted.": "存档已删除。",
+        "Last played:": "上次游玩：",
+        "saves": "个存档",
+        "Restart": "重新开始",
     },
     "en": {
         /* English is the source language — identity map */
