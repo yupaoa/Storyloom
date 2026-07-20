@@ -58,6 +58,71 @@ id: ch1"""
         assert "use === sparingly" in result["story_config"]
         assert "hp: number" in result["variables"]
 
+    def test_split_no_spaces_around_block_name(self):
+        """===story_config=== (no spaces around name) should still parse."""
+        text = """===story_config===
+genre: fantasy
+tier: short
+
+===variables===
+hp: number, 80
+
+===outline===
+[node]
+id: ch1"""
+        result = CoCreateParser.split_blocks(text)
+        assert "genre: fantasy" in result["story_config"]
+        assert "hp: number" in result["variables"]
+        assert "[node]" in result["outline"]
+
+    def test_split_spaces_in_block_name(self):
+        """=== story config === (spaces in name) should normalise to story_config."""
+        text = """=== story config ===
+genre: fantasy
+tier: short
+
+=== variables ===
+hp: number, 80
+
+=== outline ===
+[node]
+id: ch1"""
+        result = CoCreateParser.split_blocks(text)
+        assert "genre: fantasy" in result["story_config"]
+        assert "hp: number" in result["variables"]
+        assert "[node]" in result["outline"]
+
+    def test_split_mixed_spacing_block_name(self):
+        """===story config=== (mixed: no outer spaces, space in name)."""
+        text = """===story config===
+genre: fantasy
+tier: short
+
+=== variables ===
+hp: number, 80
+
+=== outline ===
+[node]
+id: ch1"""
+        result = CoCreateParser.split_blocks(text)
+        assert "genre: fantasy" in result["story_config"]
+        assert "hp: number" in result["variables"]
+
+    def test_split_asymmetric_spacing(self):
+        """=== story_config=== (space only on left) should still match."""
+        text = """=== story_config===
+genre: fantasy
+tier: short
+
+=== variables ===
+hp: number, 80
+
+=== outline ===
+[node]
+id: ch1"""
+        result = CoCreateParser.split_blocks(text)
+        assert "genre: fantasy" in result["story_config"]
+
 
 class TestParseStoryConfig:
     """Tests for parse_story_config — INI-style key: value parsing."""

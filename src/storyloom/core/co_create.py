@@ -20,11 +20,22 @@ from storyloom.config import (
 class CoCreateParser:
     """Stateless helpers for parsing LLM co-creation output."""
 
-    BLOCK_DELIMITER = re.compile(r"^=== (story_config|variables|outline) ===\s*$")
+    # Matches "=== block_name ===" with flexible whitespace:
+    #   === story_config ===  (canonical)
+    #   ===story_config===    (no spaces around name)
+    #   === story config ===  (spaces in name, e.g. LLM writes "story config")
+    #   ===story config===    (any combination)
+    BLOCK_DELIMITER = re.compile(
+        r"^===\s*(story[_ ]config|variables|outline)\s*===\s*$"
+    )
 
     @staticmethod
     def split_blocks(text: str) -> dict[str, str]:
         """Split LLM response into {story_config, variables, outline} blocks.
+
+        Accepts flexible delimiter whitespace and normalises block names
+        (``story config`` → ``story_config``) so LLM formatting drift
+        does not cause parse failures.
 
         Args:
             text: Raw LLM response text.
@@ -42,7 +53,8 @@ class CoCreateParser:
             if m:
                 if current_block and current_block in result:
                     result[current_block] = "\n".join(lines).strip()
-                current_block = m.group(1)
+                # Normalise spaces → underscores so "story config" → "story_config"
+                current_block = m.group(1).replace(" ", "_")
                 lines = []
             elif current_block:
                 lines.append(line)
