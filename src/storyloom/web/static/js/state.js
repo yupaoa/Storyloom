@@ -54,6 +54,7 @@ const GameState = {
     setLang(lang) {
         this.lang = lang;
         localStorage.setItem("storyloom-lang", lang);
+        document.documentElement.lang = lang;
     },
 };
 

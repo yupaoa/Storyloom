@@ -82,7 +82,7 @@ def _unquote(line: str, prefix: str = "") -> str:
     if len(line) >= 2 and line.startswith('"') and line.endswith('"'):
         line = line[1:-1]
     # Unescape .po escape sequences
-    return line.replace("\\\\", "\x00").replace('\\"', '"').replace("\\n", "\n").replace("\\t", "\t").replace("\x00", "\\\\")
+    return line.replace("\\\\", "\x00").replace('\\"', '"').replace("\\n", "\n").replace("\\t", "\t").replace("\x00", "\\")
 
 
 # ── .mo writer ──────────────────────────────────────────────────────
