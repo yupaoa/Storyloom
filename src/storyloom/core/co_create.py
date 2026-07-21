@@ -566,15 +566,15 @@ Only create variables that drive branching or gate choices. Fewer is better.
 
 ## === outline ===
 
-`[node]` blocks with `id:`, `title:`, `goal:`, `routes:` fields.
+`[node]` blocks with `id:`, `title:`, `goal:`, `routes:` fields. All four are REQUIRED for every node.
 
 - `id:` — `ch{number}_{english_abbreviation}`. e.g. `ch1_intro`.
 - `goal:` — Chapter arc, not a single scene. Unfolds over several rounds. 2-4 sentences.
-- `routes:` — `→ target` (linear), indented `if cond → target` (branch), or empty (final node).
+- `routes:` — `→ target` (linear), indented `if cond → target` (branch), or empty for the final node.
 - Node count by tier: $node_count_hint. Must match your declared tier.
 - Route conditions may only reference variables declared in === variables ===.
-- Route targets are references, not new names. Copy the target node's `id:` verbatim — every target must already exist as an `id:` in this outline.
-- Final node: `routes:` with nothing after the colon (no arrows, no "(ending)" annotation). The system detects endings by empty routes.
+- Route targets are node `id:` values, not descriptions or placeholder words. Every target you write after `→` must appear word-for-word as an `id:` of some `[node]` block. If a target does not match any node id, the entire generation is rejected.
+- Final node: `routes:` with nothing after the colon. The system detects endings by empty routes — no arrows, no annotations, no placeholder words.
 
 # Prohibited
 
