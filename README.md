@@ -6,7 +6,7 @@
 
 Storyloom turns a large language model into a game master. You and the AI collaboratively build a story world, define characters and game mechanics, then play through a branching narrative where your choices shape the outcome. The engine handles state management, context window stewardship, and real-time streaming — the LLM focuses on telling a great story.
 
-**Status (2026-07-19):** Phase 1 core engine complete. Playable via dev CLI or web UI.
+**Status (2026-07-21):** Phase 1 core engine complete. Version 1.0.0. Playable via dev CLI or web UI (FastAPI + SSE single-page app). Standalone binary + pip wheel packaging via `scripts/build.sh`.
 
 ## Highlights
 
@@ -23,16 +23,9 @@ Storyloom turns a large language model into a game master. You and the AI collab
 # Install
 pip install -e .
 
-# Configure — edit config.json with your API credentials
-# (created automatically on first run, or create it manually)
-cat > config.json << 'EOF'
-{
-  "api_key": "sk-your-key-here",
-  "api_base_url": "https://api.deepseek.com",
-  "api_model": "deepseek-v4-pro",
-  "language": "zh-CN"
-}
-EOF
+# Configure — copy config.example.json to config.json and edit
+cp config.example.json config.json
+# Edit config.json with your API credentials
 
 # Play (CLI)
 python -m storyloom.dev_cli
@@ -76,12 +69,16 @@ Storyloom is a **single Python application** — not a client-server system. The
 │  ┌──────────┐  ┌───────────┐  ┌──────────────┐  │
 │  │PromptBldr│  │CoCreate   │  │SaveManager   │  │
 │  └──────────┘  └───────────┘  └──────────────┘  │
+│  ┌──────────┐  ┌───────────┐                    │
+│  │ApiClient │  │UserConfig │                    │
+│  └──────────┘  └───────────┘                    │
 └─────────────────────┬───────────────────────────┘
                       │ GameSession (public API)
               ┌───────┴────────┐
               ▼                ▼
        ┌──────────┐    ┌──────────────┐
        │ Dev CLI  │    │  Web UI      │
+       │(terminal)│    │(FastAPI+SSE) │
        └──────────┘    └──────────────┘
 ```
 
@@ -101,23 +98,9 @@ Player reads text ──→ makes choice ──→ engine sends prompt ──→
     narrative    options     API call      apply state
 ```
 
-The `<bridge/>` element triggers the next API request while the remaining text is still being displayed — the player sees continuous narration with no segment-boundary pauses.
+The `<bridge/>` element triggers the next API call mid-paragraph, hiding LLM latency behind the current text display.
 
-## Module Map
-
-| Module | Purpose |
-|--------|---------|
-| `storyloom.core.game_loop` | Narrative loop, round orchestration, ending detection, state validation |
-| `storyloom.core.context_manager` | Messages array, sliding window, checkpoint compression |
-| `storyloom.core.prompt_builder` | Round 1 / Round N prompt assembly |
-| `storyloom.core.co_create` | Co-creation flow (Q&A → story config → outline) |
-| `storyloom.core.save_manager` | Atomic JSON save/load/delete per game directory |
-| `storyloom.core.session` | `GameSession` lifecycle coordinator — UI integration API |
-| `storyloom.parser.streaming_parser` | Line-by-line XML parser for LLM output |
-| `storyloom.io.api_client` | OpenAI-compatible streaming/non-streaming client |
-| `storyloom.i18n` | gettext internationalization (zh-CN, en) |
-| `storyloom.user_config` | Centralized config via `config.json` (API keys, language, model) |
-| `storyloom.dev_cli` | Terminal interface — play mode + dev observer |
+The engine is organized into `storyloom.core` (game loop, context management, prompt building, co-creation, save system), `storyloom.parser` (XML parsing), `storyloom.io` (API client), and `storyloom.user_config` (config management). The UI layer — `storyloom.web` (FastAPI + SSE + SPA) and `storyloom.dev_cli` (terminal) — imports from `storyloom.core` via `GameSession`. See `CLAUDE.md` for the complete file ownership map.
 
 ## Documentation
 
@@ -143,39 +126,21 @@ pytest
 pytest tests/test_game_loop.py -v
 ```
 
-**Tech stack:** Python 3.10+ (standard library preferred), OpenAI-compatible API, local JSON storage, gettext i18n.
+**Tech stack:** Python 3.10+ (standard library preferred), OpenAI-compatible API, local JSON storage, gettext i18n. Web: FastAPI + SSE + vanilla JS SPA. Packaging: PyInstaller + pip wheel.
 
 **Conventions:** Conventional Commits, English code comments & git messages, Chinese prompt variables.
 
+**Tests:** pytest tests (mock, no API key needed). `pytest --ignore=tests/test_api_client.py` for engine-only tests.
+
+### Web API
+
+The web server exposes REST + SSE endpoints for config, co-creation, game streaming, and save management. See `src/storyloom/web/server.py` for the complete endpoint reference.
+
 ### API for UI integration
 
-UI developers interact with the engine through `GameSession`:
-
-```python
-from storyloom.core import GameSession
-
-session = GameSession()
-
-# Co-creation
-flow = session.new_co_create()
-event = flow.start()                     # → {"phase": "awaiting_idea", "prompt": "..."}
-reply = flow.send("a cyberpunk story")   # → "That sounds exciting! Tell me more..."
-# ... continue Q&A, then generate when ready ...
-result = flow.generate()                 # → CoCreationResult
-gl, game_id = session.start_game(result) # → (GameLoop, game_id)
-
-# Narrative loop
-gl.start_game()                          # launches round 1 API call
-gen = gl.stream_round()
-for event in gen:
-    ...  # handle token / segment / options / state / error / done
-    if event["type"] == "options":
-        gen.send("1")                    # resume with chosen option
-
-# Save & load
-saves = session.list_saves(game_id)
-gl = session.load_game(game_id, "_init.json")
-```
+UI developers interact with the engine through `GameSession` — the sole public API surface.
+See [`docs/api/session.md`](./docs/api/session.md) for a complete usage guide with code examples,
+and [`docs/api/co-create.md`](./docs/api/co-create.md) for the co-creation API reference.
 
 ## Roadmap
 
@@ -184,9 +149,10 @@ gl = session.load_game(game_id, "_init.json")
 - [x] Conversation-based context with sliding window + compression
 - [x] Streaming XML parser with line-by-line output
 - [x] UserConfig — centralized config management
-- [ ] Web UI (FastAPI + SSE) — main menu, settings, credits; gameplay views in progress
-- [ ] Phase 2 — image mode support (static backgrounds + character sprites), co-creation presets + partial real-time generation
-- [ ] Phase 3 — full image mode support, visual quality on par with mainstream visual novel games
+- [x] Web UI (FastAPI + SSE) — main menu, co-create chat, game view, adventure log, settings, credits
+- [x] Packaging — standalone binary (PyInstaller) + pip wheel via `scripts/build.sh`
+- [ ] Phase 2 — image mode support (static backgrounds + character sprites), co-creation presets + partial real-time generation, vector memory for characters/locations
+- [ ] Phase 3 — full image mode, visual quality on par with mainstream visual novel games, cloud sync, TTS, script export
 
 ## License
 

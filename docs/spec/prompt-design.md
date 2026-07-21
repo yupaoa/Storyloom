@@ -6,7 +6,7 @@
 > - [`block-spec.md`](./block-spec.md) — XML 元素语法（LLM 侧遵守，程序侧解析）
 > - [`data-model.md`](./data-model.md) — 常量引用
 >
-> **架构变更（2026-07-04）**：从每轮独立 system prompt 迁移到**对话式消息数组**（Round 1 永久锚定 + 滑动窗口）。`prompt_builder.py` 现在构建单个消息的内容，`context_manager.py` 管理 messages 数组结构。
+> **架构变更（2026-07-04）**：从每轮独立 system prompt 迁移到**对话式消息数组**（Round 1 永久锚定 + 滑动窗口）。PromptBuilder 构建单条消息的内容，ContextManager 管理 messages 数组结构。
 >
 > **迭代策略**：每次 LLM 生成质量问题的根因分析与 Prompt 调整，均记录到 §6 迭代日志。
 >
@@ -24,7 +24,7 @@
 |------|------|
 | **示例先行** | Prompt 中先放完整格式示例，再用简短规则补充约束。LLM 模仿示例比遵循文字规则更准确 |
 | **信息分层** | System Prompt 三段式：示例（格式模板）→ 规则（量化约束）→ 上下文（故事素材） |
-| **英文 Prompt** | 所有 Prompt 使用英文（以 `tests/prompt_lab/data/prompts/round1-linenum.txt` 为准），通过 `{language}` 占位符指示 LLM 以故事语言输出 |
+| **英文 Prompt** | 所有 Prompt 使用英文（以当前 Prompt 模板中的英文规范为准），通过 `{language}` 占位符指示 LLM 以故事语言输出 |
 | **紧凑但完整** | 重要信息一个字不能少，不重要信息一个字不多 |
 | **持续迭代** | 每次发现系统性偏离时，分析原因、调整 Prompt、记录日志 |
 
@@ -76,7 +76,7 @@
 
 #### Prompt
 
-> 实际 Prompt 为 `CO_CREATE_SYSTEM_PROMPT`（`co_create.py`），通过 `string.Template` 注入语言上下文。以下为中文环境下的等效内容：
+> 实际 Prompt 为 `CO_CREATE_SYSTEM_PROMPT`，通过模板引擎注入语言上下文。以下为中文环境下的等效内容：
 
 ```
 你是一个故事共创助手。你的任务是通过对话收集信息——不是生成故事。对话结束后，后续步骤会将我们的讨论作为素材生成故事设定。
@@ -100,7 +100,7 @@
 
 ---
 
-> §3.2–3.4 的三个 section 合并在 `CO_CREATE_GENERATION_PROMPT`（`co_create.py`）中，由 `generate()` 单次调用一并生成。以下为各 section 的格式规范。
+> §3.2–3.4 的三个 section 合并在 `CO_CREATE_GENERATION_PROMPT` 中，由 `generate()` 单次调用一并生成。以下为各 section 的格式规范。
 
 ### 3.2 故事设定生成
 
@@ -215,11 +215,11 @@ routes:
 
 ## §4 叙事循环 Prompt
 
-> 最频繁调用的 Prompt。每轮至少一次。以下为 `prompt_builder` 和 `context_manager` 的开发标准。
+> 最频繁调用的 Prompt。每轮至少一次。以下为各轮 Prompt 的规范与模板。
 >
 > **架构**：对话式消息数组。Round 1 永久锚定（格式规范 + 故事上下文 + 完整 XML 示例），
 > Round N 仅发送轻量上下文（进度、状态、bridge_text、错误反馈）。
-> `ContextManager` 管理 messages 数组结构，`StreamingXmlParser` 解析 LLM 的 XML 输出。
+> ContextManager 管理 messages 数组结构，流式解析器解析 LLM 的 XML 输出。
 
 ### 4.1 消息数组架构
 
@@ -894,7 +894,7 @@ Requirements:
 | 2026-07-04 | 初始版本 | — |
 | 2026-07-04 | v4 模板重构：示例精简(18→11段)、规则结构化、新增6条设计原则 | 6轮30+次测试验证。正确率33%→83%，TTFT 38s→11s。关键改进：(1)独立options节+choice显式规则 (2)checkpoint反例约束 (3)pre-bridge的:main双重覆盖 (4)示例后防续写屏障 (5)bridge/bridge段数上下限+反例 (6)(重要)注意力标签 |
 | 2026-07-04 | 跨题材泛化测试：恋爱/悬疑/古风各3轮 | v4模板在4题材下正确率波动大（1/3~3/3）。发现2个跨题材共性问题：(1) **bridge-before-options** — LLM在options之前插入bridge；(2) **bridge位置偏离** — 慢节奏叙事推迟了交互断点 |
-| 2026-07-04 | **架构迁移：对话式消息数组 + XML 输出格式** | 从每轮 system prompt 迁移到 messages 数组架构。(1) **XML 格式**（`<seg>`/`<choice>`/`<set>`/`<checkpoint>`/`<bridge/>`/`<branch>`）替代 `--- block ---`，frame-v1 测试正确率 100%；(2) **对话式** Round 1 永久锚定 + 滑动窗口（WINDOW_SIZE=3）+ checkpoint 压缩；(3) `context_manager.py`、`prompt_builder.py`、`xml_parser.py` 替代旧 prompt 组装管线。旧格式 prompt 文件清理归档 |
+| 2026-07-04 | **架构迁移：对话式消息数组 + XML 输出格式** | 从每轮 system prompt 迁移到 messages 数组架构。(1) **XML 格式**（`<seg>`/`<choice>`/`<set>`/`<checkpoint>`/`<bridge/>`/`<branch>`）替代 `--- block ---`，frame-v1 测试正确率 100%；(2) **对话式** Round 1 永久锚定 + 滑动窗口（WINDOW_SIZE=3）+ checkpoint 压缩；(3) `context_manager.py`、`prompt_builder.py`、`streaming_parser.py` 替代旧 prompt 组装管线。旧格式 prompt 文件清理归档 |
 
 ---
 

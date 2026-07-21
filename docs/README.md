@@ -10,6 +10,11 @@
 | [`spec/prompt-design.md`](./spec/prompt-design.md) | 全阶段 Prompt 模板、对话式消息数组架构 | 开发者、调试者 | **权威** |
 | [`engineering-journal.md`](./engineering-journal.md) | 工程日志——完整设计决策时间线（2026-07-02 → 至今） | 开发者、审查者 | 参考 |
 | [`api/co-create.md`](./api/co-create.md) | 共创 API 参考（供界面层开发者） | 界面层开发者 | 参考 |
+| [`api/session.md`](./api/session.md) | GameSession 集成 API 参考（供界面层开发者） | 界面层开发者 | 参考 |
+| [`superpowers/specs/2026-07-17-user-config-design.md`](./superpowers/specs/2026-07-17-user-config-design.md) | UserConfig 模块设计 | 开发者 | 设计 |
+| [`superpowers/specs/2026-07-20-web-packaging-design.md`](./superpowers/specs/2026-07-20-web-packaging-design.md) | Web UI 打包方案设计 | 开发者 | 设计 |
+| [`superpowers/plans/2026-07-17-user-config-implementation.md`](./superpowers/plans/2026-07-17-user-config-implementation.md) | UserConfig 实现计划 | 实现者 | 计划 |
+| [`superpowers/plans/2026-07-20-web-packaging.md`](./superpowers/plans/2026-07-20-web-packaging.md) | Web UI 打包实现计划 | 实现者 | 计划 |
 | [`superpowers/specs/2026-07-07-api-audit-and-interface-design.md`](./superpowers/specs/2026-07-07-api-audit-and-interface-design.md) | API 审计与界面集成设计 | 界面层开发者 | 设计 |
 | [`superpowers/plans/2026-07-07-api-interface-implementation.md`](./superpowers/plans/2026-07-07-api-interface-implementation.md) | API 接口实现计划 | 实现者 | 计划 |
 | [`superpowers/specs/`](./superpowers/specs/) | 功能设计规格（按日期归档） | 设计者、审查者 | 参考 |
@@ -42,21 +47,19 @@ spec/prompt-design.md ──── 同等权威（Prompt 模板）
 spec/data-model.md    ──── 同等权威（数据模型）
 ```
 
-**冲突解决**：spec 文档之间应保持一致。Prompt 格式以 `tests/prompt_lab/data/prompts/round1-linenum.txt` 为最终标准。
+**冲突解决**：spec 文档之间应保持一致。Prompt 格式以 `prompt-design.md` 中的当前模板为最终标准。
 
 ## 扩展路线
 
-### Phase 1 — CLI 纯文本 MVP（核心引擎已实现）
-终端 CLI、LLM 自定义变量、共创阶段变量定义、固定选项、自动存档。验证核心游戏循环。
-> **注意**：Web 界面（原 Phase 2）已被提前至并行分支活跃开发，UI 层优先于原始阶段路线图。
+### Phase 1 — CLI 纯文本 MVP（核心引擎 + Web UI 已实现）
+终端 CLI、LLM 自定义变量、共创阶段变量定义、固定选项、自动存档。Web 界面（FastAPI + SSE + SPA）已提前完成——主菜单、共创聊天、游戏视图、冒险日志、设置、鸣谢。独立二进制打包（PyInstaller）+ pip wheel。版本 1.0.0。
+> **注意**：Web 界面原属 Phase 2，已被提前实现并完全功能化。
 
-### Phase 2 — Web + 动态系统
+### Phase 2 — 动态系统增强
 - **变量系统增强**：可用变量数扩展至 10+，支持更复杂的数值约束
-- **Web 界面**：FastAPI + SSE 流式渲染，选项按钮、状态面板、移动端适配
 - **向量记忆**：角色/地点/事件 embed 存储，每轮检索注入 Prompt
 - **多模型**：叙事用主力模型，审查/追问用便宜模型
-- **自定义输入**：玩家可自由输入行动，合理性检查模型把关
-- **一致性审查**：独立模型检查剧情与大纲、状态变更的合理性
+- **图像模式**：静态背景 + 角色立绘，共创预设 + 部分实时生成
 
 ### Phase 3 — 完整体验
 - **图像生成** — 关键场景异步生成插画

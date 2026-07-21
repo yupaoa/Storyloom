@@ -107,7 +107,7 @@ saves/
 
 ### 3.3 原子写入
 
-所有存档文件通过临时文件 + `os.replace` 实现原子写入——先写 `{filename}.tmp`，再原子 rename 到目标文件。整个过程不涉及 LLM，仅本地文件操作。
+所有存档文件通过临时文件 + 原子重命名实现——先写 `{filename}.tmp`，再原子替换目标文件。整个过程不涉及 LLM，仅本地文件操作。
 
 ### 3.4 加载与校验
 
@@ -129,14 +129,14 @@ saves/
 
 ## §A 可配置常量参考
 
-> 以下常量集中在 `config.py` 中定义。所有模块引用常量名，不硬编码数值。
-> **当前值以 `config.py` 为准**——本文档反映最近一次审计（2026-07-07）时的状态。
+> 以下为可配置常量的定义与参考值。所有模块引用常量名，不硬编码数值。
+> **当前值以代码中的常量定义为准**——本文档反映最近一次审计（2026-07-21）时的状态。
 
 ### A.1 路径常量
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `SAVE_DIR` | `saves/` | 存档目录（在 `SaveManager` 构造时传入，非 `config.py` 常量） |
+| `SAVE_DIR` | `saves/` | 存档目录（在 SaveManager 构造时传入，非配置模块常量） |
 
 ### A.2 共创阶段
 
@@ -165,7 +165,7 @@ saves/
 > **架构说明**：Prompt 输出格式经历了两次迭代——
 > 1. 初版：`<seg n="N">` 编号段（`SEGMENTS_PER_ROUND_*`，60-120 段，bridge 40%）
 > 2. 2026-07-05 实验优化：`<seg n="N">` 增至 120-200 段，bridge 移至 75%（见 memory `segment-length-ttft-optimization`）
-> 3. 行号迁移（`ce5a776`）：改为 `NNN|` 行号前缀格式，`LINES_PER_ROUND_*` 替代 `SEGMENTS_PER_ROUND_*`。每段消耗约 1.25 行（XML tag + 行号前缀），故行数 ≈ 段数 × 1.25 + headroom。
+> 3. 行号迁移（2026-07-05）：改为 `NNN|` 行号前缀格式，`LINES_PER_ROUND_*` 替代 `SEGMENTS_PER_ROUND_*`。每段消耗约 1.25 行（XML tag + 行号前缀），故行数 ≈ 段数 × 1.25 + headroom。
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
@@ -187,9 +187,9 @@ saves/
 
 | 常量 | 参考值 | 说明 |
 |------|--------|------|
-| `DEFAULT_MODEL` | `"deepseek-v4-pro"` | 默认模型标识。可通过 `.env` 的 `LLM_MODEL` 覆盖 |
-| `STREAM_STALL_TIMEOUT_SEC` | 180 | 流式输出停顿超时秒数。当前 context ~50K tokens 时 TTFT 通常 10-30s，180s 提供充足 margin |
-| `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏。定义于 `config.py` |
+| `DEFAULT_MODEL` | `"deepseek-v4-pro"` | 默认模型标识。可通过 `user_config.json` 的 `api_model` 字段覆盖 |
+| `STREAM_STALL_TIMEOUT_SEC` | 180 | 流式输出停顿超时秒数（如果任何新 token 间隔超过此值则超时）。当前 context ~50K tokens 时 TTFT 通常 10-30s，180s 提供充足 margin |
+| `SAVE_VERSION` | 1 | 存档格式版本号。不匹配则判定存档损坏 |
 
 ### A.7 已废弃常量
 
@@ -197,11 +197,11 @@ saves/
 
 | 常量 | 原值 | 废弃原因 |
 |------|------|---------|
-| `SEGMENTS_PER_ROUND_MIN` | 60 | 迁移到 `LINES_PER_ROUND_*`（行号格式） |
-| `SEGMENTS_PER_ROUND_MAX` | 120 | 迁移到 `LINES_PER_ROUND_*`（行号格式） |
-| `BRIDGE_SEGMENT_RATIO` | 0.4 | 重命名为 `BRIDGE_POSITION_RATIO`，值更新为 0.75 |
-| `MIN_NARRATION_CHARS` | 200 | 行号格式下每行即一段，字数由 Prompt 端 `LANGUAGE_SEG_LIMITS` 约束 |
-| `AUTO_ADVANCE_DELAY_MS` | 500 | 仅 CLI 测试工具使用（控制自动推进间隔）。Web UI 自行管理展示节奏 |
+| `SEGMENTS_PER_ROUND_MIN` | 60 | 迁移到 `LINES_PER_ROUND_*`（行号格式），已弃用 |
+| `SEGMENTS_PER_ROUND_MAX` | 120 | 迁移到 `LINES_PER_ROUND_*`（行号格式），已弃用 |
+| `BRIDGE_SEGMENT_RATIO` | 0.4 | 重命名为 `BRIDGE_POSITION_RATIO`，值更新为 0.75，已弃用 |
+| `MIN_NARRATION_CHARS` | 200 | 行号格式下每行即一段，字数由 Prompt 端 `LANGUAGE_SEG_LIMITS` 约束，已弃用 |
+| `AUTO_ADVANCE_DELAY_MS` | 500 | 仅 CLI 测试工具使用（控制自动推进间隔），Web UI 自行管理展示节奏，已弃用 |
 
 ---
 
@@ -221,4 +221,4 @@ saves/
 | 8 | **静默错误** | 微小校验错误（number 越界 clamp）不展示给用户，但记入 `rejected_changes` 在下轮 Prompt 告知 LLM |
 | 9 | **常量引用** | 统一使用 §A 中定义的常量名，禁止在业务代码中硬编码数值 |
 | 10 | **编号宽容** | 叙事段编号偏差（跳号、重复、起始非 1）不触发重试——内容质量优先于编号准确性 |
-| 11 | **存档原子写入** | 先写 `{label}.tmp`，再 `os.replace` 到目标文件 |
+| 11 | **存档原子写入** | 先写 `{label}.tmp`，再原子重命名到目标文件 |

@@ -224,3 +224,4 @@ description. The UI presents the error to the user, who can retry
 | `docs/spec/exec-flow.md` §3 | Authoritative flow spec |
 | `docs/spec/prompt-design.md` §3 | Prompt templates, validation rules |
 | `docs/spec/data-model.md` §A.2 | Configurable constants |
+| `docs/api/session.md` | GameSession integration API — narrative loop, save/load |

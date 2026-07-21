@@ -201,9 +201,14 @@ UI 调用 `CoCreateFlow.generate()` → 引擎注入 `CO_CREATE_GENERATION_PROMP
 5. 全部通过 → 返回 CoCreationResult
    API 失败 / 解析失败 → 抛 CoCreateError（含 phase 和错误描述）
    UI 捕获后向用户展示错误并询问重试 / 退出
+
+   **重试机制**：
+   - `send()` 失败（phase="send"）→ UI 调用 `flow.retry_send()` 用同一 messages 数组重试
+   - `generate()` API 失败（phase="generate_api"）→ UI 调用 `flow.retry_generate()` 重试
+   - `generate()` 解析/校验失败（phase="generate_parse"）→ `retry_generate()` 追加纠错提示后重试
 ```
 
-> 三个 section 的格式规范、字段定义和完整示例见 [`prompt-design.md` §3](./prompt-design.md)。API 失败或解析失败通过 `CoCreateError` 异常向 UI 报告，由用户决定重试或退出。
+> 三个 section 的格式规范、字段定义和完整示例见 [`prompt-design.md` §3](./prompt-design.md)。API 失败或解析失败通过 `CoCreateError` 异常向 UI 报告，由用户决定重试或退出。共创 API 的详细方法签名和状态机控制见 [`api/co-create.md`](../api/co-create.md)。
 
 ### 3.5 Step 4: 初始化 GameState
 
@@ -248,9 +253,9 @@ Round N 开始
                        ▼
 ┌──────────────────────────────────────────────────────┐
 │ 4. <bridge/> — 模式切换（非时序触发器）                  │
-│   • 解析器切到 post_bridge 模式（_post_bridge = True）  │
+│   • 解析器切换到 post-bridge 模式                       │
 │   • 后续内容快速解析（纯叙事，无 UI 反馈等待）            │
-│   • post-bridge 违规元素记入 _format_errors，不传给 UI   │
+│   • post-bridge 违规元素记入格式错误记录，不传给 UI      │
 │   • bridge_text 按分支归属累积（§4.7）                   │
 └──────────────────────┬───────────────────────────────┘
                        ▼
@@ -297,25 +302,13 @@ API 错误 / 解析失败 / 流式超时
 
 > **关键原则**：API 调用失败**不自动重试**——始终由用户决策。程序只提供信息和选项，不做自动恢复。这与 data-model.md §B 约定 #5 一致。
 >
-> **实现**：严重错误通过 generator 的 `yield {"type": "error", "message": str}` 传递给 UI 层。普通错误在引擎内部处理——格式错误记入 `_format_error`，状态拒绝记入 `_rejected_changes`——均在下一轮 `build_round_n()` 时注入 Prompt。
+> **实现**：严重错误通过 generator 的 `yield {"type": "error", "message": str}` 传递给 UI 层。普通错误在引擎内部处理——格式错误和状态变更拒绝记录在内部，均在下一轮 Prompt 组装时反馈给 LLM。
 
 ### 4.2 每轮 Prompt 的组成
 
-采用**对话式消息数组架构**，由 `ContextManager` 管理。详见 [`prompt-design.md`](./prompt-design.md) §4.1。
+采用对话式消息数组架构。完整规范见 [`prompt-design.md` §4](./prompt-design.md)。
 
-#### Round 1（永久锚定）
-
-由 `PromptBuilder.build_round1()` 构建，内容：
-
-- 角色定义 + XML 输出格式规范（元素结构 + 完整格式示例 + 核心规则）
-- 质量要求
-- 故事上下文（背景、主角、风格、冲突、角色、大纲、当前状态变量）
-
-`ContextManager.set_round1(user, assistant)` 存储 Round 1 消息对。Round 1 永不压缩、永不删除。
-
-#### Round N 上下文（N ≥ 2）
-
-由 `PromptBuilder.build_round_n()` 构建，作为自然消息追加在对话末尾。不含角色定义、格式规范、故事上下文。消息内容详见 [`prompt-design.md`](./prompt-design.md) §4.3。
+**要点**：Round 1 永久锚定（含角色定义、XML 格式规范、格式示例、核心规则、故事上下文）——永不压缩、永不删除。Round N（N ≥ 2）仅包含轻量上下文（大纲进度、当前状态、bridge_text、可选的错误反馈）——不含格式规范。
 
 ### 4.3 API 调用与响应接收
 
@@ -329,14 +322,14 @@ bridge 机制依赖流式 API（`stream=True`）。当程序解析到 `<bridge/>
 
 > **关键**：TTFT 主要受 Prompt 大小（输入 tokens 数）影响，而非输出长度。精简 System Prompt 可显著缩短 TTFT。
 >
-> **实现**：bridge pre-fetch 在 `GameLoop._launch_api()` 中实现 — daemon 线程通过 `queue.Queue` 流式传输 API chunks。所有轮次统一使用此方法（Round 1 也不例外）。详见 `game_loop.py`。
+> **实现**：bridge pre-fetch 通过后台 daemon 线程和同步队列流式传输 API chunks——所有轮次统一使用此机制（Round 1 也不例外）。
 
 **流程**：
 
 ```
-1. context_mgr.get_messages() → messages 数组
-2. prompt_builder.build_round_n(...) → 追加当前轮 user 消息
-3. api_client.stream_chat_iter(messages)
+1. ContextManager 获取当前 messages 数组
+2. PromptBuilder 追加当前轮 user 消息
+3. 将完整 messages 数组发送至 API（流式）
    │
    ├── 正常完成 → 完整 LLM 响应文本
    │
@@ -367,12 +360,12 @@ UI 展示流（用户阅读 / 自动推进）
 | 流 | 负责层 | 说明 |
 |------|---------|------|
 | LLM 生成流 | API 服务端 | token 逐块产出，TTFT 10-30s + 生成 25-50s |
-| 程序解析流 | 引擎（`game_loop.py`） | 逐行流式解析，与生成流几乎同步（生成即解析） |
+| 程序解析流 | 引擎 | 逐行流式解析，与生成流几乎同步（生成即解析） |
 | UI 展示流 | UI 层（CLI / Web） | 消费引擎产出的事件，按自身节奏展示 |
 
 **流间同步规则**：
 
-- **生成→解析**：几乎同步。token 到达后立即经 `LineBuffer`→`StreamingXmlParser.feed_line()` 产出事件。
+- **生成→解析**：几乎同步。token 到达后立即经流式解析器逐行处理，产出事件。
 - **解析→展示**：通常同步（每段解析后立即 yield 给 UI）。**例外**：选择点处解析流暂停等待 UI 反馈（玩家输入），之后继续快速解析。
 - **bridge→`</story>` 区间**：解析流**不需要等待 UI 反馈**——post-bridge 仅含纯叙事（`<seg>`/`<branch>`），无交互元素。解析此区间极快（微秒级）。
 
@@ -475,9 +468,9 @@ UI 展示选项面板后，接收用户输入。引擎期望的输入范围：
 - Post-bridge 仅提供叙事缓冲（`<seg>`、`<branch>`），为下一轮 Prompt 组装争取时间
 
 **对程序的行为切换**（桥接解析阶段）：
-- **模式切换**：解析器从"交互+叙事"模式切换到"纯叙事"模式（`_post_bridge = True`）
+- **模式切换**：解析器从"交互+叙事"模式切换到"纯叙事"模式（post-bridge 模式）
 - **快速解析**：Post-bridge 区间无交互元素，不需要等待 UI 反馈，全速解析
-- **错误捕获**：Post-bridge 区间出现的 `<choice>`/`<set>`/`<checkpoint>` 记入 `_format_errors`，不传递给 UI
+- **错误捕获**：Post-bridge 区间出现的 `<choice>`/`<set>`/`<checkpoint>` 记入格式错误记录，不传递给 UI
 - **bridge_text 捕获**：Post-bridge 的 `<seg>` 文本按 `current_branch` 过滤后存储，注入下一轮 Prompt
 
 **Prompt 组装与 Pre-fetch 触发**：
@@ -503,7 +496,7 @@ UI 展示选项面板后，接收用户输入。引擎期望的输入范围：
 
 > `ending_flag` 由 checkpoint 的 routes 为空（结局节点）时设置（见 data-model.md）。
 >
-> **时序说明**：此处"解析完成"指引擎侧流式接收完毕、`StreamingXmlParser.get_result()` 返回的时刻。Prompt 组装和后台 API 调用在此刻立即执行（不间断同步代码块），与 UI 展示 post-bridge 段落并发进行。
+> **时序说明**：此处"解析完成"指引擎侧流式接收完毕、流式解析器返回 ParsedOutput 的时刻。Prompt 组装和后台 API 调用在此刻立即执行（不间断同步代码块），与 UI 展示 post-bridge 段落并发进行。
 
 ---
 

@@ -6,15 +6,16 @@
 
 Storyloom is an AI-powered interactive text fiction game engine. The LLM is the narrative brain; the program is the flow manager + context steward. It is a **single Python application** (not client-server) — the core engine is UI-agnostic via generator-based event streaming, with a terminal CLI on `main` and a web interface under active parallel development.
 
-**Status (2026-07-17):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Per-game directory save system with append-only checkpoint files. Dev CLI (`src/storyloom/dev_cli/`) as CLI test harness — zero engine changes. Web interface (FastAPI + SSE) under active development on parallel branch.
+**Status (2026-07-21):** Phase 1 core engine implemented (game loop, co-creation, save system, ending detection, i18n). Per-game directory save system with append-only checkpoint files. Dev CLI (`src/storyloom/dev_cli/`) as CLI test harness. Web interface (FastAPI + SSE) fully functional — main menu, co-create chat, game view, adventure log, settings — single-page app with hash router. Packaging: `scripts/build.sh` produces standalone binary (PyInstaller) + pip wheel. Version 1.0.0.
 
-**Key migrations:**
-1. **XML output format** (`<seg>`, `<choice>`, `<bridge/>`, `<branch>`) replaced `--- block ---` delimiters (2026-07-04) — see `src/storyloom/parser/streaming_parser.py`.
-2. **Conversation-based architecture** (sliding window + Round 1 anchoring + checkpoint compression) replaced stateless per-round prompts (2026-07-04) — see `src/storyloom/core/context_manager.py` and `src/storyloom/core/prompt_builder.py`.
-3. **Line-number format** (`NNN| ` prefix) replaced `<seg n="N">` attribute numbering (2026-07-05) — see `tests/prompt_lab/data/prompts/round1-linenum.txt`.
-4. **Bridge pre-fetch** — daemon thread + `queue.Queue` for auto-advance rounds (2026-07-10) — see `src/storyloom/core/game_loop.py` `_launch_api()`.
-5. **StreamingXmlParser restored** (2026-07-11) — streaming parse restored and integrated into all API call paths; bridge pre-fetch depends on it for correct timing. See `docs/engineering-journal.md`.
-6. **UserConfig module** (2026-07-17) — centralized user config via `config.json` replaces `.env`-based config discovery; `ApiClient` now accepts `UserConfig` instead of searching for `.env` files. See `src/storyloom/user_config.py`.
+**Key architectural decisions** (see `docs/engineering-journal.md` for the full timeline):
+
+- **XML output format** — `<story>` document with `<seg>`, `<choice>`, `<bridge/>`, `<set>`, `<checkpoint>`, `<branch>` elements. `NNN|` line-number prefix. Parsed line-by-line by `StreamingXmlParser`. Spec: `docs/spec/block-spec.md`.
+- **Conversation-based context** — Messages array with permanent Round 1 anchor (format spec + story context) + sliding window (last 3 rounds) + checkpoint compression for earlier rounds. Spec: `docs/spec/prompt-design.md`.
+- **Bridge pre-fetch** — Background daemon thread + queue auto-advances rounds while current text displays. Hides LLM latency behind post-bridge narration.
+- **UserConfig** — Centralized `config.json` management via `src/storyloom/user_config.py`.
+- **Web UI** — FastAPI + SSE single-page app (main menu, co-create, game view, adventure log). See `src/storyloom/web/`.
+- **Packaging** — `scripts/build.sh` produces standalone binary (PyInstaller) + pip wheel.
 
 ## Core Design Concepts
 
@@ -33,7 +34,7 @@ All game data lives in a local `GameState` object. The LLM can only *suggest* ch
 ### XML Output Format (current, replacing `--- block ---`)
 LLM output is an XML document (`<story>...</story>`) containing `<seg>`, `<choice>`, `<set>`, `<checkpoint>`, `<bridge/>`, and `<branch>` elements. Parsed line-by-line by `StreamingXmlParser` (streaming). Full spec: `docs/spec/block-spec.md`.
 
-Key advantages over old `--- block ---` format: node IDs as attributes prevent suffix appending; `<branch>` as container prevents missing post-choice narratives; `<bridge/>` as unique tag prevents double-bridge misuse. Achieved 100% correctness vs ~20-74% for text blocks in comparative tests.
+Key advantages over old `--- block ---` format: node IDs as attributes prevent suffix appending; `<branch>` as container prevents missing post-choice narratives; `<bridge/>` as unique tag prevents double-bridge misuse.
 
 ### Conversation-Based Architecture (current)
 Messages array with sliding window + Round 1 anchoring, managed by `ContextManager`:
@@ -43,18 +44,21 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 - **Round N context**: Lightweight user message (progress, state, bridge_text, errors) — no format spec repetition.
 - **Target**: ~50K token context ceiling.
 
-## Document Map
+## Documentation
 
-| Document | Role | Authority |
-|----------|------|-----------|
-| `docs/spec/exec-flow.md` | Phase 1 execution pipeline | **Authoritative** |
-| `docs/spec/block-spec.md` | XML element syntax, branch routing, state validation | **Authoritative** |
-| `docs/spec/prompt-design.md` | All Prompt templates, conversation architecture, constraints | **Authoritative** |
-| `docs/spec/data-model.md` | State, save system, constants | **Authoritative** |
-| `docs/engineering-journal.md` | Chronological design decision log (2026-07-02 → present) | Reference |
-| `docs/README.md` | Documentation index | — |
-| `docs/superpowers/specs/` | Feature design specs (archived by date) | Reference |
-| `docs/superpowers/plans/` | Implementation plans (archived by date) | Reference |
+Full documentation index with reading order and authority hierarchy: [`docs/README.md`](./docs/README.md).
+
+| Document | Role |
+|----------|------|
+| `docs/spec/exec-flow.md` | Execution pipeline — **authoritative** |
+| `docs/spec/block-spec.md` | XML element syntax — **authoritative** |
+| `docs/spec/prompt-design.md` | Prompt templates — **authoritative** |
+| `docs/spec/data-model.md` | Data model & constants — **authoritative** |
+| `docs/engineering-journal.md` | Design decision log |
+| `docs/api/co-create.md` | Co-creation API reference |
+| `docs/api/session.md` | GameSession integration API |
+| `docs/superpowers/specs/` | Feature design specs (archived) |
+| `docs/superpowers/plans/` | Implementation plans (archived) |
 | `src/storyloom/core/game_loop.py` | Game loop, GameState, ending detection, serialization | Implementation |
 | `src/storyloom/core/context_manager.py` | Messages array, sliding window, compression | Implementation |
 | `src/storyloom/core/prompt_builder.py` | Round 1 / Round N prompt content builder | Implementation |
@@ -64,12 +68,15 @@ Messages array with sliding window + Round 1 anchoring, managed by `ContextManag
 
 | `src/storyloom/parser/streaming_parser.py` | Line-by-line XML parser, data types, LineBuffer | Implementation |
 | `src/storyloom/io/api_client.py` | OpenAI-compatible API client | Implementation |
+| `src/storyloom/web/` | Web UI (FastAPI + SSE + SPA) — server, sessions, static frontend | Implementation |
 | `src/storyloom/dev_cli/` | Dev CLI — `DevObserver`, deque-buffered display | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/user_config.py` | UserConfig — centralized config management (API keys, language, model) | Implementation |
 | `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
-| `tests/test_*.py` | Unit tests (mock, no API) | Test |
-| `tests/prompt_lab/data/prompts/round1-linenum.txt` | Authoritative prompt format standard | **Standard** |
+| `scripts/build.sh` | PyInstaller + wheel packaging script | Build |
+| `pyproject.toml` | Project metadata, dependencies, entry points, package data | Config |
+| `tests/test_*.py` | pytest unit tests (mock, no API) | Test |
+| `tests/test_web_server.py` | Web server integration tests | Test |
 
 **Test structure:** `tests/test_*.py` = pytest unit tests (mock, no API). `tests/prompt_lab/` = ad-hoc prompt design tools (require API key).
 
@@ -110,7 +117,8 @@ Engine code must never import from these files:
 | File | Contains |
 |------|----------|
 | `src/storyloom/dev_cli/` | **Dev CLI** — `DevObserver` + `game_driver` |
-| `src/storyloom/web/` | **Web UI package** (FastAPI + SSE) — recommended location |
+| `src/storyloom/web/` | **Web UI** — FastAPI server + SSE + SPA frontend (static HTML/CSS/JS) |
+| `tests/test_web_server.py` | Web server integration tests |
 
 ### 🧪 Tests
 
@@ -120,11 +128,13 @@ Each team owns their test files. UI adds `tests/test_web_*.py`; does not modify 
 
 - `from storyloom.core import GameSession` — preferred import path for UI
 - `from storyloom import GameSession` — also available via top-level package
+- `from storyloom.core import CoCreateFlow, CoCreationResult, CoCreateError` — co-creation API
+- `from storyloom import UserConfig` — centralized config management
 
 ## Tech Stack
 
 - **Language:** Python 3.10+ (standard library preferred)
-- **Interface:** Terminal CLI (test/maintenance tool on `main`), FastAPI + SSE web (primary UI, active parallel development)
+- **Interface:** Terminal CLI (test/maintenance tool), FastAPI + SSE web (primary UI, single-page app)
 - **LLM:** OpenAI-compatible API (abstracted behind common interface)
 - **Storage:** Local JSON files in `saves/` directory
 - **i18n:** gettext (.po/.mo)
