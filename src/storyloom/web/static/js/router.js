@@ -46,6 +46,7 @@
         "game": renderGame,
         "game-preview": renderGamePreview,
         "saves": renderSaveList,
+        "settings": renderSettings,
         "adventure-log": renderAdventureLog,
     };
 
@@ -156,9 +157,6 @@
                 <!-- Continue panel: shown when "Continue" clicked, hidden initially -->
                 <div id="continue-panel" class="continue-panel hidden"></div>
 
-                <!-- Settings overlay: shown when "Settings" clicked, hidden initially -->
-                <div id="settings-overlay" class="settings-overlay hidden"></div>
-
                 <!-- Credits overlay: shown when "Credits" clicked, hidden initially -->
                 <div id="credits-overlay" class="settings-overlay hidden"></div>
             </div>
@@ -207,12 +205,10 @@
             navigate("saves");
         });
 
-        // ── Button 4: Settings (data-driven from SETTINGS array) ──
+        // ── Button 4: Settings → full-page view ──
 
         document.getElementById("btn-settings").addEventListener("click", () => {
-            const overlay = document.getElementById("settings-overlay");
-            overlay.classList.remove("hidden");
-            renderSettingsPanel(overlay);
+            navigate("settings");
         });
 
         // ── Button 5: Credits (data-driven from credits.js) ────
@@ -280,16 +276,48 @@
         return key.slice(0, 4) + "****" + key.slice(-4);
     }
 
-    /** Render the settings overlay content.  Called when the user opens
-     *  settings, and re-called after a language change so the panel
-     *  reflects the new language immediately.                         */
-    function renderSettingsPanel(overlay) {
+    /* ═══════════════════════════════════════════════════════════════
+       View: Co-Create (#co-create)
+       ──────────────────────────────────────────────────────────────
+       Full chat-style Q&A interface for co-creating the story setup.
+       Delegates to CoCreateView.render() (co-create.js).
+
+       Layout:
+         top bar:  /quit (left)  |  "Co-Create" title (center)
+         messages: scrollable chat bubbles (assistant / user / info / error)
+         input bar:  textarea + ↑ send button + /go button
+       ═══════════════════════════════════════════════════════════════ */
+
+    function renderCoCreate() {
+        CoCreateView.render(app);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       View: Settings (#settings) — full-page, same pattern as co-create
+       ──────────────────────────────────────────────────────────────
+       Layout:
+         header:  ← Back button (top-left) + "Settings" title
+         content: scrollable form area with all settings rows
+
+       Data-driven: reads SETTINGS array from state.js — same data
+       source as the old overlay panel.
+
+       Authority:
+         CLAUDE.local.md §3.2 (event flow consumption)
+         Co-create view pattern (full-height routed view)
+       ═══════════════════════════════════════════════════════════════ */
+
+    function renderSettings() {
+        GameState.reset();
+        if (typeof SSEClient !== "undefined" && SSEClient.close) {
+            SSEClient.close();
+        }
+
         const rows = SETTINGS.map(def => {
             const current = getSetting(def.key);
             const label = esc(_(def.label));
 
             if (def.type === "select") {
-                /* Select (Language): always editable, no toggle needed */
                 return `
                     <div class="setting-row">
                         <span class="setting-label">${label}</span>
@@ -299,7 +327,7 @@
                     </div>`;
             }
 
-            /* text / password: read-only label + pencil edit button */
+            /* text / password: display + edit button (✎ → ✓ / ✕) */
             const displayVal = def.key === "api_key"
                 ? maskKey(current)
                 : (current || esc(def.placeholder || ""));
@@ -317,17 +345,27 @@
                 </div>`;
         }).join("");
 
-        overlay.innerHTML = `
-            <div class="settings-panel">
-                <h2>${esc(_("Settings"))}</h2>
-                ${rows}
-                <button class="menu-btn settings-close" id="btn-settings-close">
-                    ${esc(_("Cancel"))}
-                </button>
+        app.innerHTML = `
+            <div class="settings-view">
+                <div class="settings-header">
+                    <button class="cc-back-btn" id="settings-back"
+                            title="${esc(_("Back to Menu"))}">${Icons.arrowLeft()}</button>
+                    <span class="settings-title">${esc(_("Settings"))}</span>
+                </div>
+
+                <div class="settings-content">
+                    <div class="settings-form">
+                        ${rows}
+                    </div>
+                </div>
             </div>
         `;
 
         /* ── Bind events ────────────────────────────────────────── */
+
+        document.getElementById("settings-back").addEventListener("click", () => {
+            navigate("menu");
+        });
 
         SETTINGS.forEach(def => {
             if (def.type === "select") {
@@ -336,29 +374,35 @@
                 el.addEventListener("change", () => {
                     const needsRerender = applySetting(def.key, el.value);
                     if (needsRerender) {
-                        // renderMenu() rebuilds the whole DOM, so we must
-                        // re-acquire the overlay from the fresh tree.
-                        renderMenu();
-                        const newOverlay = document.getElementById("settings-overlay");
-                        if (newOverlay) {
-                            renderSettingsPanel(newOverlay);
-                            newOverlay.classList.remove("hidden");
-                        }
+                        renderSettings();
                     }
                 });
                 return;
             }
 
-            /* text / password: pencil toggles edit mode */
+            /* text / password: ✎ → ✓+✕ (lazy, same pattern as ✓) */
             const displayEl = document.getElementById(`display-${def.key}`);
-            const inputEl  = document.getElementById(`input-${def.key}`);
-            const editBtn  = document.getElementById(`edit-${def.key}`);
+            const inputEl   = document.getElementById(`input-${def.key}`);
+            const editBtn   = document.getElementById(`edit-${def.key}`);
             if (!editBtn) return;
 
+            const X_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" ' +
+                'fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 ' +
+                '6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 ' +
+                '17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>';
+            let _preEditVal = "";
+            let _xBtn = null;
+
+            function _exitEdit() {
+                inputEl.classList.add("hidden");
+                displayEl.classList.remove("hidden");
+                if (_xBtn) { _xBtn.remove(); _xBtn = null; }
+                editBtn.innerHTML = Icons.pencil();
+            }
+
             editBtn.addEventListener("click", () => {
-                const editing = !inputEl.classList.contains("hidden");
-                if (editing) {
-                    /* Save: commit value, exit edit mode */
+                if (!inputEl.classList.contains("hidden")) {
+                    /* Save */
                     applySetting(def.key, inputEl.value);
                     const newVal = getSetting(def.key);
                     if (def.key === "api_key") {
@@ -367,49 +411,28 @@
                         displayEl.textContent = newVal || def.placeholder || "";
                         displayEl.classList.toggle("muted", !newVal);
                     }
-                    inputEl.classList.add("hidden");
-                    displayEl.classList.remove("hidden");
-                    editBtn.innerHTML = Icons.pencil();
+                    _exitEdit();
                 } else {
-                    /* Enter edit mode */
-                    inputEl.value = getSetting(def.key);
+                    /* Enter edit — insert ✕ before ✓, same lazy pattern as ✓ */
+                    _preEditVal = getSetting(def.key);
+                    inputEl.value = _preEditVal;
                     inputEl.classList.remove("hidden");
                     displayEl.classList.add("hidden");
+                    _xBtn = document.createElement("button");
+                    _xBtn.className = "setting-edit-btn";
+                    _xBtn.style.marginRight = "-0.8rem";
+                    _xBtn.innerHTML = X_SVG;
+                    _xBtn.title = _("Cancel");
+                    _xBtn.addEventListener("click", () => {
+                        inputEl.value = _preEditVal;
+                        _exitEdit();
+                    });
+                    editBtn.parentNode.insertBefore(_xBtn, editBtn);
                     editBtn.innerHTML = Icons.checkmark();
                     inputEl.focus();
                 }
             });
         });
-
-        /* Close handlers — use a named reference to avoid listener
-           accumulation across multiple renderSettingsPanel() calls. */
-        if (overlay._closeHandler) {
-            overlay.removeEventListener("click", overlay._closeHandler);
-        }
-        overlay._closeHandler = (e) => {
-            if (e.target === overlay) overlay.classList.add("hidden");
-        };
-        overlay.addEventListener("click", overlay._closeHandler);
-
-        document.getElementById("btn-settings-close").addEventListener("click", () => {
-            overlay.classList.add("hidden");
-        });
-    }
-
-    /* ═══════════════════════════════════════════════════════════════
-       View: Co-Create (#co-create)
-       ──────────────────────────────────────────────────────────────
-       Full chat-style Q&A interface for co-creating the story setup.
-       Delegates to CoCreateView.render() (co-create.js).
-
-       Layout:
-         top bar:  /quit (left)  |  "Co-Create" title (center)
-         messages: scrollable chat bubbles (assistant / user / info / error)
-         input bar:  textarea + ↑ send button + /go button
-       ═══════════════════════════════════════════════════════════════ */
-
-    function renderCoCreate() {
-        CoCreateView.render(app);
     }
 
     /* ═══════════════════════════════════════════════════════════════
