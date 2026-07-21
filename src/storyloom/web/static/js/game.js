@@ -78,6 +78,13 @@ const GameView = (function () {
         _contentStarted = false;
         _eventQueue = [];
         _optionsPending = null;
+        /* Reset display mode to default manual on every entry.
+           Per exec-flow.md §4.5: default mode is UI-layer decision.
+           game.js declares manual as the default (line 11).
+           Without this reset, _mode (module-level IIFE variable)
+           retains the previous session's value, so the button shows
+           manual icon but the system behaves in auto mode. */
+        _mode = "manual";
         /* Ensure display loop starts fresh — previous session may have
            left _displayRunning = true if the EventSource was still
            CONNECTING when close() was called (browsers don't fire
@@ -85,6 +92,12 @@ const GameView = (function () {
         _stopDisplayLoop();
 
         _buildDOM();
+
+        /* Sync mode button title/icon with the just-reset _mode state.
+           _buildDOM() hardcodes the manual icon but leaves the title as
+           generic "Toggle Mode"; _updateModeButton() sets it to the
+           precise "Switch to Auto" / "Switch to Manual" label. */
+        _updateModeButton();
 
         /* Apply saved font/line settings from localStorage or defaults */
         _loadDisplayPrefs();
