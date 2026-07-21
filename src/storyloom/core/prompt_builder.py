@@ -323,6 +323,7 @@ class PromptBuilder:
         bridge_text: str,
         rejected_changes: list[str] | None = None,
         format_error: str | None = None,
+        no_choices_last_round: bool = False,
     ) -> str:
         """Build Round N context message (N >= 2).
 
@@ -358,6 +359,13 @@ class PromptBuilder:
                 f"\nFormat reminder: last round had format issues — "
                 f"{format_error}. Please strictly follow the XML format "
                 f"specification."
+            )
+
+        if no_choices_last_round:
+            error_parts.append(
+                "\nReminder: last round had no player choices. "
+                "Include at least one <choice> element so the player "
+                "can interact with the story."
             )
 
         error_feedback = "\n".join(error_parts) + ("\n" if error_parts else "")

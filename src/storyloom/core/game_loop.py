@@ -859,6 +859,7 @@ class GameLoop:
 
         response = "".join(collected)
         parsed = sp.get_result()
+        no_choices = not parsed.choices  # True if last round had no <choice>
 
         # ── Format errors ───────────────────────────────────────────
         # Merge errors from two independent sources:
@@ -962,6 +963,7 @@ class GameLoop:
                 self._rejected_changes if self._rejected_changes else None
             ),
             format_error=self._format_error,
+            no_choices_last_round=no_choices,
         )
 
         messages = self._context_mgr.get_messages()

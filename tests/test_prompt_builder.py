@@ -229,6 +229,32 @@ class TestBuildRoundN:
         )
         assert "Format reminder" in result or "checkpoint" in result
 
+    def test_round_n_includes_no_choices_reminder_when_flag_set(self):
+        pb = PromptBuilder()
+        result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
+            current_node="ch3",
+            goal="逃",
+            state_vars={"体力": 60},
+            variables=ROUNDN_VARS,
+            bridge_text="tail...",
+            no_choices_last_round=True,
+        )
+        assert "no player choices" in result
+        assert "<choice>" in result
+
+    def test_round_n_omits_no_choices_reminder_by_default(self):
+        pb = PromptBuilder()
+        result = pb.build_round_n(
+            outline_text=ROUNDN_OUTLINE,
+            current_node="ch3",
+            goal="逃",
+            state_vars={"体力": 60},
+            variables=ROUNDN_VARS,
+            bridge_text="tail...",
+        )
+        assert "no player choices" not in result
+
 
 class TestAdventureLogPrompt:
     def test_build_adventure_log_prompt_contains_label(self):
