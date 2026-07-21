@@ -573,7 +573,7 @@ Only create variables that drive branching or gate choices. Fewer is better.
 - `routes:` — `→ target` (linear), indented `if cond → target` (branch), or empty (final node).
 - Node count by tier: $node_count_hint. Must match your declared tier.
 - Route conditions may only reference variables declared in === variables ===.
-- Every `→ target` must match a node `id:` in this outline — cross-check before finalizing.
+- Route targets are references, not new names. Copy the target node's `id:` verbatim — every target must already exist as an `id:` in this outline.
 - Final node: `routes:` with nothing after the colon (no arrows, no "(ending)" annotation). The system detects endings by empty routes.
 
 # Prohibited
