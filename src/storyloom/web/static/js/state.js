@@ -9,9 +9,14 @@
               Keys are English source strings (msgid); translations come
               from the dictionary matching GameState.lang.
 
+   The ``T`` translation dictionary is auto-generated from .po files
+   into i18n-dict.js (loaded before this script).  .po is now the
+   single authoritative source — no more dual-write.
+
    Authority:
      src/storyloom/i18n.py (gettext _() convention)
      locale/zh_CN/LC_MESSAGES/storyloom.po (authoritative translations)
+     src/storyloom/i18n_compile.py §generate_js_dict (build-time generation)
      CLAUDE.local.md §3.2 (event-driven state updates)
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -24,7 +29,7 @@ const GameState = {
     stateVars: {},
     displayMode: "auto",
     speedPreset: "normal",
-    lang: localStorage.getItem("storyloom-lang") || "zh-CN",
+    lang: localStorage.getItem("storyloom-lang") || "en",
 
     /** Story config from co-creation, set before game/new.
      *  Populated by _handleStart() in co-create.js after generate(). */
@@ -50,108 +55,6 @@ const GameState = {
     setLang(lang) {
         this.lang = lang;
         localStorage.setItem("storyloom-lang", lang);
-    },
-};
-
-/* ── UI text dictionary ─────────────────────────────────────────── */
-/* Keys are English source strings (msgid), matching gettext convention
-   and locale/zh_CN/LC_MESSAGES/storyloom.po msgid entries.
-   The en dict is an identity map — _() returns the key itself.
-
-   ⚠️  DUAL-WRITE CONVENTION: Every new msgid must be added to BOTH
-   this T dictionary AND locale/zh_CN/LC_MESSAGES/storyloom.po.
-   The .po file is the authoritative source; this dictionary is the
-   SPA's client-side mirror (browsers cannot consume gettext .mo).   */
-
-const T = {
-    "zh-CN": {
-        /* Menu */
-        "Storyloom": "Storyloom",
-        "AI Text Adventure": "AI 文字冒险",
-        "New Game": "新游戏",
-        "Continue": "继续",
-        "Load Save": "读取存档",
-        "Settings": "设置",
-        "Credits": "制作人员",
-        "Exit": "退出",
-        "Recent Saves": "最近存档",
-        "No saves found": "暂无存档",
-        "Language": "语言",
-        "API Base URL": "API 地址",
-        "API Key": "API 密钥",
-        "Model": "模型",
-        /* Credits */
-        "Engine & System Architecture": "引擎 & 系统架构",
-        "Web Interface": "Web 界面",
-        /* Co-Create */
-        "Co-Create": "共创设定",
-        "Start": "开始",
-        "Send": "发送",
-        "Type your story idea...": "输入你的故事想法...",
-        "Type your answer...": "输入你的回答...",
-        "Retry": "重试",
-        "Thinking": "正在思考",
-        "Generating settings": "正在生成设定",
-        /* Game Preview */
-        "Begin Adventure": "开始冒险",
-        /* Shared */
-        "Loading...": "加载中...",
-        "Save": "存档",
-        "Delete": "删除",
-        "Load": "加载",
-        "Edit": "编辑",
-        "Cancel": "取消",
-        "Back to Menu": "返回主菜单",
-        "Goodbye": "再见",
-        "You may close this tab.": "你可以关闭此标签页。",
-        "Something went wrong": "出了点问题",
-        /* Save Browser */
-        "Delete this game?": "确定删除此游戏？",
-        "Delete this save?": "确定删除此存档？",
-        "This cannot be undone.": "此操作无法撤销。",
-        "Yes": "是",
-        "No": "否",
-        "No saves in this game.": "此游戏暂无存档。",
-        "Game deleted.": "游戏已删除。",
-        "Save deleted.": "存档已删除。",
-        "saves": "个存档",
-        "Restart": "重新开始",
-        /* Game Narrative */
-        "Generating adventure log...": "正在生成冒险日志...",
-        "Quit": "退出",
-        "Retry": "重试",
-        "Loading": "加载中",
-        "Speed": "生成速度",
-        "Font Size": "字体大小",
-        "Line Spacing": "行间距",
-        "Close": "关闭",
-        "Toggle Mode": "切换模式",
-        "Switch to Auto": "切换至自动模式",
-        "Switch to Manual": "切换至手动模式",
-        "Settings": "设置",
-        "unavailable": "不可用",
-        /* Disabled option reason format (exec-flow.md §4.6).
-           {cond} = condition expression, {val} = current variable value */
-        "Requires {cond}, current: {val}": "需{cond}，当前：{val}",
-        "Requires {cond}": "需{cond}",
-        "Choice send failed: ": "选项发送失败: ",
-        "Game start failed: ": "游戏启动失败: ",
-        "Retry failed: ": "重试失败: ",
-        "Unknown error": "未知错误",
-        "OK": "确定",
-        "Small": "小",
-        "Medium": "中",
-        "Large": "大",
-        /* Adventure Log */
-        "Export": "导出",
-        "Quit the game?": "确定退出游戏？",
-        "Adventure log timed out.": "冒险日志生成超时。",
-        "The story has ended. View adventure log.": "故事已结束，查看冒险日志",
-        "Saved": "存档已更新",
-        "Please send a message first.": "请先发送消息。",
-    },
-    "en": {
-        /* English is the source language — identity map */
     },
 };
 

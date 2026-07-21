@@ -216,9 +216,9 @@ characters:
         assert "Mouse" in result["characters"]
 
     def test_language_field_defaults(self):
-        """language field defaults to zh-CN if not provided."""
+        """language field defaults to DEFAULT_LANGUAGE if not provided."""
         result = CoCreateParser.parse_story_config(self.VALID_CONFIG)
-        assert result.get("language", "zh-CN") == "zh-CN"
+        assert result.get("language", "en") == "en"
 
 
 class TestParseVariables:

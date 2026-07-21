@@ -9,13 +9,13 @@ class TestI18NInit:
 
     def test_init_falls_back_for_unsupported_language(self):
         init_i18n("fr")
-        assert get_current_lang() == "zh-CN"
+        assert get_current_lang() == "en"
 
     def test_init_uses_default_when_none(self):
         # Switch to a known state first, then back to None
         init_i18n("en")
         init_i18n(None)
-        assert get_current_lang() == "zh-CN"
+        assert get_current_lang() == "en"
 
     def test_init_with_explicit_locale_dir(self):
         """Explicit locale_dir should not raise."""

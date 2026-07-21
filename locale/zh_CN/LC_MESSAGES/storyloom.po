@@ -206,3 +206,53 @@ msgstr "需{cond}，当前：{val}"
 
 msgid "Requires {cond}"
 msgstr "需{cond}"
+
+# ── Web UI: game narrative ──
+
+msgid "Loading"
+msgstr "加载中"
+
+msgid "Speed"
+msgstr "生成速度"
+
+msgid "Font Size"
+msgstr "字体大小"
+
+msgid "Small"
+msgstr "小"
+
+msgid "Medium"
+msgstr "中"
+
+msgid "Large"
+msgstr "大"
+
+msgid "Line Spacing"
+msgstr "行间距"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Toggle Mode"
+msgstr "切换模式"
+
+msgid "Switch to Auto"
+msgstr "切换至自动模式"
+
+msgid "Switch to Manual"
+msgstr "切换至手动模式"
+
+msgid "Choice send failed: "
+msgstr "选项发送失败: "
+
+msgid "Game start failed: "
+msgstr "游戏启动失败: "
+
+msgid "Retry failed: "
+msgstr "重试失败: "
+
+msgid "Unknown error"
+msgstr "未知错误"
+
+msgid "OK"
+msgstr "确定"

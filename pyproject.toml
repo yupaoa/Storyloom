@@ -17,7 +17,7 @@ dependencies = [
 storyloom-web = "storyloom.web.server:main"
 
 [tool.setuptools.package-data]
-storyloom = ["web/static/**/*"]
+storyloom = ["web/static/**/*", "core/lang_meta/*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

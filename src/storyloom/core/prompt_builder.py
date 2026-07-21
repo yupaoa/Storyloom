@@ -6,6 +6,7 @@ from storyloom.config import (
     BRIDGE_POSITION_RATIO,
     MIN_TAIL_LINES,
     LANGUAGE_SEG_LIMITS,
+    DEFAULT_LANGUAGE,
 )
 
 
@@ -251,8 +252,8 @@ class PromptBuilder:
         Returns:
             Full Round 1 prompt string.
         """
-        language = story_config.get("language", "zh-CN")
-        limits = LANGUAGE_SEG_LIMITS.get(language, LANGUAGE_SEG_LIMITS["zh-CN"])
+        language = story_config.get("language", DEFAULT_LANGUAGE)
+        limits = LANGUAGE_SEG_LIMITS.get(language, LANGUAGE_SEG_LIMITS[DEFAULT_LANGUAGE])
         narr_limit = limits["narration"]
         dial_limit = limits["dialogue"]
 
@@ -392,7 +393,7 @@ class PromptBuilder:
             Prompt string for adventure log generation.
         """
         story_label = story_config.get("label", "Untitled Adventure")
-        language = story_config.get("language", "zh-CN")
+        language = story_config.get("language", DEFAULT_LANGUAGE)
 
         # ── Story Background ──────────────────────────────────────
         genre = story_config.get("genre", "")

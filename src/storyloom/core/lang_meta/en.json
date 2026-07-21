@@ -1,0 +1,7 @@
+{
+    "instruction": "The user's language is English (en). Conduct the Q&A conversation in English. All questions, example answers, and the story title (label) must be in English.",
+    "label_hint": "{unique story identifier for save files}",
+    "example_variables": "Stamina: number, 80\nTrust: number, 10\nFaction: string, Freelancer",
+    "example_branch_var": "Trust",
+    "example_goal": "After the meeting at the Neon Abyss bar, the protagonist follows the chip's trail into the black market, navigating between factions. A sudden betrayal destroys every lead, cornering the protagonist. When the truth surfaces, the choice is theirs — who to trust, what to destroy, who to become."
+}
