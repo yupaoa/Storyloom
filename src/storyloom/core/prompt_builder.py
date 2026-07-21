@@ -26,25 +26,43 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 002| <seg>narration text</seg>
 003| <seg>narration text</seg>
 004| ...
-005| <!-- pre-bridge local branch (merges back). opt with no branch stays on main path -->
-006| <choice id="minor">
-007|   <opt key="1" branch="path_a">takes a branch</opt>
-008|   <opt key="2">stays on main</opt>
+005| <!-- pure interaction — no branch, player agency only -->
+006| <choice id="flavor">
+007|   <opt key="1">option text</opt>
+008|   <opt key="2">option text</opt>
 009| </choice>
-010| <branch name="path_a">
-011| <seg>local variant — merges back after</seg>
-012| </branch>
+010| <seg>narration continues</seg>
+011| ...
+012| <!-- pre-bridge local branch (merges back). opt with no branch stays on main path -->
+013| <choice id="minor">
+014|   <opt key="1" branch="path_a">takes a branch</opt>
+015|   <opt key="2">stays on main</opt>
+016| </choice>
+017| <branch name="path_a">
+018| <seg>local variant — merges back after</seg>
+019| </branch>
+020| <seg>narration continues</seg>
 ...
-013| <!-- main interaction — not every choice needs consequences -->
-014| <choice id="variable_name">
-015|   <opt key="1">option text</opt>
-016|   <opt key="2">option text</opt>
-017| </choice>
-018| <!-- node still in progress — no <checkpoint> yet -->
-019| <bridge/>
-020| <seg>narration continues on a single path</seg>
-021| ...
-022| </story>
+021| <!-- outline branch — checkpoint + route + post-bridge consequences -->
+022| <choice id="variable_name">
+023|   <opt key="1" branch="outcome_a">option text</opt>
+024|   <opt key="2" branch="outcome_b">option text</opt>
+025| </choice>
+026| <set var="variable" op="operation" val="value" if="condition"/>
+027| <checkpoint node="node_id" summary="summary text">
+028|   <route if="condition" target="target_node"/>
+029| </checkpoint>
+030| <bridge/>
+031| <!-- after bridge: narrative only, selected by current_branch -->
+032| <branch name="outcome_a">
+033| <seg>outcome narration</seg>
+034| ...
+035| </branch>
+036| <branch name="outcome_b">
+037| <seg>outcome narration</seg>
+038| ...
+039| </branch>
+040| </story>
 
 ## Elements
 
@@ -67,44 +85,50 @@ Do NOT output markdown code fences, XML declarations, or any text outside the XM
 Below is a format example (content is a short fictional fantasy story in English):
 
 001| <story>
-002| <seg>Snow fell on the empty road</seg>
-003| <seg>Kael stamped the snow from his boots</seg>
-004| <seg>He pushed through the heavy oak door</seg>
-005| <seg>Innkeeper: Room for the night?</seg>
-006| <choice id="inn_choice">
-007|   <opt key="1" branch="take_room">Take a room</opt>
-008|   <opt key="2">Just a drink</opt>
+002| <seg>Rain hammered the tin roof of the border outpost</seg>
+003| <seg>Kael pushed through the door, dripping onto the threshold</seg>
+004| <seg>Innkeeper: Storm's getting worse. Staying or just drying off?</seg>
+005| <choice id="inn_first">
+006|   <opt key="1">Ask about the patrols on the north road</opt>
+007|   <opt key="2">Order a hot meal and find a corner</opt>
+008|   <opt key="3">Study the room — faces, exits, threats</opt>
 009| </choice>
-010| <branch name="take_room">
-011| <seg>A key slid across the counter</seg>
-012| </branch>
-013| <choice id="drink">
-014|   <opt key="1">Somethin' strong</opt>
-015|   <opt key="2">Just water</opt>
+010| <seg>The innkeeper grunted and went back to his glass</seg>
+011| <seg>Outside, metal clattered against stone — then a muffled curse</seg>
+012| <seg>Someone was in the stables, and they weren't being quiet about it</seg>
+013| <choice id="investigate">
+014|   <opt key="1" branch="check_stables">Slip out the back and investigate</opt>
+015|   <opt key="2">Stay put — not your problem</opt>
 016| </choice>
-017| <seg>A stranger sat alone at the corner table</seg>
-018| <seg>Stranger: You're the one I've been waiting for</seg>
-019| <seg>Stranger: Word is you handle things quietly</seg>
-020| <choice id="approach">
-021|   <opt key="1" branch="accept">I'm listening</opt>
-022|   <opt key="2" branch="decline">Not interested</opt>
-023| </choice>
-024| <set var="reputation" op="+" val="5" if="approach==1"/>
-025| <checkpoint node="ch2_meeting" summary="A mysterious stranger offered Kael a job at the inn. He accepted and set out for the old pass.">
-026|   <route if="approach==1" target="ch3_job"/>
-027|   <route if="approach==2" target="ch3_alone"/>
-028| </checkpoint>
-029| <bridge/>
-030| <branch name="accept">
-031| <seg>The stranger leaned closer</seg>
-032| <seg>Stranger: There's a shipment. Tomorrow night. Old pass</seg>
-033| <seg>Stranger: Payment on delivery. Half up front</seg>
-034| </branch>
-035| <branch name="decline">
-036| <seg>The stranger shrugged</seg>
-037| <seg>Stranger: Suit yourself. But you'll be back</seg>
-038| </branch>
-039| </story>
+017| <branch name="check_stables">
+018| <seg>Rain lashed Kael's face as he eased the back door open</seg>
+019| <seg>A hooded figure was rifling through his saddlebags</seg>
+020| </branch>
+021| <seg>The hooded figure followed him inside and threw back her hood</seg>
+022| <seg>Stranger: You're the courier. I've tracked you for three days</seg>
+023| <seg>Stranger: That letter in your coat — it's not what they told you</seg>
+024| <choice id="mission">
+025|   <opt key="1" branch="trust">Hear her out</opt>
+026|   <opt key="2" branch="refuse">Walk away — the job comes first</opt>
+027| </choice>
+028| <set var="trust" op="+" val="10" if="mission==1"/>
+029| <set var="trust" op="-" val="10" if="mission==2"/>
+030| <checkpoint node="ch2_revelation" summary="Kael learned the letter's true nature and chose whether to trust the stranger.">
+031|   <route if="mission==1" target="ch3_ally"/>
+032|   <route if="mission==2" target="ch3_alone"/>
+033| </checkpoint>
+034| <bridge/>
+035| <branch name="trust">
+036| <seg>The stranger slid into the booth across from him</seg>
+037| <seg>Stranger: The seal on that letter is a kill order. Your name is on it</seg>
+038| <seg>Stranger: Help me crack it open. We both walk away clean</seg>
+039| </branch>
+040| <branch name="refuse">
+041| <seg>Kael tossed a coin on the counter and stood</seg>
+042| <seg>Stranger: They'll use you and throw you away. Same as they did me</seg>
+043| <seg>Kael stepped into the storm without looking back</seg>
+044| </branch>
+045| </story>
 (This is a format example ONLY. Your output is an entirely new story segment.)
 
 # Core Rules

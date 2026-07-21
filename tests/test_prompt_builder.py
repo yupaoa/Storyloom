@@ -53,7 +53,7 @@ class TestBuildRound1:
     def test_round1_contains_format_example(self):
         pb = PromptBuilder()
         result = pb.build_round1(SAMPLE_STORY_CONFIG, SAMPLE_OUTLINE, "ch2_confrontation", "与耗子完成交易", SAMPLE_STATE_VARS)
-        assert "Snow fell" in result
+        assert "Rain hammered" in result
         assert "Innkeeper" in result
 
     def test_round1_contains_story_context(self):
