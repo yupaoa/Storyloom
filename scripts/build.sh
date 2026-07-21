@@ -55,7 +55,14 @@ cp dist/*.whl dist/*.tar.gz "$OUTPUT_DIR/"
 
 # 5. Create zip for GitHub Release upload
 echo "[5/5] Creating release archive..."
-ZIP_NAME="storyloom-web-v${VERSION}-$(uname -s)"
+# Map platform to friendly name for release assets
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) PLATFORM="Windows" ;;
+    Darwin)                PLATFORM="macOS" ;;
+    Linux)                 PLATFORM="Linux" ;;
+    *)                     PLATFORM="$(uname -s)" ;;
+esac
+ZIP_NAME="storyloom-web-v${VERSION}-${PLATFORM}"
 $PYTHON -c "import shutil; shutil.make_archive('dist/$ZIP_NAME', 'zip', 'dist', 'storyloom-web-v${VERSION}')"
 
 echo ""
