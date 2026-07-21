@@ -1,0 +1,7 @@
+{
+    "instruction": "The user's language is Traditional Chinese (zh-TW). Conduct the Q&A conversation in Traditional Chinese. All questions, example answers, and the story title (label) must be in Traditional Chinese.",
+    "label_hint": "{a short Traditional Chinese title, 5-15 characters, used for save files}",
+    "example_variables": "體力: number, 80\n信任度: number, 10\n所屬勢力: string, 自由傭兵",
+    "example_branch_var": "信任度",
+    "example_goal": "在霓虹深淵酒吧接頭後，主角追蹤晶片線索深入地下黑市，與情報販子、企業特工、叛軍領袖三方周旋。一次突如其來的背叛摧毀了所有線索，將主角推向絕境。當真相浮出水面時，主角必須決定——相信誰，毀掉什麼，成為怎樣的人。"
+}

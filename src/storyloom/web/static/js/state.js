@@ -85,6 +85,7 @@ const SETTINGS = [
         label: "Language",
         options: [
             { value: "zh-CN", label: "中文" },
+            { value: "zh-TW", label: "繁體中文" },
             { value: "en", label: "English" },
         ],
     },

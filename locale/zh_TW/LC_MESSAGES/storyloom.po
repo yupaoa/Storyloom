@@ -1,0 +1,258 @@
+# Storyloom translations — Traditional Chinese (zh-TW)
+msgid ""
+msgstr ""
+"Project-Id-Version: Storyloom\n"
+"Language: zh_TW\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+# ── Co-creation: user-facing prompts ──
+
+msgid ""
+"Describe the story you'd like to play.\n"
+"e.g. 'A cyberpunk love story' or 'A wuxia adventure'"
+msgstr ""
+"請描述你想玩的故事。\n"
+"例如：'賽博龐克背景下的愛情故事'、'古代仙俠世界的冒險'"
+
+msgid "Please share some thoughts to begin."
+msgstr "請輸入一些想法來開始。"
+
+# ── Co-creation: LLM output templates (shown to user by LLM) ──
+
+msgid "(or write your own answer)"
+msgstr "（或輸入你自己的答案）"
+
+# ── Web UI: main menu ──
+
+msgid "Storyloom"
+msgstr "Storyloom"
+
+msgid "AI Text Adventure"
+msgstr "AI 文字冒險"
+
+msgid "New Game"
+msgstr "新遊戲"
+
+msgid "Continue"
+msgstr "繼續"
+
+msgid "Load Save"
+msgstr "讀取存檔"
+
+msgid "Settings"
+msgstr "設定"
+
+msgid "Credits"
+msgstr "製作人員"
+
+msgid "Exit"
+msgstr "退出"
+
+msgid "Recent Saves"
+msgstr "最近存檔"
+
+msgid "No saves found"
+msgstr "暫無存檔"
+
+msgid "Language"
+msgstr "語言"
+
+msgid "API Base URL"
+msgstr "API 位址"
+
+msgid "API Key"
+msgstr "API 金鑰"
+
+msgid "Model"
+msgstr "模型"
+
+# ── Web UI: credits ──
+
+msgid "Engine & System Architecture"
+msgstr "引擎 & 系統架構"
+
+msgid "Web Interface"
+msgstr "Web 介面"
+
+# ── Web UI: co-create ──
+
+msgid "Co-Create"
+msgstr "共創設定"
+
+msgid "Start"
+msgstr "開始"
+
+msgid "Send"
+msgstr "發送"
+
+msgid "Type your story idea..."
+msgstr "輸入你的故事想法..."
+
+msgid "Type your answer..."
+msgstr "輸入你的回答..."
+
+msgid "Retry"
+msgstr "重試"
+
+msgid "Thinking"
+msgstr "正在思考"
+
+msgid "Generating settings"
+msgstr "正在生成設定"
+
+msgid "Please send a message first."
+msgstr "請先發送訊息。"
+
+# ── Web UI: game preview ──
+
+msgid "Begin Adventure"
+msgstr "開始冒險"
+
+# ── Web UI: shared ──
+
+msgid "Loading..."
+msgstr "載入中..."
+
+msgid "Save"
+msgstr "存檔"
+
+msgid "Delete"
+msgstr "刪除"
+
+msgid "Load"
+msgstr "載入"
+
+msgid "Edit"
+msgstr "編輯"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Back to Menu"
+msgstr "返回主選單"
+
+msgid "Goodbye"
+msgstr "再見"
+
+msgid "You may close this tab."
+msgstr "你可以關閉此分頁。"
+
+msgid "Something went wrong"
+msgstr "出了點問題"
+
+msgid "Saved"
+msgstr "存檔已更新"
+
+# ── Web UI: save browser ──
+
+msgid "Delete this game?"
+msgstr "確定刪除此遊戲？"
+
+msgid "Delete this save?"
+msgstr "確定刪除此存檔？"
+
+msgid "This cannot be undone."
+msgstr "此操作無法復原。"
+
+msgid "Yes"
+msgstr "是"
+
+msgid "No"
+msgstr "否"
+
+msgid "No saves in this game."
+msgstr "此遊戲暫無存檔。"
+
+msgid "Game deleted."
+msgstr "遊戲已刪除。"
+
+msgid "Save deleted."
+msgstr "存檔已刪除。"
+
+msgid "saves"
+msgstr "個存檔"
+
+msgid "Restart"
+msgstr "重新開始"
+
+# ── Web UI: adventure log ──
+
+msgid "Generating adventure log..."
+msgstr "正在生成冒險日誌..."
+
+msgid "Quit"
+msgstr "退出"
+
+msgid "Quit the game?"
+msgstr "確定退出遊戲？"
+
+msgid "Export"
+msgstr "匯出"
+
+msgid "Adventure log timed out."
+msgstr "冒險日誌生成逾時。"
+
+msgid "The story has ended. View adventure log."
+msgstr "故事已結束，檢視冒險日誌"
+
+# ── Web UI: disabled options (exec-flow.md §4.6) ──
+
+msgid "unavailable"
+msgstr "不可用"
+
+msgid "Requires {cond}, current: {val}"
+msgstr "需{cond}，目前：{val}"
+
+msgid "Requires {cond}"
+msgstr "需{cond}"
+
+# ── Web UI: game narrative ──
+
+msgid "Loading"
+msgstr "載入中"
+
+msgid "Speed"
+msgstr "生成速度"
+
+msgid "Font Size"
+msgstr "字型大小"
+
+msgid "Small"
+msgstr "小"
+
+msgid "Medium"
+msgstr "中"
+
+msgid "Large"
+msgstr "大"
+
+msgid "Line Spacing"
+msgstr "行間距"
+
+msgid "Close"
+msgstr "關閉"
+
+msgid "Toggle Mode"
+msgstr "切換模式"
+
+msgid "Switch to Auto"
+msgstr "切換至自動模式"
+
+msgid "Switch to Manual"
+msgstr "切換至手動模式"
+
+msgid "Choice send failed: "
+msgstr "選項發送失敗: "
+
+msgid "Game start failed: "
+msgstr "遊戲啟動失敗: "
+
+msgid "Retry failed: "
+msgstr "重試失敗: "
+
+msgid "Unknown error"
+msgstr "未知錯誤"
+
+msgid "OK"
+msgstr "確定"
