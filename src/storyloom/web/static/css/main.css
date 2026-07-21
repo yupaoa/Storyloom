@@ -410,6 +410,152 @@ button.accent:hover, .btn-accent:hover {
     background: rgba(78, 204, 163, 0.1);
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   Settings Full-Page View — full-height routed view (#settings)
+   Pattern matches .co-create-view / .sv-view.
+   Replaces the old modal overlay for menu → Settings.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.settings-view {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 4rem);
+    max-width: var(--content-width);
+    margin: 0 auto;
+    animation: fadeIn var(--trans-slow);
+}
+
+/* ── Header (back button + title, matches .sv-header / .cc-header) ── */
+
+.settings-header {
+    display: flex;
+    align-items: center;
+    padding: var(--space-md) var(--space-xs);
+    flex-shrink: 0;
+    gap: 0.6rem;
+}
+
+.settings-title {
+    font-family: var(--font-mono);
+    font-size: var(--font-md);
+    color: var(--text-accent);
+    font-weight: normal;
+}
+
+/* ── Scrollable form area ─────────────────────────────────────── */
+
+.settings-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-lg) var(--space-xs) var(--space-2xl);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.settings-content::-webkit-scrollbar {
+    display: none;
+}
+
+/* ── Settings Form Card ────────────────────────────────────────── */
+
+.settings-form {
+    width: 100%;
+    max-width: 640px;
+    margin-top: var(--space-2xl);
+}
+
+.settings-form .setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-xl);
+    gap: var(--space-lg);
+}
+
+.settings-form .setting-label {
+    color: var(--text-secondary);
+    font-size: var(--font-md);
+    flex-shrink: 0;
+    min-width: 90px;
+}
+
+/* Wide text/password inputs for API URLs and keys */
+.settings-form .setting-input {
+    flex: 1;
+    max-width: 420px;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+}
+
+.settings-form .setting-input:focus {
+    outline: none;
+    border-color: var(--text-accent);
+    box-shadow: var(--shadow-focus);
+}
+
+/* Read-only display value + edit button */
+.settings-form .setting-val {
+    flex: 1;
+    max-width: 420px;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.settings-form .setting-val.muted {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+.settings-form .setting-edit-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: color var(--trans-normal), background var(--trans-normal);
+}
+
+.settings-form .setting-edit-btn:hover {
+    color: var(--text-accent);
+    background: rgba(78, 204, 163, 0.1);
+}
+
+/* Select dropdown — compact, text-centred */
+.settings-form select {
+    width: auto;
+    min-width: 100px;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    text-align: center;
+    text-align-last: center;
+}
+
+.settings-form select:focus {
+    outline: none;
+    border-color: var(--text-accent);
+    box-shadow: var(--shadow-focus);
+}
+
 /* ── Credits ────────────────────────────────────────────────────── */
 
 .credits-app {
