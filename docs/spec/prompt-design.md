@@ -100,116 +100,72 @@
 
 ---
 
-> §3.2–3.4 的三个 section 合并在 `CO_CREATE_GENERATION_PROMPT` 中，由 `generate()` 单次调用一并生成。以下为各 section 的格式规范。
+> §3.2 为统一生成 Prompt——单次 `generate()` 调用产出 `story_config` + `variables` + `outline` 三个块。
+> §1.2 的约束有效性原则适用于此 Prompt；§3.2.2–3.2.4 描述各块的解析格式与校验规则。
 
-### 3.2 故事设定生成
+### 3.2 故事生成（统一 Prompt）
 
-#### 规范
+#### 3.2.1 结构与设计
 
-- **输入**：追问阶段完整对话历史 + 生成 Prompt（单次 user 消息）。
-- **输出**：`=== story_config ===` 后的结构化文本。
-- **字段**：题材（自由文本）、档位（short/medium/long）、标签（5-15 字）、语言（language）、世界观、主角姓名/身份/特质、叙事风格、核心冲突、主要角色（至少 1 个）。
-- **解析失败**：引擎通过 `CoCreateError` 异常向 UI 报告具体错误，由用户决定重试或退出。
+单次 user 消息，要求 LLM 一并输出三个 ``===`` 分隔的块。Prompt 采用 7 段式结构（与 §4 叙事 Prompt 同源设计）：
 
-#### Prompt
+| 段 | 作用 | 对应原则 |
+|----|------|----------|
+| 角色定义 | 明确任务边界——"基于对话生成设定，非写故事" | 示例先行 |
+| 完整输出示例 | 语言适配的完整三块示例，所有字段有具体值、引用一致 | 示例先行、具体优于抽象 |
+| 示例-规则屏障 | 显式声明示例仅供格式参考 | 示例-规则屏障 |
+| 逐块字段规范 | 每个块的每个字段：含义、约束、必填/可选 | 关键处不吝笔墨 |
+| 交叉一致性规则 | 变量→大纲引用、route target→node id 对应、档位→节点数匹配 | 正反双重覆盖 |
+| 禁止模式 | 逐条列出已知错误模式（缺字段、route 虚悬、超变量上限、markdown 围栏） | 显式禁止优于隐式模式 |
+| 自检清单 | 输出前逐项自查——引导 LLM 在生成末尾做结构化验证 | 注意力标签 |
 
-```
-你是一个故事设定生成器。根据对话内容生成结构化故事设定。
+语言适配内容（完整示例、字段提示）通过 `lang_meta/{lang}.json` 注入，Prompt 骨架语言无关。
 
-=== story_config ===
-题材：{自由文本，如"赛博朋克冒险"、"古风悬疑"}
-档位：{short / medium / long}
-标签：{5-15字简短命名，用于存档文件名}
-世界观：{一段有吸引力的故事简介——介绍世界、主角与核心冲突}
-主角姓名：{中文姓名或代号}
-主角身份：{一句话}
-主角特质：{2-3个关键词或短语}
-叙事风格：{如"黑暗冷峻"、"轻松幽默"、"诗意抒情"}
-核心冲突：{一句话}
-主要角色：
-- 角色名 | 角色定位 | 与主角关系
-- （至少1个）
+#### 3.2.2 story_config 块
 
-约束：题材为自由文本；档位从对话提取；角色格式严格按上述。
-```
+**字段规范**（INI 风格 `key: value`，续行以 `  ` 缩进）：
 
----
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `genre` | 是 | 自由文本，如 "cyberpunk thriller"、"古风悬疑" |
+| `tier` | 是 | 精确取值 `short` / `medium` / `long` |
+| `label` | 是 | 简短标识，用于存档文件名（1-30 字符） |
+| `language` | 否 | 语言代码；缺失时使用默认值 |
+| `setting` | 否 | 故事简介，2-4 句；缺失时为空字符串 |
+| `protagonist_name` | 是 | 主角姓名或代号 |
+| `protagonist_identity` | 是 | 一句话身份描述 |
+| `protagonist_traits` | 是 | 2-3 个关键特质 |
+| `tone` | 是 | 叙事氛围，如 "dark and gritty" |
+| `conflict` | 是 | 核心冲突，一句话 |
+| `characters` | 是 | 配角列表，每行 `name \| role \| relationship`，至少 1 个 |
 
-### 3.3 变量定义生成
+**解析器**：`CoCreateParser.parse_story_config()`。缺失必填字段或 tier 取值非法 → `ValueError`。
 
-#### 规范
+#### 3.2.3 variables 块
 
-- **输入**：已确认的 story_config。
-- **输出**：`=== variables ===` 后每行一个变量。
-- **约束**：number [0,100]、string 替代枚举。≤3 个（≤2 number + ≤1 string）。中文变量名 2-5 字。
-- **程序校验**：变量名唯一、类型合法、初始值合规。失败 → 重试。
+**格式**：每行 `<name>: <type>, <initial_value>`
 
-#### Prompt
+**约束**：
+- 总数 ≤3（`VARIABLE_CAP`）
+- number ≤2（`VARIABLE_NUMERIC_CAP`），初始值 [0, 100] 整数
+- string ≤1（`VARIABLE_LABEL_CAP`），初始值非空
+- 变量名不含 `:` 或换行，不可重复
 
-```
-你是一个游戏变量设计师。根据故事设定设计状态变量。
+**解析器**：`CoCreateParser.parse_variables()` + `validate_variables()`。
 
-类型约束：
-- number：[0, 100]，用于体力、好感度、理智值等
-- string：自由文本，替代枚举，用于状态标记、所属势力等
-- 变量名中文，2-5 字
+#### 3.2.4 outline 块
 
-输出格式：
+**格式**：`[node]` block 序列，每节点含 `id`、`title`、`goal`、`routes` 字段。
 
-=== variables ===
-体力: number, 80
-信任度: number, 5
-所属势力: string, "中立"
-```
+**约束**：
+- 节点数范围：short 5-10 / medium 10-20 / long 20-30（`OUTLINE_NODE_RANGES`）
+- `id` 格式：`ch{序号}_{英文缩写}`
+- `routes` 中每个 target 必须精确匹配同一 outline 中的某个 node `id`
+- route 条件只能引用 variables 块中已声明的变量
+- 最后一个节点的 `routes:` 必须为空（系统以此判定结局）
+- 空 routes 写法：`routes:` 后不写任何内容，不加 `(结局)` 等标注
 
----
-
-### 3.4 大纲生成
-
-#### 规范
-
-- **输入**：story_config + 可用变量名列表（来自 §3.3）。
-- **输出**：`=== outline ===` 后的大纲树，使用 `[node]` block 格式。节点数 short 5-10 / medium 10-20 / long 20-30。
-- **格式**：node_id 为 `ch{序号}_{英文缩写}`。分支条件只能引用已声明变量。结局节点 routes 为空（无文本），系统通过空 routes 判定结局。
-- **程序校验**：route 目标存在、变量引用合法、最后节点 routes 为空。失败 → 重试。
-
-#### Prompt
-
-```
-你是一个故事大纲规划师。根据故事设定和可用变量设计关键节点路线图。
-
-约束：
-- 节点数：short 3-5 / medium 5-8 / long 8-15
-- 每个节点的 goal 是章节弧线，非单一场景，跨越数轮展开。2-4 句。
-- 允许分支（if 条件 → route），条件只能引用已声明的变量
-- 最后节点为结局——其 routes: 留空（不写任何文本）。系统通过空 routes 检测结局，不要写"（结局）"等标记。
-- node_id 格式：ch{序号}_{英文缩写}
-
-可用变量：{variables_name_list}
-
-输出格式：
-
-=== outline ===
-[node]
-id: ch1_intro
-title: {节点标题}
-goal: {本章叙事目标}
-routes: → ch2_next
-
-[node]
-id: ch2_branch
-title: {节点标题}
-goal: {本章叙事目标}
-routes:
-  if {variable} >= 30 → ch3_ally
-  if {variable} < 30 → ch3_betrayal
-
-[node]
-id: ch3_ending
-title: {节点标题}
-goal: {本章叙事目标，结局}
-routes:
-```
+**解析器**：`CoCreateParser.parse_outline()` + `validate_outline()`。
 
 ---
 

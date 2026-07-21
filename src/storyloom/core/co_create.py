@@ -472,85 +472,131 @@ $own_answer_hint
 Show genuine curiosity about the user's choices. Acknowledge their previous answer before asking the next question — this makes the conversation feel natural, not like a form.""")
 
 
-CO_CREATE_GENERATION_PROMPT = Template("""Based on our conversation above, generate the complete story setup.
+CO_CREATE_GENERATION_PROMPT = Template("""You are a story setup generator. Based on the conversation above, produce a complete, structured story configuration for a text adventure game.
 
-# Rules
-
-## Variables
-- ≤3 variables total. ≤2 numeric (number), ≤1 string.
-- Numeric: range [0, 100]. Use for health, trust, sanity, etc.
-- String: for status markers, faction affiliation, etc.
-- Fewer is better. Only create variables that will drive branching or gate choices.
-
-Genre seed reference (adopt or adapt based on the story; replace if unsuitable):
-  Romance → affection
-  Mystery → clues_progress
-  Cyberpunk → implant_integrity
-  Wuxia → inner_power
-  Horror → sanity
-
-## Outline
-- Node count by tier: $node_count_hint. Your outline must match your declared tier.
-- Each node's goal is a chapter arc, not a scene. It unfolds over several rounds. 2-4 sentences.
-- Branches use `if {condition} → {target_node}`. Conditions may only reference declared variables.
-- Final node is the ending — leave its `routes:` empty (no text after the colon). The system detects endings by empty routes, not by any special keyword.
-- node_id format: ch{number}_{english_abbreviation}
+Write ALL story content — label, setting, character names, node titles, goals, and variable names — in this language: $language.
 
 # Output Format
 
 Your response must contain exactly three blocks separated by `===` markers.
-Output ONLY the blocks — no markdown headings, no commentary before or after.
+Output ONLY the blocks — no markdown fences, no commentary before or after.
+
+## Format Example
+
+Below is a complete format example (a short cyberpunk story in English):
 
 === story_config ===
-genre: {free text, e.g. "cyberpunk adventure", "historical mystery"}
-tier: {short / medium / long}
-label: $label_hint
-language: $language
-setting: {a story blurb that hooks the reader — introduce the world, protagonist, and what's at stake}
-protagonist_name: {name}
-protagonist_identity: {one sentence}
-protagonist_traits: {2-3 key traits}
-tone: {e.g. "dark and gritty", "light and humorous"}
-conflict: {one sentence, core tension}
+genre: cyberpunk thriller
+tier: short
+label: Neon Depths
+language: en
+setting: In 2087 Neo-Tokyo, data is the only currency that matters. A rogue biochip from a corporate R&D lab has surfaced on the black market — carrying information that could rewrite the global order.
+protagonist_name: Kael
+protagonist_identity: Former corporate security consultant turned freelance operative
+protagonist_traits: Calculating, morally grey, fiercely loyal
+tone: dark and gritty
+conflict: A stolen biochip that can destabilize the data order — hunted by corporations, criminals, and a truth no one wants uncovered.
 characters:
-  {name} | {role} | {relationship to protagonist}
-  (at least 1)
+  Mouse | underground info broker | uneasy ally with old debts
+  Michiko | corporate security director | former mentor, conflicted loyalties
 
 === variables ===
-$example_variables
+Stamina: number, 80
+Trust: number, 10
+Faction: string, Freelancer
 
 === outline ===
 [node]
 id: ch1_intro
-title: {node title}
-goal: $example_goal
-routes: → ch2_next
+title: Neon Depths
+goal: Meet the contact at an underground bar, pick up the chip, and get a lead on who is pulling the strings.
+routes: → ch2_confrontation
 
 [node]
-id: ch2_next
-title: {node title}
-goal: {narrative goal}
+id: ch2_confrontation
+title: Underground Deal
+goal: Complete the handoff with Mouse while corporate agents close in. The deal's terms shift when the chip's true nature comes to light.
 routes:
-  if $example_branch_var >= 30 → ch3_path_a
-  if $example_branch_var < 30 → ch3_path_b
+  if Trust >= 30 → ch3_ally
+  if Trust < 30 → ch3_betrayal
 
 [node]
-id: ch3_path_a
-title: {node title}
-goal: {narrative goal}
-routes: → ch4_ending
+id: ch3_ally
+title: Ally's Path
+goal: Work with Mouse to decrypt the chip's data, evade corporate pursuit, and follow the trail to its source.
+routes: → ch4_safehouse
 
 [node]
-id: ch3_path_b
-title: {node title}
-goal: {narrative goal}
-routes: → ch4_ending
+id: ch3_betrayal
+title: Betrayal's Path
+goal: Mouse sells you out. Fight through the ambush and escape with the chip — alone, with no one left to trust.
+routes: → ch4_safehouse
 
 [node]
-id: ch4_ending
-title: {node title}
-goal: {narrative goal}
+id: ch4_safehouse
+title: Safehouse
+goal: All leads converge at a hidden safehouse. The chip's final secret is revealed, and a choice must be made — destroy the data, release it to the world, or use it as leverage to start over.
 routes:
+
+(The above is a format example ONLY. Generate an entirely new story setup based on the conversation, written in $language. Do NOT copy the example's characters, setting, or variable names.)
+
+# Block Specifications
+
+## === story_config ===
+
+All fields below are REQUIRED (non-empty). INI-style `key: value`. Multi-line values (characters) use two-space indented continuation.
+
+**genre** — Free-form. e.g. "cyberpunk thriller", "wuxia adventure".
+**tier** — Exactly one of: `short`, `medium`, `long`. Determines outline node count.
+**label** — $label_hint
+**language** — $language
+**setting** — Story blurb. 2-4 sentences: world, protagonist, stakes.
+**protagonist_name** — Name in story language.
+**protagonist_identity** — One sentence: role, background, situation.
+**protagonist_traits** — 2-3 key traits, comma-separated.
+**tone** — Narrative atmosphere. e.g. "dark and gritty", "light and humorous".
+**conflict** — Core tension in one sentence.
+**characters** — One per indented line: `name | role | relationship`. At least 1.
+
+## === variables ===
+
+One per line: `name: type, initial_value`.
+≤3 total (≤2 number, ≤1 string). Number: integer in [0, 100]. String: free text.
+Only create variables that drive branching or gate choices. Fewer is better.
+
+## === outline ===
+
+`[node]` blocks with `id:`, `title:`, `goal:`, `routes:` fields.
+
+- `id:` — `ch{number}_{english_abbreviation}`. e.g. `ch1_intro`.
+- `goal:` — Chapter arc, not a single scene. Unfolds over several rounds. 2-4 sentences.
+- `routes:` — `→ target` (linear), indented `if cond → target` (branch), or empty (final node).
+- Node count by tier: $node_count_hint. Must match your declared tier.
+- Route conditions may only reference variables declared in === variables ===.
+- Every `→ target` must match a node `id:` in this outline — cross-check before finalizing.
+- Final node: `routes:` with nothing after the colon (no arrows, no "(ending)" annotation). The system detects endings by empty routes.
+
+# Prohibited
+
+- Omitting any required story_config field.
+- Route targets that do not match any node `id:` in the outline.
+- More than 2 number or 1 string variable (>3 total).
+- Markdown code fences (```) around or between blocks.
+- Text before the first `===` or after the last `===`.
+- Any content after `routes:` on the final `[node]`.
+- Outline conditions referencing variables not declared in === variables ===.
+
+# Verification Checklist
+
+Before outputting, mentally verify:
+
+[ ] story_config: all fields present and non-empty; tier is exactly short/medium/long
+[ ] variables: ≤3 total, ≤2 number, ≤1 string; number values in [0, 100]
+[ ] outline: every route target matches a node `id:`; final node routes empty
+[ ] outline: node count within declared tier range ($node_count_hint)
+[ ] outline: every condition variable declared in === variables ===
+[ ] No markdown fences; no text outside the three `===` blocks
+[ ] All content in $language
 """)
 
 
@@ -613,7 +659,13 @@ class CoCreateFlow:
 
     @staticmethod
     def _build_generation_prompt() -> str:
-        """Build the language-aware generation prompt (user message)."""
+        """Build the language-aware generation prompt (user message).
+
+        Injects the output language, a language-specific label hint, and
+        the tier-to-node-count ranges.  The format example is inline in
+        the template (English, like the narrative prompt's Kael example)
+        — the LLM learns structure from it, not story content.
+        """
         lang = get_current_lang()
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
@@ -622,12 +674,9 @@ class CoCreateFlow:
             f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
         )
         return CO_CREATE_GENERATION_PROMPT.substitute(
-            label_hint=meta["label_hint"],
             language=lang,
+            label_hint=meta["label_hint"],
             node_count_hint=node_count_hint,
-            example_variables=meta["example_variables"],
-            example_goal=meta["example_goal"],
-            example_branch_var=meta["example_branch_var"],
         )
 
     def __init__(self, api_client: ApiClient):
