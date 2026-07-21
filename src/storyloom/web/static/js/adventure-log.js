@@ -26,6 +26,8 @@ const AdventureLogView = (function () {
     let _pollTimer = null;
     let _pollCount = 0;
     const MAX_POLL_RETRIES = 30;    // 30 s timeout — matches dev_cli 30 s
+    let _logText = null;            // raw Markdown text for export
+    let _label = null;              // story name for export filename
 
     /** HTML entity escape (same pattern as display.js, router.js). */
     function escHtml(s) {
@@ -47,6 +49,8 @@ const AdventureLogView = (function () {
     function render(container, gameId, label) {
         _container = container;
         _gameId = gameId;
+        _label = label || null;
+        _logText = null;
 
         _buildDOM(label);
         _fetchLog();
@@ -85,6 +89,9 @@ const AdventureLogView = (function () {
             }
             Router.navigate("menu");
         });
+
+        /* ── Export button → download .md file ─────────────────── */
+        $("#al-export").addEventListener("click", () => _exportLog());
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -110,6 +117,8 @@ const AdventureLogView = (function () {
                 /* Engine generates Markdown (game_loop.py:1548).
                    Progressive enhancement: render as HTML when marked.js
                    is available, plain pre-wrap text otherwise. */
+                _logText = data.text;
+                _enableExport();
                 if (typeof marked !== "undefined") {
                     const html = marked.parse(data.text);
                     content.innerHTML = `<div class="al-text">${html}</div>`;
@@ -143,6 +152,36 @@ const AdventureLogView = (function () {
     }
 
     /* ═══════════════════════════════════════════════════════════════
+       Export
+       ═══════════════════════════════════════════════════════════════ */
+
+    /** Enable the Export button once log text is available. */
+    function _enableExport() {
+        const btn = $("#al-export");
+        if (btn) {
+            btn.disabled = false;
+        }
+    }
+
+    /** Download the adventure log as a Markdown (.md) file.
+     *  Uses Blob + URL.createObjectURL — no server round-trip. */
+    function _exportLog() {
+        if (!_logText) return;
+
+        const safeName = (_label || "adventure").replace(/[\\/:*?"<>|]/g, "-");
+        const filename = `${safeName} - Adventure Log.md`;
+        const blob = new Blob([_logText], { type: "text/markdown;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
        Cleanup
        ═══════════════════════════════════════════════════════════════ */
 
@@ -153,6 +192,7 @@ const AdventureLogView = (function () {
             _pollTimer = null;
         }
         _pollCount = 0;
+        _logText = null;
     }
 
     /* ── Export ──────────────────────────────────────────────────── */
