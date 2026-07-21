@@ -4,7 +4,6 @@ Users never need ``msgfmt`` or any manual step.  Everything happens
 automatically inside the build phase.
 """
 
-import sys
 from pathlib import Path
 
 from setuptools import setup

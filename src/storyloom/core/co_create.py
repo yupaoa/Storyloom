@@ -426,14 +426,19 @@ _LANG_META_DIR = Path(__file__).resolve().parent / "lang_meta"
 
 
 def _load_lang_meta(lang: str) -> dict[str, str]:
-    """Load LLM language metadata from ``lang_meta/{lang}.json``."""
+    """Load LLM language metadata from ``lang_meta/{lang}.json``.
+
+    Falls back to DEFAULT_LANGUAGE if the requested language file is
+    missing (same defensive behaviour as the old inline _LANG_META dict).
+    """
     if lang not in _LANG_META_CACHE:
         path = _LANG_META_DIR / f"{lang}.json"
         if not path.is_file():
-            raise FileNotFoundError(
-                f"Language metadata not found: {path}. "
-                f"Add a {lang}.json file under lang_meta/."
-            )
+            if lang == DEFAULT_LANGUAGE:
+                raise FileNotFoundError(
+                    f"Default language metadata not found: {path}"
+                )
+            return _load_lang_meta(DEFAULT_LANGUAGE)
         _LANG_META_CACHE[lang] = json.loads(path.read_text(encoding="utf-8"))
     return _LANG_META_CACHE[lang]
 

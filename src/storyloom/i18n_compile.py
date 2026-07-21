@@ -194,7 +194,7 @@ def generate_js_dict(locale_dir: str, output_path: str) -> None:
         "// Auto-generated from locale/*.po — DO NOT EDIT by hand.",
         "// Regenerate with: python -m storyloom.i18n_compile",
         "//",
-        "// See CLAUDE.md §DUAL-WRITE CONVENTION.",
+        "// See CLAUDE.md §Tech Stack (i18n).",
         "const T = {",
     ]
     for lang in sorted(translations):
