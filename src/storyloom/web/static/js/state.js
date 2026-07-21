@@ -17,7 +17,6 @@
      src/storyloom/i18n.py (gettext _() convention)
      locale/zh_CN/LC_MESSAGES/storyloom.po (authoritative translations)
      src/storyloom/i18n_compile.py §generate_js_dict (build-time generation)
-     CLAUDE.local.md §3.2 (event-driven state updates)
    ═══════════════════════════════════════════════════════════════════ */
 
 const GameState = {

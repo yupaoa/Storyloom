@@ -72,7 +72,7 @@ Full documentation index with reading order and authority hierarchy: [`docs/READ
 | `src/storyloom/dev_cli/` | Dev CLI — `DevObserver`, deque-buffered display | Reference |
 | `src/storyloom/config.py` | Configurable constants (window size, segments, etc.) | Implementation |
 | `src/storyloom/user_config.py` | UserConfig — centralized config management (API keys, language, model) | Implementation |
-| `src/storyloom/i18n.py` | gettext i18n (zh-CN, en) | Implementation |
+| `src/storyloom/i18n.py` | gettext i18n (zh-CN, zh-TW, en) | Implementation |
 | `scripts/build.sh` | PyInstaller + wheel packaging script | Build |
 | `pyproject.toml` | Project metadata, dependencies, entry points, package data | Config |
 | `tests/test_*.py` | pytest unit tests (mock, no API) | Test |
