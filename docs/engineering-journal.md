@@ -6,6 +6,108 @@
 
 ---
 
+## 2026-07-21（周二）
+
+> **概述**：10 次提交，集中在两大领域——共创 Prompt 重构（从"格式叮嘱"到"设计体系"）、打包/Web 缺陷修复。版本号 1.0.1 → 1.0.2。
+
+### Co-Create 生成 Prompt 7 段式重构 —— 对齐叙事 Prompt 设计体系
+
+**背景**：`CO_CREATE_GENERATION_PROMPT` 约 55 行，基于 `string.Template` 占位符替换——`$example_variables`、`$example_goal` 等由 `_LANG_META` 注入。存在三个结构性问题：(1) 设计理念与叙事 Prompt（`ROUND1_PREFIX` + `ROUND_TEMPLATE`）脱节——后者有成熟的"示例先行 + 正反双重覆盖 + 显式禁止 + 注意力标签"体系，前者仍是简单的"规则罗列 + 模板填充"；(2) 格式示例为中文（语言感知注入），但 LLM 最擅长从英文示例学习结构——中文内容示例可能被误读为"必须用中文写变量名"；(3) 缺少系统化的禁止清单和自检机制，LLM 犯错后只能通过解析失败→重试来修复。
+
+**决策**：用 7 段式英文 Prompt 替代占位符模板，完全对齐叙事 Prompt 的 `prompt-design.md` §1.2 设计原则。
+
+**7 段结构**：
+| 段 | 作用 | 对应原则 |
+|----|------|----------|
+| 角色定义 | 明确任务边界——"基于对话生成设定，非写故事" | — |
+| 完整格式示例 + 屏障 | 英文示例展示三块完整结构与引用关系；显式声明示例仅供格式参考 | 示例先行、示例-规则屏障 |
+| 逐块字段规范 | 每个块的字段含义、约束、必填/可选，route target 引用规则 | 关键处不吝笔墨、具体优于抽象 |
+| 禁止模式 | 逐条列出已知错误模式（缺字段、route 虚悬、超变量上限、markdown 围栏） | 显式禁止优于隐式模式、正反双重覆盖 |
+| 自检清单 | 输出前逐项自查——引导 LLM 生成末尾做结构化验证 | 注意力标签 |
+
+**语言策略**：格式示例使用英文（与叙事 Prompt 的 Kael 示例策略一致——LLM 学结构，不学内容），输出语言通过 `$language` 占位符控制。仅 `label_hint` 通过 `lang_meta/{lang}.json` 注入（非完整示例），避免语言注入扩散到结构学习层。
+
+**Prompt 文本关键改进**：
+- 所有 `story_config` 字段显式标注 `REQUIRED`，消除"可选/必填"歧义
+- Route target 引用规则从"must match — cross-check"（验证心态）改为"Copy verbatim — references, not new names"（过程指引）
+- 变量引用一致性：route conditions 只能引用 `=== variables ===` 中声明的变量
+- 自检清单引导 LLM 在生成末尾逐项自查（字段完整性、引用一致性、节点数匹配、禁止模式）
+
+**Spec 同步**（`6da1c74`）：`prompt-design.md` §3.2 合并 §3.2-3.4（原为三个独立子节）为统一 §3.2，7 段→5 段（交叉一致性约束内嵌于逐块规范 + 禁止清单中，不独立成段）。修正 `lang_meta` 注入范围描述（仅 `label_hint`，非完整示例）。
+
+**依据**：commits `6eaff12`, `6da1c74`；`src/storyloom/core/co_create.py` `CO_CREATE_GENERATION_PROMPT`（~100 行→~170 行，占位符驱动→设计体系驱动）；`docs/spec/prompt-design.md` §3.2（合并后统一章节）。
+
+### Outline 约束措辞强化 —— 三级收紧
+
+**背景**：Co-Create 7 段式重构后，outline 块规范仍有两处可被 LLM 绕过的薄弱点：(1) `[node]` 字段无 REQUIRED 标注，与 `story_config` 块约束力度不一致；(2) route target 规则仅说"必须匹配"，未说明不匹配的后果——LLM 可能理解为"建议"而非"硬性要求"；(3) 最终节点的 `routes:` 空值规则未禁占位词——LLM 可能写 `routes: (ending)` 或 `routes: 无`。
+
+**决策**（commit `cc419ea`）：
+1. 所有四个 `[node]` 字段（`id`、`title`、`goal`、`routes`）显式标注 REQUIRED——与 `story_config` 块约束力度对齐
+2. Route target 规则从中性"引用关系"改为后果导向："targets are node ids, not descriptions — mismatch = rejection"——明确告知 LLM 不匹配会导致整个生成被拒绝
+3. 最终节点禁止扩展：从"no arrows, no '(ending)'"扩展为"no arrows, no annotations, no placeholder words"——堵住 `无`、`结束` 等占位词
+
+**依据**：commit `cc419ea`；`src/storyloom/core/co_create.py` outline 块规范 4 行变更。
+
+### Round N 选择缺失提醒 —— 引擎感知 + Prompt 反馈
+
+**背景**：LLM 偶尔产出不含 `<choice>` 的轮次——纯叙事无交互，玩家只能被动阅读。此前引擎对此完全无感知——解析器不报告 choices 为空是异常还是有意为之，Prompt 也无相关反馈机制。
+
+**决策**（commit `7697838`）：轻量级引擎感知 + Prompt 反馈，不改架构。
+
+- **Phase 5 检测**：`parsed.choices` 为空 → 设置 `no_choices = True`，传入 `build_round_n()`
+- **Prompt 注入**：`build_round_n()` 新增 `no_choices_last_round: bool = False` 参数（默认 False，向后兼容），为 True 时在 error feedback 区追加：*"Reminder: last round had no player choices. Include at least one `<choice>` element so the player can interact with the story."*
+- **设计考量**：归入 error feedback 通道而非独立 Prompt 段——利用已有的错误反馈注意力权重，且无选择确实是"可改进的状态"而非"破坏性错误"
+
+**依据**：commit `7697838`；`src/storyloom/core/game_loop.py` Phase 5（+1 行检测）、`src/storyloom/core/prompt_builder.py` `build_round_n()`（+7 行）；`tests/test_prompt_builder.py` 新增 2 个测试。
+
+### Web 游戏模式状态泄漏修复
+
+**背景**：用户在游戏中切换到 auto 模式 → 离开游戏 → 重新进入——此时模式按钮显示 manual 图标，但系统实际以 auto 节奏推进。根因：`_mode` 是模块级 IIFE 变量，`render()` 函数未重置该变量——离开时 Web 的 SPA 路由切换不销毁 JS 模块闭包。
+
+**决策**（commit `35572b8`）：`render()` 入口显式重置 `_mode = 'manual'` + 调用 `_updateModeButton()` 同步按钮标题/图标。与 `exec-flow.md` §4.5 默认 manual 声明一致。
+
+**依据**：commit `35572b8`；`src/storyloom/web/static/js/game.js` `render()`（+13 行）。
+
+### 打包修复：PyInstaller 遗漏 lang_meta JSON + 平台名可读化
+
+**背景**：两个打包相关问题：
+1. i18n 重构（`b581a90`）将 `_LANG_META` 从内联 dict 外部化为 `lang_meta/{lang}.json`，`pyproject.toml` 正确声明了 package-data（wheel 正常），但 `build.sh` 的 PyInstaller 命令遗漏 `--add-data` 标志——打包后的 exe 找不到 JSON 文件，`_load_lang_meta()` 在 `lang == DEFAULT_LANGUAGE ('en')` 时抛出 `FileNotFoundError`
+2. `build.sh` 的 zip 文件名直接使用 `uname -s` 输出——Windows（MINGW64_NT-10.0-26200）产生不可读的平台标识
+
+**决策**：
+1. `build.sh` PyInstaller 命令新增 `--add-data "src/storyloom/core/lang_meta:storyloom/core/lang_meta"`（commit `533184d`）——与已有的 `locale`、`static` 数据目录并列
+2. `build.sh` 新增平台名映射——`MINGW*/MSYS*/CYGWIN*`→Windows、`Darwin`→macOS、`Linux`→Linux——用于 zip 文件名（commit `526150e`）
+
+**依据**：commits `533184d`, `526150e`；`scripts/build.sh`；Fixes #25（follow-up）。
+
+### 课程评估综合报告
+
+**背景**：需提交课程项目答辩材料——涵盖背景、设计理念、实践过程、课程联系、工作量分解、构建过程、AI 协作心得。
+
+**决策**（commit `2e6239e`）：新增 `docs/report.md`（1065 行），8 章结构：
+1. 项目背景与动机
+2. 9 大核心设计概念详解（Prompt 工程、bridge 机制、时序模型、流式解析、双队列缓冲、本地数据优先、错误处理、i18n、引擎-UI 分离）
+3. 开发实践与迭代过程
+4. 课程知识联系
+5. 工作量分解
+6. 构建与打包流程
+7. AI 协作方法论与心得
+8. 未来展望
+
+含实验数据、Prompt 架构总览图、`<!-- future-update -->` 标记供后续维护。
+
+**依据**：commit `2e6239e`；`docs/report.md`。
+
+### 版本 1.0.2
+
+**背景**：本轮修复了 PyInstaller 打包缺陷（lang_meta 遗漏）并完成了共创 Prompt 重构——累积变更足以形成新的 patch 版本。
+
+**决策**：版本号 1.0.1 → 1.0.2，同步更新 `pyproject.toml` 和 `src/storyloom/__init__.py`。
+
+**依据**：commit `a45739a`。
+
+---
+
 ## 2026-07-19（周日）
 
 ### Continue 功能完整实现 —— `.last_played.json` 追踪 + 自动恢复 + 存档 API
