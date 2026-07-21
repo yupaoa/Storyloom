@@ -2,10 +2,14 @@
    router.js — Hash-based SPA router + view renderers
 
    Views:
-     #menu       — main menu (new game / continue / load save / settings / credits / exit)
-     #co-create  — co-creation Q&A view (placeholder — future task)
-     #game/{id}  — game play view with SSE loop + paced display (placeholder)
-     #saves      — save browse / load / delete (placeholder)
+     #menu            — main menu (new game / continue / load save / settings / credits / exit)
+     #co-create       — co-creation Q&A view
+     #game-preview    — story preview between co-create and game start
+     #game/{id}       — game play view with SSE loop + paced display
+     #saves           — save browse / load / delete
+     #saves/{game_id} — checkpoint list for a game
+     #settings        — full-page settings (API config, language)
+     #adventure-log/{game_id} — post-ending adventure log
 
    Exports (on window):
      Router.navigate(hash)  — switch view
@@ -104,7 +108,7 @@
          New Game  → navigate to #co-create
          Continue  → fetch /api/saves/games, show recent saves inline
          Load Save → navigate to #saves
-         Settings  → open settings overlay (language toggle)
+         Settings  → navigate to #settings (full-page view)
          Credits   → open credits overlay
          Exit      → close window / navigate to goodbye
        ═══════════════════════════════════════════════════════════════ */
@@ -268,7 +272,7 @@
         });
     }
 
-    /* ── Settings Panel (shared by menu overlay) ──────────────────── */
+    /* ── Shared Helpers ──────────────────────────────────────────── */
 
     /** Mask an API key for display: "sk-9a70****3000". */
     function maskKey(key) {
@@ -312,6 +316,11 @@
         if (typeof SSEClient !== "undefined" && SSEClient.close) {
             SSEClient.close();
         }
+
+        const X_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" '
+            + 'fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 '
+            + '6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 '
+            + '17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>';
 
         const rows = SETTINGS.map(def => {
             const current = getSetting(def.key);
@@ -386,10 +395,6 @@
             const editBtn   = document.getElementById(`edit-${def.key}`);
             if (!editBtn) return;
 
-            const X_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" ' +
-                'fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 ' +
-                '6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 ' +
-                '17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>';
             let _preEditVal = "";
             let _xBtn = null;
 
