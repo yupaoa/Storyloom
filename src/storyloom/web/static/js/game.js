@@ -32,6 +32,7 @@ const GameView = (function () {
 
     /* Speed → delay mapping (1x = 2.0s base) */
     const SPEED_DELAY = { 0.75: 2667, 1: 2000, 2: 1000, 3: 667 };
+    const ADVANCE_DEBOUNCE_MS = 200;  // minimum ms between manual advances
 
     /* Queue buffer for paced display (exec-flow.md §4.5).
        Receiver (SSE handlers) pushes; display loop (_displayTick)
@@ -42,6 +43,8 @@ const GameView = (function () {
     let _eventQueue = [];
     let _drainTimer = null;
     let _advanceResolve = null;  // resolve when user clicks / Space / Enter
+    let _lastAdvanceTime = 0;    // debounce OS key repeat (ms timestamp)
+    let _keydownHandler = null;  // named ref for cleanup
     let _loadingTimer = null;    // delayed loading indicator (500 ms debounce)
     let _optionsPending = null;  // options event data awaiting display
 
@@ -146,14 +149,15 @@ const GameView = (function () {
                 _advanceManual();
             });
         }
-        document.addEventListener("keydown", (e) => {
+        _keydownHandler = (e) => {
             if (e.key === " " || e.key === "Enter") {
                 /* Don't trigger if user is typing in an input */
                 if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
                 e.preventDefault();
                 _advanceManual();
             }
-        });
+        };
+        document.addEventListener("keydown", _keydownHandler);
     }
 
     /* ═══════════════════════════════════════════════════════════════
@@ -242,9 +246,14 @@ const GameView = (function () {
     function _stopDisplayLoop() {
         _displayRunning = false;
         _isPolling = false;
+        _lastAdvanceTime = 0;
         _cancelLoading();
         if (_advanceResolve) { _advanceResolve(); _advanceResolve = null; }
         if (_drainTimer) { clearTimeout(_drainTimer); _drainTimer = null; }
+        if (_keydownHandler) {
+            document.removeEventListener("keydown", _keydownHandler);
+            _keydownHandler = null;
+        }
     }
 
     function _displayTick() {
@@ -311,7 +320,13 @@ const GameView = (function () {
     }
 
     function _advanceManual() {
-        if (_advanceResolve) { _advanceResolve(); _advanceResolve = null; }
+        if (_mode !== "manual") return;
+        if (!_advanceResolve) return;
+        const now = Date.now();
+        if (now - _lastAdvanceTime < ADVANCE_DEBOUNCE_MS) return;
+        _lastAdvanceTime = now;
+        _advanceResolve();
+        _advanceResolve = null;
     }
 
     /** Wake the display loop when SSE delivers new data.
