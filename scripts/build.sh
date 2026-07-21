@@ -41,6 +41,7 @@ $PYTHON -m PyInstaller --onefile $PYI_FLAGS \
     --name "$BIN_NAME" \
     --add-data "locale:locale" \
     --add-data "src/storyloom/web/static:storyloom/web/static" \
+    --add-data "src/storyloom/core/lang_meta:storyloom/core/lang_meta" \
     --hidden-import uvicorn.loops.auto \
     --hidden-import uvicorn.protocols.http.auto \
     src/storyloom/web/__main__.py
