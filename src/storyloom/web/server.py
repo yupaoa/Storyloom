@@ -710,18 +710,23 @@ def main():
         if sys.stderr is None:
             sys.stderr = f
 
+    HOST = "127.0.0.1"
+    PORT = 8000
+    url = f"http://{HOST}:{PORT}"
+
     def _open_browser():
         import time
         time.sleep(1.5)
-        webbrowser.open("http://127.0.0.1:8000")
+        if not webbrowser.open(url):
+            print(f"Unable to open browser automatically. Please visit: {url}")
 
     threading.Thread(target=_open_browser, daemon=True).start()
 
     import uvicorn
     uvicorn.run(
         "storyloom.web.server:app",
-        host="127.0.0.1",
-        port=8000,
+        host=HOST,
+        port=PORT,
         log_level="warning",
     )
 
