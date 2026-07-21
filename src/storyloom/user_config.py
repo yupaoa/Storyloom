@@ -23,7 +23,7 @@ class UserConfig:
 
     _DEFAULTS = {
         "version": 1,
-        "language": "zh-CN",
+        "language": "en",
         "api_key": "",
         "api_base_url": "https://api.deepseek.com",
         "api_model": "deepseek-v4-pro",

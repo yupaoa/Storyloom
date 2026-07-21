@@ -1,6 +1,8 @@
 """Co-creation phase: user input → Q&A loop → story setup generation."""
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from string import Template
 
 from storyloom.io.api_client import ApiClient, ApiError
@@ -90,7 +92,7 @@ class CoCreateParser:
             raise ValueError("Empty story_config block")
 
         result: dict[str, str] = {}
-        result["language"] = "zh-CN"  # default
+        result["language"] = DEFAULT_LANGUAGE
         current_field: str | None = None
 
         for line in text.strip().split("\n"):
@@ -413,51 +415,27 @@ class CoCreateParser:
         return "\n".join(lines)
 
 
-# ── Language metadata for LLM instructions (English — not user-visible) ──
+# ── Language metadata for LLM instructions (externalised as JSON) ──
+#
+# Each supported language has a data file under lang_meta/{lang}.json.
+# Adding a new language = creating a single JSON file — no code changes.
+# See CLAUDE.md §Tech Stack (language-agnostic design).
 
-_LANG_META = {
-    "zh-CN": {
-        "instruction": (
-            "The user's language is Chinese (zh-CN). "
-            "Conduct the Q&A conversation in Chinese. "
-            "All questions, example answers, and the story title (label) must be in Chinese."
-        ),
-        "label_hint": "{a short Chinese title, 5-15 characters, used for save files}",
-        "example_variables": (
-            "体力: number, 80\n"
-            "信任度: number, 10\n"
-            "所属势力: string, 自由佣兵"
-        ),
-        "example_branch_var": "信任度",
-        "example_goal": (
-            "在霓虹深渊酒吧接头后，主角追踪芯片线索深入地下黑市，"
-            "与情报贩子、企业特工、叛军领袖三方周旋。"
-            "一次突如其来的背叛摧毁了所有线索，将主角推向绝境。"
-            "当真相浮出水面时，主角必须决定——相信谁，毁掉什么，成为怎样的人。"
-        ),
-    },
-    "en": {
-        "instruction": (
-            "The user's language is English (en). "
-            "Conduct the Q&A conversation in English. "
-            "All questions, example answers, and the story title (label) must be in English."
-        ),
-        "label_hint": "{unique story identifier for save files}",
-        "example_variables": (
-            "Stamina: number, 80\n"
-            "Trust: number, 10\n"
-            "Faction: string, Freelancer"
-        ),
-        "example_branch_var": "Trust",
-        "example_goal": (
-            "After the meeting at the Neon Abyss bar, the protagonist follows the "
-            "chip's trail into the black market, navigating between factions. "
-            "A sudden betrayal destroys every lead, cornering the protagonist. "
-            "When the truth surfaces, the choice is theirs — who to trust, "
-            "what to destroy, who to become."
-        ),
-    },
-}
+_LANG_META_CACHE: dict[str, dict[str, str]] = {}
+_LANG_META_DIR = Path(__file__).resolve().parent / "lang_meta"
+
+
+def _load_lang_meta(lang: str) -> dict[str, str]:
+    """Load LLM language metadata from ``lang_meta/{lang}.json``."""
+    if lang not in _LANG_META_CACHE:
+        path = _LANG_META_DIR / f"{lang}.json"
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"Language metadata not found: {path}. "
+                f"Add a {lang}.json file under lang_meta/."
+            )
+        _LANG_META_CACHE[lang] = json.loads(path.read_text(encoding="utf-8"))
+    return _LANG_META_CACHE[lang]
 
 # ── Prompt Templates ────────────────────────────────────────────────
 
@@ -614,7 +592,7 @@ class CoCreateFlow:
         lang = get_current_lang()
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
-        meta = _LANG_META[lang]
+        meta = _load_lang_meta(lang)
         node_count_hint = " / ".join(
             f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
         )
@@ -634,7 +612,7 @@ class CoCreateFlow:
         lang = get_current_lang()
         if lang not in SUPPORTED_LANGUAGES:
             lang = DEFAULT_LANGUAGE
-        meta = _LANG_META.get(lang, _LANG_META[DEFAULT_LANGUAGE])
+        meta = _load_lang_meta(lang)
         node_count_hint = " / ".join(
             f"{tier} {lo}-{hi}" for tier, (lo, hi) in OUTLINE_NODE_RANGES.items()
         )

@@ -1,0 +1,7 @@
+{
+    "instruction": "The user's language is Chinese (zh-CN). Conduct the Q&A conversation in Chinese. All questions, example answers, and the story title (label) must be in Chinese.",
+    "label_hint": "{a short Chinese title, 5-15 characters, used for save files}",
+    "example_variables": "体力: number, 80\n信任度: number, 10\n所属势力: string, 自由佣兵",
+    "example_branch_var": "信任度",
+    "example_goal": "在霓虹深渊酒吧接头后，主角追踪芯片线索深入地下黑市，与情报贩子、企业特工、叛军领袖三方周旋。一次突如其来的背叛摧毁了所有线索，将主角推向绝境。当真相浮出水面时，主角必须决定——相信谁，毁掉什么，成为怎样的人。"
+}

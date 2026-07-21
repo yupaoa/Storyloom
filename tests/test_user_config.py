@@ -12,7 +12,7 @@ class TestUserConfigDefaults:
 
     def test_headless_uses_defaults(self):
         cfg = UserConfig()
-        assert cfg.language == "zh-CN"
+        assert cfg.language == "en"
         assert cfg.api_key == ""
         assert cfg.api_base_url == "https://api.deepseek.com"
         assert cfg.api_model == "deepseek-v4-pro"
@@ -51,7 +51,7 @@ class TestUserConfigLoad:
 
     def test_missing_file_creates_default(self, tmp_path):
         cfg = UserConfig(tmp_path)
-        assert cfg.language == "zh-CN"
+        assert cfg.language == "en"
         assert (tmp_path / "config.json").exists()
 
     def test_partial_file_backfills_missing_fields(self, tmp_path):
@@ -81,7 +81,7 @@ class TestUserConfigLoad:
         (tmp_path / "config.json").write_text("not valid json {{{")
         cfg = UserConfig(tmp_path)
         # Should not raise; should use defaults
-        assert cfg.language == "zh-CN"
+        assert cfg.language == "en"
         # Original corrupt file should NOT be deleted
         assert (tmp_path / "config.json").exists()
 

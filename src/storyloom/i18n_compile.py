@@ -146,3 +146,69 @@ def _write_mo(entries: list[tuple[str, str]], path: str) -> None:
         fh.write(trans_table)
         fh.write(b"".join(orig_b))
         fh.write(b"".join(trans_b))
+
+
+# ── Frontend JS dict generator ───────────────────────────────────────
+
+def _js_escape(s: str) -> str:
+    """Escape a string for safe inclusion in a JS double-quoted literal."""
+    return (s
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t"))
+
+
+def generate_js_dict(locale_dir: str, output_path: str) -> None:
+    """Generate a JS file with the ``T`` translation dictionary from .po files.
+
+    Reads every ``*.po`` under *locale_dir*, extracts msgid/msgstr pairs
+    (skipping the header entry), and writes a ``const T = {...}``
+    declaration to *output_path*.  The ``en`` key is always included as
+    an empty identity map (English is the source language).
+
+    This eliminates the dual-write between .po (server gettext) and the
+    frontend ``T`` dictionary in state.js — .po is now the single
+    authoritative source for UI translations.
+    """
+    translations: dict[str, dict[str, str]] = {}
+
+    for po_file in Path(locale_dir).rglob("*.po"):
+        # Derive language code from path: locale/zh_CN/LC_MESSAGES/… → zh-CN
+        lang_code = str(Path(po_file).parents[1].name).replace("_", "-")
+        entries = _parse_po(str(po_file))
+        lang_dict: dict[str, str] = {}
+        for msgid, msgstr in entries:
+            if msgid == "":       # header entry — skip
+                continue
+            lang_dict[msgid] = msgstr
+        translations[lang_code] = lang_dict
+
+    # Always include English as empty identity map
+    if "en" not in translations:
+        translations["en"] = {}
+
+    # Build JS source
+    lines: list[str] = [
+        "// Auto-generated from locale/*.po — DO NOT EDIT by hand.",
+        "// Regenerate with: python -m storyloom.i18n_compile",
+        "//",
+        "// See CLAUDE.md §DUAL-WRITE CONVENTION.",
+        "const T = {",
+    ]
+    for lang in sorted(translations):
+        lines.append(f'    "{lang}": {{')
+        lang_dict = translations[lang]
+        if not lang_dict:
+            lines.append("        /* identity map — source language */")
+        for msgid in sorted(lang_dict):
+            msgid_e = _js_escape(msgid)
+            msgstr_e = _js_escape(lang_dict[msgid])
+            lines.append(f'        "{msgid_e}": "{msgstr_e}",')
+        lines.append("    },")
+    lines.append("};")
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")

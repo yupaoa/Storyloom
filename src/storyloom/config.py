@@ -17,7 +17,7 @@ LANGUAGE_SEG_LIMITS = {
     "en":    {"narration": 120, "dialogue": 160},
 }
 SUPPORTED_LANGUAGES = {"zh-CN", "en"}
-DEFAULT_LANGUAGE = "zh-CN"
+DEFAULT_LANGUAGE = "en"
 
 # ── Bridge ─────────────────────────────────────────────────────
 BRIDGE_POSITION_RATIO = 0.75  # target bridge position (fraction of total, pre-bridge)
