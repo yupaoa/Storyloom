@@ -716,9 +716,23 @@ def main():
 
     def _open_browser():
         import time
+        import os
         time.sleep(1.5)
-        if not webbrowser.open(url):
-            print(f"Unable to open browser automatically. Please visit: {url}")
+        # Suppress noisy stderr from browser-launch commands (e.g. gio on WSL).
+        # The child process inherits fd 2 at fork time, so we redirect it
+        # before spawning and restore it in the parent immediately after.
+        saved = os.dup(2)
+        null_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(null_fd, 2)
+        os.close(null_fd)
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
+        finally:
+            os.dup2(saved, 2)
+            os.close(saved)
+        print(f"Visit: {url}")
 
     threading.Thread(target=_open_browser, daemon=True).start()
 
