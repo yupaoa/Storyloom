@@ -40,5 +40,5 @@ dev_output/
 
 # Build artifacts
 build/
-storyloom-web.spec
+storyloom-web*.spec
 dist/
